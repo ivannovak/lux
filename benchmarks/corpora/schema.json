@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/nwshq/lux/benchmarks/corpora/schema.v1.json",
+  "$id": "https://github.com/ivannovak/lux/benchmarks/corpora/schema.v1.json",
   "title": "Lux benchmark corpus manifest v1",
   "description": "The top-level owner approves every corpus fixture and gold contract; each corpus versions both contracts and pins a non-vacuous minimum case count.",
   "type": "object",

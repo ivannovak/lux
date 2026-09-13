@@ -433,7 +433,7 @@ describe('Phase 2 acceptance: independent incoming/both trace battery (T6)', () 
         owner: 'Example Maintainer',
         fixtureSchemaVersion: 1,
         corpusPin: {
-          remote: 'https://github.com/nwshq/lux.git',
+          remote: 'https://github.com/ivannovak/lux.git',
           commit: '5f1f053c635a7244d3d1c23045ce398170053623',
         },
         thresholds: { minRecall: 1, minPrecision: 1 },

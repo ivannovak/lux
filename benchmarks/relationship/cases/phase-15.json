@@ -18,7 +18,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-01",
@@ -101,7 +101,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-02",
@@ -145,7 +145,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-03",
@@ -189,7 +189,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-04",
@@ -233,7 +233,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-05",
@@ -277,7 +277,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-06",
@@ -321,7 +321,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-07",
@@ -365,7 +365,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-08",
@@ -409,7 +409,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-09",
@@ -453,7 +453,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-10",
@@ -497,7 +497,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-11",
@@ -541,7 +541,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-render-12",
@@ -585,7 +585,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-01",
@@ -629,7 +629,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-02",
@@ -673,7 +673,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-03",
@@ -717,7 +717,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-04",
@@ -761,7 +761,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-05",
@@ -805,7 +805,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-06",
@@ -849,7 +849,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-hook-07",
@@ -893,7 +893,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-provider-01",
@@ -937,7 +937,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-provider-02",
@@ -981,7 +981,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-provider-03",
@@ -1025,7 +1025,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-provider-04",
@@ -1069,7 +1069,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-provider-05",
@@ -1113,7 +1113,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-consumer-01",
@@ -1157,7 +1157,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-consumer-02",
@@ -1201,7 +1201,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-consumer-03",
@@ -1245,7 +1245,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-consumer-04",
@@ -1289,7 +1289,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-consumer-05",
@@ -1333,7 +1333,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-positive-lazy-01",
@@ -1377,7 +1377,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-01-callback",
@@ -1415,7 +1415,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-02-import-unused",
@@ -1453,7 +1453,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-03-external-hook",
@@ -1491,7 +1491,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-04-intrinsic",
@@ -1529,7 +1529,7 @@
     "expectedDiagnostics": ["REACT_DYNAMIC_IMPORT_UNSUPPORTED"],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-05-dynamic-lazy",
@@ -1567,7 +1567,7 @@
     "expectedDiagnostics": ["REACT_UNRESOLVED_BINDING"],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-06-unresolved-context",
@@ -1605,7 +1605,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-07-type-only",
@@ -1643,7 +1643,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-08-lowercase",
@@ -1681,7 +1681,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-09-fragment",
@@ -1719,7 +1719,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-10-string-tag",
@@ -1757,7 +1757,7 @@
     "expectedDiagnostics": ["REACT_UNRESOLVED_BINDING"],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-11-unresolved-import",
@@ -1795,7 +1795,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-12-provider-suffix",
@@ -1833,7 +1833,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-13-computed-component",
@@ -1871,7 +1871,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-14-render-prop",
@@ -1909,7 +1909,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-15-react-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "c2291d84cb4cb90e4a60282bbc5b6ffe77e0441a"
     },
     "id": "p15-synth-forbidden-15-same-name",

@@ -78,7 +78,7 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://npm.pkg.github.com
-          scope: '@nwshq'
+          scope: '@ivannovak'
 
       - name: Reject tracked credentials and generated output
         run: bash scripts/verify-repository-hygiene.sh

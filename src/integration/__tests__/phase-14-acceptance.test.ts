@@ -582,7 +582,7 @@ describe('Phase 14 independent Nova acceptance', () => {
     expect(cases.every((item) => item.fixtureSchemaVersion === 1)).toBe(true);
     expect(new Set(cases.map((item) => item.owner))).toEqual(new Set(['Example Maintainer']));
     expect(cases.find((item) => item.corpus === 'phase-14-nova-synthetic')?.corpusPin).toEqual({
-      remote: 'https://github.com/nwshq/lux.git',
+      remote: 'https://github.com/ivannovak/lux.git',
       commit: LUX_PIN,
     });
     expect(cases.find((item) => item.corpus === 'acme-core')?.corpusPin).toEqual({

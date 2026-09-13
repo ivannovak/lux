@@ -106,7 +106,7 @@ const CAPABILITIES: CapabilityName[] = [
 ];
 const OWNER = 'Example Maintainer';
 const CORPUS_PIN = {
-  remote: 'https://github.com/nwshq/lux.git',
+  remote: 'https://github.com/ivannovak/lux.git',
   commit: '5f1f053c635a7244d3d1c23045ce398170053623',
 };
 

@@ -690,7 +690,7 @@ describe('Phase 11 independent Vue component event acceptance', () => {
     expect(new Set(cases.map((item) => item.owner))).toEqual(new Set(['Example Maintainer']));
     expect(new Set(cases.map((item) => item.query.tool))).toEqual(new Set(['phase11VueEventSeam']));
     expect(cases[0].corpusPin).toEqual({
-      remote: 'https://github.com/nwshq/lux.git',
+      remote: 'https://github.com/ivannovak/lux.git',
       commit: LUX_PIN,
     });
     expect(JSON.stringify(cases)).not.toMatch(/(?:\/Users\/|[A-Za-z]:\\\\|\/home\/)/u);

@@ -678,7 +678,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav16.tsx",
@@ -720,7 +720,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav17.tsx",
@@ -762,7 +762,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav18.tsx",
@@ -804,7 +804,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav19.tsx",
@@ -846,7 +846,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav20.tsx",
@@ -888,7 +888,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav21.tsx",
@@ -930,7 +930,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav22.tsx",
@@ -972,7 +972,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav23.tsx",
@@ -1014,7 +1014,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav24.tsx",
@@ -1056,7 +1056,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav25.tsx",
@@ -1410,7 +1410,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav9.tsx",
@@ -1449,7 +1449,7 @@
     "expectedDiagnostics": ["REACT_NAVIGATION_DYNAMIC_ACTION"],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav10.tsx",
@@ -1488,7 +1488,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav11.tsx",
@@ -1527,7 +1527,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav12.tsx",
@@ -1566,7 +1566,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav13.tsx",
@@ -1605,7 +1605,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav14.tsx",
@@ -1644,7 +1644,7 @@
     "expectedDiagnostics": ["REACT_NAVIGATION_DYNAMIC_ACTION"],
     "corpus": "phase-17-navigation-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "83f1e6a413f309dc225a8dd6565baceb9d73717d"
     },
     "sourceFamily": "src/Nav15.tsx",
