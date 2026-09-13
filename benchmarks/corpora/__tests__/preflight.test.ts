@@ -133,26 +133,26 @@ describe('corpus manifest schema v1', () => {
   });
 
   it('accepts only exact HTTPS, ssh://git@, and SCP git@github.com forms', () => {
-    expect(normalizeGitHubRemote('git@github.com:NWSHQ/Lux.git')).toBe('nwshq/lux');
-    expect(normalizeGitHubRemote('ssh://git@github.com/nwshq/lux.git')).toBe('nwshq/lux');
-    expect(normalizeGitHubRemote('https://github.com/nwshq/lux.git')).toBe('nwshq/lux');
+    expect(normalizeGitHubRemote('git@github.com:NWSHQ/Lux.git')).toBe('ivannovak/lux');
+    expect(normalizeGitHubRemote('ssh://git@github.com/ivannovak/lux.git')).toBe('ivannovak/lux');
+    expect(normalizeGitHubRemote('https://github.com/ivannovak/lux.git')).toBe('ivannovak/lux');
 
     const hostile = [
-      'github.com/nwshq/lux',
-      'http://github.com/nwshq/lux.git',
+      'github.com/ivannovak/lux',
+      'http://github.com/ivannovak/lux.git',
       'file:///tmp/lux',
       '/tmp/lux',
-      'https://github.com:443/nwshq/lux.git',
-      'https://github.com/nwshq/lux.git?q=1',
-      'https://github.com/nwshq/lux.git#x',
-      'https://user@github.com/nwshq/lux.git',
-      'ssh://other@github.com/nwshq/lux.git',
+      'https://github.com:443/ivannovak/lux.git',
+      'https://github.com/ivannovak/lux.git?q=1',
+      'https://github.com/ivannovak/lux.git#x',
+      'https://user@github.com/ivannovak/lux.git',
+      'ssh://other@github.com/ivannovak/lux.git',
       'https://github.com/nwshq%2flux.git',
       'https://github.com/nwshq/%2e%2e.git',
-      'https://github.com/nwshq/lux/extra',
-      'https://github.com.evil/nwshq/lux.git',
-      'https://github.com/nwshq/lux.git\n',
-      'https://githuЬ.com/nwshq/lux.git',
+      'https://github.com/ivannovak/lux/extra',
+      'https://github.com.evil/ivannovak/lux.git',
+      'https://github.com/ivannovak/lux.git\n',
+      'https://githuЬ.com/ivannovak/lux.git',
     ];
     for (const value of hostile) expect(normalizeGitHubRemote(value), value).toBeUndefined();
   });

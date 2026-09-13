@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/nwshq/lux/schemas/conventions.schema.json",
+  "$id": "https://github.com/ivannovak/lux/schemas/conventions.schema.json",
   "title": "Corpus Conventions",
   "description": "Schema for defining lint rules in a Corpus",
   "type": "object",

@@ -309,7 +309,7 @@ describe('Phase 1 acceptance: independent non-creating read safety (T2)', () => 
       expect(testCase.owner).toBe('Example Maintainer');
       expect(testCase.fixtureSchemaVersion).toBe(1);
       expect(testCase.corpusPin).toEqual({
-        remote: 'https://github.com/nwshq/lux.git',
+        remote: 'https://github.com/ivannovak/lux.git',
         commit: '5f1f053c635a7244d3d1c23045ce398170053623',
       });
       expect(testCase.query.args.cliCommands).toEqual(EXPECTED_CLI_MATRIX);

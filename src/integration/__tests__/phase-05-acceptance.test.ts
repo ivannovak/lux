@@ -155,7 +155,7 @@ type CheckResult = {
 
 const OWNER = 'Example Maintainer';
 const PIN = '5f1f053c635a7244d3d1c23045ce398170053623';
-const CORPUS_PIN = { remote: 'https://github.com/nwshq/lux.git', commit: PIN };
+const CORPUS_PIN = { remote: 'https://github.com/ivannovak/lux.git', commit: PIN };
 const STABLE_CODE = /^corpus\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ACCEPTED_SCHEMA_VERSION = 1;
 
@@ -616,13 +616,17 @@ describe('Phase 5 acceptance: independent portable corpus preflight battery (T18
   });
 
   it('normalizes HTTPS, SCP SSH, and ssh:// GitHub remotes to owner/repo identity', () => {
-    expect(canonicalGithubRemote('https://github.com/nwshq/lux.git')).toBe('github.com/nwshq/lux');
-    expect(canonicalGithubRemote('git@github.com:nwshq/lux.git')).toBe('github.com/nwshq/lux');
-    expect(canonicalGithubRemote('ssh://git@github.com/nwshq/lux.git')).toBe(
-      'github.com/nwshq/lux'
+    expect(canonicalGithubRemote('https://github.com/ivannovak/lux.git')).toBe(
+      'github.com/ivannovak/lux'
+    );
+    expect(canonicalGithubRemote('git@github.com:ivannovak/lux.git')).toBe(
+      'github.com/ivannovak/lux'
+    );
+    expect(canonicalGithubRemote('ssh://git@github.com/ivannovak/lux.git')).toBe(
+      'github.com/ivannovak/lux'
     );
     expect(canonicalGithubRemote('https://github.com/other/lux.git')).not.toBe(
-      'github.com/nwshq/lux'
+      'github.com/ivannovak/lux'
     );
   });
 

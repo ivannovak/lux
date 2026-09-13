@@ -4,7 +4,7 @@
   "corpora": [
     {
       "id": "lux",
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "checkoutHints": ["~/Code/lux/vcs"],
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
       "fixtureSchemaVersion": 1,

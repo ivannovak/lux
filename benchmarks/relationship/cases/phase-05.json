@@ -13,7 +13,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -24,7 +24,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": false
@@ -46,7 +46,7 @@
         "resolution": {
           "id": "lux",
           "rootPath": "~/Code/lux/vcs",
-          "remote": "github.com/nwshq/lux",
+          "remote": "github.com/ivannovak/lux",
           "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
           "owner": "Example Maintainer",
           "isolated": false
@@ -78,7 +78,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -132,7 +132,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -143,7 +143,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "git@github.com:nwshq/lux.git",
+              "remote": "git@github.com:ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": false
@@ -161,7 +161,7 @@
         "resolution": {
           "id": "lux",
           "rootPath": "~/Code/lux/vcs",
-          "remote": "github.com/nwshq/lux",
+          "remote": "github.com/ivannovak/lux",
           "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
           "owner": "Example Maintainer",
           "isolated": false
@@ -191,7 +191,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -215,7 +215,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/not-present"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -229,7 +229,7 @@
           "checkouts": [
             {
               "hint": "~/operator/lux",
-              "remote": "ssh://git@github.com/nwshq/lux.git",
+              "remote": "ssh://git@github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": false
@@ -247,7 +247,7 @@
         "resolution": {
           "id": "lux",
           "rootPath": "~/operator/lux",
-          "remote": "github.com/nwshq/lux",
+          "remote": "github.com/ivannovak/lux",
           "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
           "owner": "Example Maintainer",
           "isolated": false
@@ -277,7 +277,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -310,7 +310,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -321,7 +321,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "2c888ff196b26b36ca9b50f916906e26df25b629",
               "reachableCommits": [
                 "2c888ff196b26b36ca9b50f916906e26df25b629",
@@ -342,7 +342,7 @@
         "resolution": {
           "id": "lux",
           "rootPath": "~/Code/lux/vcs#detached:5f1f053c635a7244d3d1c23045ce398170053623",
-          "remote": "github.com/nwshq/lux",
+          "remote": "github.com/ivannovak/lux",
           "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
           "owner": "Example Maintainer",
           "isolated": true
@@ -372,7 +372,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -396,7 +396,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -407,7 +407,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": true
@@ -425,7 +425,7 @@
         "resolution": {
           "id": "lux",
           "rootPath": "~/Code/lux/vcs#detached:5f1f053c635a7244d3d1c23045ce398170053623",
-          "remote": "github.com/nwshq/lux",
+          "remote": "github.com/ivannovak/lux",
           "commit": "5f1f053c635a7244d3d1c23045ce398170053623",
           "owner": "Example Maintainer",
           "isolated": true
@@ -455,7 +455,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -479,7 +479,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/missing"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -517,7 +517,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -541,7 +541,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -588,7 +588,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -612,7 +612,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -623,7 +623,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "2c888ff196b26b36ca9b50f916906e26df25b629",
               "reachableCommits": ["2c888ff196b26b36ca9b50f916906e26df25b629"],
               "dirty": false
@@ -659,7 +659,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -683,7 +683,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -694,7 +694,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "2c888ff196b26b36ca9b50f916906e26df25b629",
               "reachableCommits": [
                 "2c888ff196b26b36ca9b50f916906e26df25b629",
@@ -733,7 +733,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -757,7 +757,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -768,7 +768,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": true
@@ -804,7 +804,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -827,7 +827,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -838,7 +838,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": false
@@ -874,7 +874,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {
@@ -898,7 +898,7 @@
           "corpora": [
             {
               "id": "lux",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "checkoutHints": ["~/Code/lux/vcs"],
               "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
             }
@@ -909,7 +909,7 @@
           "checkouts": [
             {
               "hint": "~/Code/lux/vcs",
-              "remote": "https://github.com/nwshq/lux.git",
+              "remote": "https://github.com/ivannovak/lux.git",
               "head": "5f1f053c635a7244d3d1c23045ce398170053623",
               "reachableCommits": ["5f1f053c635a7244d3d1c23045ce398170053623"],
               "dirty": false
@@ -945,7 +945,7 @@
     "owner": "Example Maintainer",
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "5f1f053c635a7244d3d1c23045ce398170053623"
     },
     "thresholds": {

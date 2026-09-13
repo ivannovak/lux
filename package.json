@@ -1,5 +1,5 @@
 {
-  "name": "@nwshq/lux",
+  "name": "@ivannovak/lux",
   "version": "0.0.0-dev",
   "description": "Structural code-analysis and overlay engine for CORPUS-indexed repositories (MCP server + CLI)",
   "type": "module",
@@ -94,7 +94,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nwshq/lux.git"
+    "url": "https://github.com/ivannovak/lux.git"
   },
   "engines": {
     "node": ">=22.12.0"

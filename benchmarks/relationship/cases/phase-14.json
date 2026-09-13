@@ -15,7 +15,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-01-resource-array",
@@ -130,7 +130,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-02-resource-array-alias",
@@ -172,7 +172,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-03-provider-resources-method",
@@ -214,7 +214,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-04-provider-resources-multiline",
@@ -256,7 +256,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-05-static-tools-array",
@@ -298,7 +298,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-06-provider-tools-method",
@@ -340,7 +340,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-07-tool-class-literal",
@@ -382,7 +382,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-08-resources-in",
@@ -424,7 +424,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-09-resources-in-nested",
@@ -466,7 +466,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-10-untyped-model-user",
@@ -508,7 +508,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-11-typed-model-invoice",
@@ -550,7 +550,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-12-untyped-model-nestedorder",
@@ -592,7 +592,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-13-typed-model-contact",
@@ -634,7 +634,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-14-untyped-model-businessentity",
@@ -676,7 +676,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-15-script-vue",
@@ -718,7 +718,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-16-script-js",
@@ -760,7 +760,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-17-script-and-style",
@@ -803,7 +803,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-18-card-component",
@@ -845,7 +845,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-19-duplicate-registration-deduplicated",
@@ -887,7 +887,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-20-resource-multiple-first",
@@ -929,7 +929,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-21-resource-multiple-second",
@@ -971,7 +971,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-positive-22-tool-component-js",
@@ -1013,7 +1013,7 @@
     "expectedDiagnostics": ["nova-dynamic-registration"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-01-dynamic-resource-array",
@@ -1054,7 +1054,7 @@
     "expectedDiagnostics": ["nova-dynamic-registration"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-02-dynamic-provider-return",
@@ -1095,7 +1095,7 @@
     "expectedDiagnostics": ["nova-dynamic-path"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-03-dynamic-script-path",
@@ -1136,7 +1136,7 @@
     "expectedDiagnostics": ["nova-vendor-excluded"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-04-vendor-resources-in",
@@ -1177,7 +1177,7 @@
     "expectedDiagnostics": ["nova-path-traversal"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-05-traversal-resources-in",
@@ -1218,7 +1218,7 @@
     "expectedDiagnostics": ["nova-target-missing"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-06-missing-model",
@@ -1257,7 +1257,7 @@
     "expectedDiagnostics": ["nova-target-missing"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-07-missing-resource",
@@ -1296,7 +1296,7 @@
     "expectedDiagnostics": ["nova-model-missing"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-08-unrelated-static-property",
@@ -1337,7 +1337,7 @@
     "expectedDiagnostics": ["nova-dynamic-path"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-09-computed-resources-in",
@@ -1378,7 +1378,7 @@
     "expectedDiagnostics": ["nova-vendor-excluded"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-10-vendor-script-target",
@@ -1419,7 +1419,7 @@
     "expectedDiagnostics": ["nova-target-missing"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-11-missing-component-target",
@@ -1458,7 +1458,7 @@
     "expectedDiagnostics": ["nova-target-missing"],
     "corpus": "phase-14-nova-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "id": "p14-forbidden-12-basename-only-resource",

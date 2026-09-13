@@ -119,7 +119,7 @@ type CheckResult = {
 
 const OWNER = 'Example Maintainer';
 const CORPUS_PIN = {
-  remote: 'https://github.com/nwshq/lux.git',
+  remote: 'https://github.com/ivannovak/lux.git',
   commit: 'f72d056233674a8f26587a3c258c58e2037710a5',
 };
 const PORTABLE_CONFIG = `schema_version: 1

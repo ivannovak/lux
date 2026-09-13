@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/nwshq/lux/schemas/feature-path-answer.schema.json",
+  "$id": "https://github.com/ivannovak/lux/schemas/feature-path-answer.schema.json",
   "title": "Feature-Path Retrieval View",
   "description": "Tranche-one retrieval-view contract for Lux feature-path retrieval. Returns a compact evidence packet for a route- or handler-centered feature question by combining structural surface, handler, contract, ownership, bounded operational, and trust-aware cross-language evidence. Direct evidence and context are kept separate; this is not a final reasoning surface.",
   "type": "object",

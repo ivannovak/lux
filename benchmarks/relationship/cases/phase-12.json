@@ -6,7 +6,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -122,7 +122,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -173,7 +173,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -224,7 +224,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -275,7 +275,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -326,7 +326,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -377,7 +377,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -428,7 +428,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -479,7 +479,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -532,7 +532,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -585,7 +585,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -638,7 +638,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -691,7 +691,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -747,7 +747,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -803,7 +803,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -864,7 +864,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -925,7 +925,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -986,7 +986,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1042,7 +1042,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1093,7 +1093,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1144,7 +1144,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1195,7 +1195,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1248,7 +1248,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1304,7 +1304,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1365,7 +1365,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1415,7 +1415,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1465,7 +1465,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1515,7 +1515,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1565,7 +1565,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1613,7 +1613,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1664,7 +1664,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1714,7 +1714,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1769,7 +1769,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1819,7 +1819,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1871,7 +1871,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1921,7 +1921,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {
@@ -1971,7 +1971,7 @@
     "goldSchemaVersion": 1,
     "fixtureSchemaVersion": 1,
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "adbb7c141c700c13a1a54c71893fb9303cc65ba2"
     },
     "thresholds": {

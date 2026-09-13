@@ -729,7 +729,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Navigate.tsx",
@@ -767,7 +767,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Slash.tsx",
@@ -805,7 +805,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Dot.tsx",
@@ -843,7 +843,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Twice.tsx",
@@ -881,7 +881,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Docs.tsx",
@@ -919,7 +919,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Object.tsx",
@@ -957,7 +957,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Hash.tsx",
@@ -995,7 +995,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/External.tsx",
@@ -1031,7 +1031,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Mail.tsx",
@@ -1067,7 +1067,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Relative.tsx",
@@ -1103,7 +1103,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Dynamic.tsx",
@@ -1139,7 +1139,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Unimported.tsx",
@@ -1175,7 +1175,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/WrongModule.tsx",
@@ -1211,7 +1211,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Unbound.tsx",
@@ -1247,7 +1247,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Computed.tsx",
@@ -1283,7 +1283,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/DynamicObject.tsx",
@@ -1319,7 +1319,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Ambiguous.tsx",
@@ -1355,7 +1355,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Missing.tsx",
@@ -1391,7 +1391,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Layout.tsx",
@@ -1427,7 +1427,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Plus.tsx",
@@ -1463,7 +1463,7 @@
     "expectedDiagnostics": [],
     "corpus": "phase-16-expo-synthetic",
     "corpusPin": {
-      "remote": "https://github.com/nwshq/lux.git",
+      "remote": "https://github.com/ivannovak/lux.git",
       "commit": "241685c091e71f744c38e89d87635708f04a565a"
     },
     "sourceFamily": "fixtures/p16/Back.tsx",
