@@ -133,7 +133,8 @@ export interface LspEnricher {
 
   /**
    * Gracefully shut down the language server. After shutdown, the enricher
-   * must be re-initialized before further use.
+   * must be re-initialized before further use. Must be safe to call on an
+   * enricher that was never initialized or whose initialize() failed.
    */
   shutdown(): Promise<void>;
 
@@ -393,7 +394,9 @@ export class EnricherRegistry {
   }
 
   /**
-   * Shut down all registered enrichers that are currently initialized.
+   * Shut down every registered enricher, ready or not: one whose initialize()
+   * failed part-way is not ready but may still hold resources, and shutdown()
+   * is a no-op for an enricher that holds none.
    * Errors during individual shutdowns are collected and thrown as an
    * aggregate error after all enrichers have been attempted.
    */
@@ -401,12 +404,10 @@ export class EnricherRegistry {
     const errors: Array<{ languageId: string; error: unknown }> = [];
 
     for (const enricher of this.enrichers.values()) {
-      if (enricher.isReady) {
-        try {
-          await enricher.shutdown();
-        } catch (error) {
-          errors.push({ languageId: enricher.languageId, error });
-        }
+      try {
+        await enricher.shutdown();
+      } catch (error) {
+        errors.push({ languageId: enricher.languageId, error });
       }
     }
 

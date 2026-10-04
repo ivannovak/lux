@@ -55,6 +55,9 @@ interface OpenDoc {
   opened: Promise<void>;
 }
 
+/** How long a server has to exit after SIGTERM before it is sent SIGKILL. */
+const KILL_GRACE_MS = 2_000;
+
 // ---------------------------------------------------------------------------
 // Semaphore for concurrency limiting
 // ---------------------------------------------------------------------------
@@ -174,11 +177,20 @@ export class LspClient {
 
     this.spawnServer();
 
-    const result = (await this.sendRequest(
-      InitializeRequest.method,
-      params,
-      this.options.initTimeoutMs
-    )) as InitializeResult;
+    let result: InitializeResult;
+    try {
+      result = (await this.sendRequest(
+        InitializeRequest.method,
+        params,
+        this.options.initTimeoutMs
+      )) as InitializeResult;
+    } catch (error) {
+      // A server that refuses `initialize` does not exit on its own — it keeps
+      // reading stdin. Left running, it and its stdio pipes hold the caller's
+      // event loop open after everything else has finished.
+      this.cleanup();
+      throw error;
+    }
 
     this._serverCapabilities = result;
 
@@ -325,12 +337,28 @@ export class LspClient {
 
   private cleanup(): void {
     if (this.process) {
-      this.process.stdout?.removeAllListeners();
-      this.process.stderr?.removeAllListeners();
-      this.process.removeAllListeners();
+      const child = this.process;
+      child.stdout?.removeAllListeners();
+      child.stderr?.removeAllListeners();
+      child.removeAllListeners();
+      // A failed kill() reports through 'error'; with no listener it would throw.
+      child.on('error', () => {});
 
-      if (!this.process.killed) {
-        this.process.kill();
+      // The pipes are handles of their own: close them rather than waiting for
+      // the child's exit to do it.
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+        // A server that ignores SIGTERM would keep its process handle, and so
+        // the caller's event loop, alive indefinitely.
+        const forceKill = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }, KILL_GRACE_MS);
+        forceKill.unref();
+        child.once('exit', () => clearTimeout(forceKill));
       }
 
       this.process = null;
