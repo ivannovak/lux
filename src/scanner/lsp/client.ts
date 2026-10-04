@@ -341,11 +341,10 @@ export class LspClient {
       child.stdout?.removeAllListeners();
       child.stderr?.removeAllListeners();
       child.removeAllListeners();
-      // A failed kill() reports through 'error'; with no listener it would throw.
-      child.on('error', () => {});
 
-      // The pipes are handles of their own: close them rather than waiting for
-      // the child's exit to do it.
+      // Closing stdin lets a server that exits on EOF shut down (and reap its own
+      // workers) before any signal reaches it. stdout/stderr must be closed from
+      // this end: a worker the server forked can hold them open after it dies.
       child.stdin?.destroy();
       child.stdout?.destroy();
       child.stderr?.destroy();
@@ -357,7 +356,6 @@ export class LspClient {
         const forceKill = setTimeout(() => {
           if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
         }, KILL_GRACE_MS);
-        forceKill.unref();
         child.once('exit', () => clearTimeout(forceKill));
       }
 
