@@ -10,34 +10,57 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { LuxDatabase } from '../../db/index.js';
-import type { GeneralScanResult } from '../general.js';
+import type { GeneralScanOptions, GeneralScanResult } from '../general.js';
 
 const stub = vi.hoisted(() => ({ scanWarnings: [] as string[] }));
 
+/** The classification reads the database, so the stub persists the nodes its tallies report. */
+function seedOverlay(db: LuxDatabase | undefined): void {
+  db?.upsertStructuralNode({
+    id: 'file:a.php',
+    node_type: 'file',
+    file_path: 'a.php',
+    updated_at: 1,
+  });
+  db?.upsertStructuralNode({
+    id: 'symbol:php:A',
+    node_type: 'symbol',
+    file_path: 'a.php',
+    symbol_name: 'A',
+    updated_at: 1,
+  });
+}
+
 vi.mock('../general.js', () => ({
-  generalScan: vi.fn(async (): Promise<GeneralScanResult> => ({
-    scan: { knowledge: [] } as unknown as GeneralScanResult['scan'],
-    enrichments: new Map() as unknown as GeneralScanResult['enrichments'],
-    dependencies: [
-      { source_module: 'Users', target_module: 'Orders', reference_count: 1, sample_files: [] },
-    ],
-    stats: { enrichedFiles: 1, activeEnrichers: 1, enrichmentErrors: [], lspFailures: [] },
-    overlay: {
-      fileNodes: 1,
-      symbolNodes: 1,
-      edgesStored: 0,
-      heuristicsFiltered: 0,
-      staleMarked: 0,
-      currentCommit: undefined,
-      dirtyFileCount: 0,
-      surfacesDetected: 0,
-      surfaceEdgesStored: 0,
-      propagationEdgesAdded: 0,
-      symbolCollisions: (await import('../identity/symbol-collisions.js')).SymbolIdCollisions.NONE,
-    },
-    warnings: [...stub.scanWarnings],
-    warningComponents: {},
-  })),
+  generalScan: vi.fn(
+    async (_root: string, options?: GeneralScanOptions): Promise<GeneralScanResult> => {
+      seedOverlay(options?.db);
+      return {
+        scan: { knowledge: [] } as unknown as GeneralScanResult['scan'],
+        enrichments: new Map() as unknown as GeneralScanResult['enrichments'],
+        dependencies: [
+          { source_module: 'Users', target_module: 'Orders', reference_count: 1, sample_files: [] },
+        ],
+        stats: { enrichedFiles: 1, activeEnrichers: 1, enrichmentErrors: [], lspFailures: [] },
+        overlay: {
+          fileNodes: 1,
+          symbolNodes: 1,
+          edgesStored: 0,
+          heuristicsFiltered: 0,
+          staleMarked: 0,
+          currentCommit: undefined,
+          dirtyFileCount: 0,
+          surfacesDetected: 0,
+          surfaceEdgesStored: 0,
+          propagationEdgesAdded: 0,
+          symbolCollisions: (await import('../identity/symbol-collisions.js')).SymbolIdCollisions
+            .NONE,
+        },
+        warnings: [...stub.scanWarnings],
+        warningComponents: {},
+      };
+    }
+  ),
 }));
 
 const { rebuildWithOverlay } = await import('../rebuild-orchestrator.js');

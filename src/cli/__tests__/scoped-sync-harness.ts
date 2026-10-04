@@ -11,10 +11,11 @@ import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { LuxSqlite } from '../../db/sqlite-adapter.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 export const FAKE_LSP_SERVER = join(
   PROJECT_ROOT,
   'src',
@@ -28,11 +29,12 @@ export const INDEX_COMPARISON_EXCLUSIONS = [
   'wall-clock columns (created_at, updated_at, recorded_at, timestamp, spawned_at, last_active_at)',
   'INTEGER autoincrement id columns',
   'wall-clock keys inside JSON values (extractedAt, enrichedAt, recordedAt, builtAt)',
-  'structural_edges.source_commit: a scoped refresh stamps HEAD on the tiers it re-derives (SC-8)',
+  'structural_edges.source_commit: the commit an edge was last derived at; an edge a scoped sync did not need to re-derive keeps the earlier one',
   'tables that record activity, not facts: events, experts, expert_sessions',
   'structural_node_embeddings: the embed pass is budgeted and resumes on the next run',
-  'index_metadata: compared through overlay_trust_state only, minus recordedAt/sourceAction',
-  'module_dependencies.sample_files: compared as a set (order is scan order)',
+  'overlay_trust_state.recordedAt and .sourceAction (when and by which path it was written)',
+  'index_metadata.structural_config_fingerprint and .last_indexed_commit (compared by the sync itself)',
+  'index_metadata.vendor_pack_key: written by `vendor-pack build`, not by an index run',
 ] as const;
 
 const DROPPED_COLUMNS = new Set([
@@ -99,15 +101,13 @@ export function runCli(
   args: string[],
   env: Record<string, string> = {}
 ): SpawnSyncReturns<string> {
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
+    // A command that never exits (a language server left running) fails its test, not the suite.
+    timeout: 150_000,
+  });
 }
 
 function scrubJson(value: unknown): unknown {
@@ -159,14 +159,8 @@ export function dumpIndex(dbPath: string, root: string): IndexDump {
           .map((row) =>
             columns
               .map((c) => {
-                let value = row[c.name];
-                if (table === 'module_dependencies' && c.name === 'sample_files') {
-                  value = JSON.stringify(
-                    (JSON.parse(String(value ?? '[]')) as string[])
-                      .map((s) => s.split(root).join('<ROOT>'))
-                      .sort()
-                  );
-                } else if (typeof value === 'string') {
+                let value = row[c.name] as string | number | null | undefined;
+                if (typeof value === 'string') {
                   value = normalizeText(value, root);
                 }
                 return `${c.name}=${value === null || value === undefined ? '<NULL>' : String(value)}`;
@@ -182,6 +176,18 @@ export function dumpIndex(dbPath: string, root: string): IndexDump {
     delete state.recordedAt;
     delete state.sourceAction;
     dump.set('overlay_trust_state', [normalizeText(JSON.stringify(state), root)]);
+    dump.set(
+      'index_metadata',
+      (
+        db.all(
+          `SELECT key, value FROM index_metadata
+            WHERE key NOT IN ('overlay_trust_state', 'structural_config_fingerprint',
+                              'last_indexed_commit', 'vendor_pack_key')`
+        ) as Array<{ key: string; value: string }>
+      )
+        .map((row) => `${row.key}=${normalizeText(row.value, root)}`)
+        .sort()
+    );
   } finally {
     db.close();
   }

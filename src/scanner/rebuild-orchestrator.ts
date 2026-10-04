@@ -14,12 +14,15 @@ import { join } from 'path';
 import type { LuxDatabase } from '../db/index.js';
 import { generalScan } from './general.js';
 import type { GeneralScanResult } from './general.js';
-import type { OverlayRebuildResult } from './associations/overlay-service.js';
 import { loadLspConfig, type LuxLspConfig } from './config.js';
 import { resolveFirstPartyRoots } from './pack/first-party.js';
-import { lookupPack } from './pack/cache.js';
+import { lookupPack, VENDOR_PACK_MERGED_META, vendorPackIdentity } from './pack/cache.js';
+import { createDefaultDetectors } from './associations/detectors/index.js';
 import type { EnricherRegistry } from './lsp/index.js';
-import { persistModuleDependencies } from './module-dependency-store.js';
+import {
+  MODULE_DEPENDENCIES_COMPONENT,
+  persistModuleDependencies,
+} from './module-dependency-store.js';
 import { warnSink, type WarnFn } from './reporter.js';
 
 // ---------------------------------------------------------------------------
@@ -128,6 +131,25 @@ export function resolveVendorPackPathForRefresh(
   return resolveVendorPackPath(rootPath, config, warn);
 }
 
+/**
+ * True when the vendor pack a full rebuild would merge now is not the pack the overlay holds: a pack
+ * built, rebuilt or removed since the last rebuild, a different cache, or `vendorPack.merge` turned
+ * off. The merged pack is the resolution universe for every app call into vendor code, so no scoped
+ * refresh of changed files can bring the overlay in line with it; the sync escalates to a full
+ * rebuild instead. An overlay whose vendor nodes predate the merge record counts as changed, since
+ * which pack it holds is unknown.
+ */
+export function vendorPackChangedSinceRebuild(
+  db: LuxDatabase,
+  rootPath: string,
+  config: LuxLspConfig
+): boolean {
+  const expected = vendorPackIdentity(resolveVendorPackPath(rootPath, config));
+  const recorded =
+    db.getIndexMetadata(VENDOR_PACK_MERGED_META) ?? (db.hasVendorPackNodes() ? 'unknown' : 'none');
+  return expected !== recorded;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -186,13 +208,18 @@ export async function rebuildWithOverlay(
   });
   const dependencyWarning = persistModuleDependencies(db, scanResult);
 
+  const classified = classifyResult(rootPath, scanResult, db, 'overlay', config.lsp.enabled, [
+    ...lookupWarnings,
+    ...scanResult.warnings,
+    ...(dependencyWarning ? [dependencyWarning] : []),
+  ]);
   const result: RebuildResult = {
-    ...classifyResult(rootPath, scanResult, db, 'overlay', config.lsp.enabled, [
-      ...lookupWarnings,
-      ...scanResult.warnings,
-      ...(dependencyWarning ? [dependencyWarning] : []),
-    ]),
-    warningComponents: scanResult.warningComponents,
+    ...classified,
+    warningComponents: {
+      ...classified.warningComponents,
+      ...scanResult.warningComponents,
+      ...(dependencyWarning ? { [dependencyWarning]: MODULE_DEPENDENCIES_COMPONENT } : {}),
+    },
   };
   return { result, scanResult };
 }
@@ -302,51 +329,76 @@ function classifyResult(
     };
   }
 
-  // A phase that failed part-way left its partial writes behind, so the in-run tallies no longer
-  // describe the index; count it instead. The failure itself is already one of the absorbed
-  // warnings: the overlay reported it through the run's warning channel.
-  const phaseFailures = overlay.phaseFailures ?? [];
-  const persisted =
-    phaseFailures.length > 0
-      ? countPersistedOverlay(db)
-      : { fileNodes: overlay.fileNodes, symbolNodes: overlay.symbolNodes };
-  const warnings = [
-    ...collectWarnings(overlay, persisted.symbolNodes, scanResult.stats.activeEnrichers),
-    ...absorbedWarnings,
-  ];
-  const mode: RebuildMode = warnings.length > 0 ? 'degraded-overlay' : 'overlay-complete';
+  // The overlay reported any failed phase through the run's warning channel, so it is already one
+  // of the absorbed warnings; the counters come from the rows on disk either way.
+  return classifyOverlayFromDb(db, {
+    repoPath: rootPath,
+    configLspEnabled,
+    enrichmentActive: scanResult.stats.activeEnrichers > 0,
+    dirtyFileCount: overlay.dirtyFileCount,
+    absorbedWarnings,
+    surfacesDetected: overlay.surfacesDetected,
+  });
+}
 
-  const { controllerBackedCount, closureBackedCount, unknownProviderKindCount } =
-    countProviderKinds(db);
+/** The component a warning derived from the overlay's persisted counts is filed under. */
+export const OVERLAY_STATE_COMPONENT = 'overlay-state';
+/** The component the detector-tally-versus-persisted-surfaces warning is filed under. */
+export const SURFACE_TALLY_COMPONENT = 'surface-tally';
+
+/**
+ * Classify an overlay from what the database holds. Every counter is read from the persisted rows,
+ * so the trust state describes the index a reader queries, whichever path wrote it: a full rebuild
+ * and a scoped sync of the same commit report the same numbers.
+ *
+ * `absorbedWarnings` are problems the run carried on past; they decide the mode with the overlay's
+ * own warnings. `surfacesDetected` is the detectors' tally for a run that detected every surface;
+ * when given, a divergence from the persisted count is reported without changing the mode. The
+ * warnings this function derives are filed under OVERLAY_STATE_COMPONENT and
+ * SURFACE_TALLY_COMPONENT, so a later run that re-derives them retires the ones that no longer hold.
+ */
+export function classifyOverlayFromDb(
+  db: LuxDatabase | null,
+  input: {
+    repoPath: string;
+    configLspEnabled: boolean;
+    enrichmentActive: boolean;
+    dirtyFileCount: number;
+    absorbedWarnings: string[];
+    surfacesDetected?: number;
+  }
+): RebuildResult {
+  const counts = countOverlay(db);
+  const stateWarnings = collectWarnings(counts, input.enrichmentActive);
+  const warnings = [...stateWarnings, ...input.absorbedWarnings];
+  const mode: RebuildMode = warnings.length > 0 ? 'degraded-overlay' : 'overlay-complete';
+  const warningComponents: Record<string, string> = {};
+  for (const warning of stateWarnings) warningComponents[warning] = OVERLAY_STATE_COMPONENT;
+  if (input.surfacesDetected !== undefined) {
+    const mismatch = reconcileSurfaceCounts({
+      surfacesDetected: input.surfacesDetected,
+      controllerBackedCount: counts.controllerBackedCount,
+      closureBackedCount: counts.closureBackedCount,
+      unknownProviderKindCount: counts.unknownProviderKindCount,
+    }).warnings;
+    for (const warning of mismatch) warningComponents[warning] = SURFACE_TALLY_COMPONENT;
+    warnings.push(...mismatch);
+  }
 
   const propagationStatus: 'ran' | 'skipped' | 'empty' =
-    overlay.propagationEdgesAdded > 0 ? 'ran' : overlay.surfacesDetected > 0 ? 'empty' : 'skipped';
-
-  const surfaces = reconcileSurfaceCounts({
-    surfacesDetected: overlay.surfacesDetected,
-    controllerBackedCount,
-    closureBackedCount,
-    unknownProviderKindCount,
-  });
-  warnings.push(...surfaces.warnings);
+    counts.propagatedEdgeCount > 0 ? 'ran' : counts.surfaceCount > 0 ? 'empty' : 'skipped';
 
   return {
     mode,
-    repoPath: rootPath,
+    repoPath: input.repoPath,
     configSource: 'lux.yaml',
-    configLspEnabled,
-    surfaceCount: surfaces.surfaceCount,
-    detectorEdgeCount: overlay.surfaceEdgesStored,
-    propagatedEdgeCount: overlay.propagationEdgesAdded,
-    fileNodeCount: persisted.fileNodes,
-    symbolNodeCount: persisted.symbolNodes,
-    controllerBackedCount,
-    closureBackedCount,
-    unknownProviderKindCount,
-    enrichmentStatus: scanResult.stats.activeEnrichers > 0 ? 'active' : 'inactive',
+    configLspEnabled: input.configLspEnabled,
+    ...counts,
+    enrichmentStatus: input.enrichmentActive ? 'active' : 'inactive',
     propagationStatus,
     warnings,
-    dirtyAtIndexTime: overlay.dirtyFileCount,
+    warningComponents,
+    dirtyAtIndexTime: input.dirtyFileCount,
   };
 }
 
@@ -394,26 +446,52 @@ function countPersistedOverlay(db: LuxDatabase | null): { fileNodes: number; sym
   };
 }
 
-/** Collect trust-relevant warnings from an overlay rebuild result. */
-function collectWarnings(
-  overlay: OverlayRebuildResult,
-  symbolNodes: number,
-  activeEnrichers: number
-): string[] {
+type OverlayCounts = Pick<
+  RebuildResult,
+  | 'surfaceCount'
+  | 'detectorEdgeCount'
+  | 'propagatedEdgeCount'
+  | 'fileNodeCount'
+  | 'symbolNodeCount'
+  | 'controllerBackedCount'
+  | 'closureBackedCount'
+  | 'unknownProviderKindCount'
+>;
+
+/** Count the overlay's persisted contents: project nodes, detector and propagation edges, surfaces. */
+function countOverlay(db: LuxDatabase | null): OverlayCounts {
+  const kinds = countProviderKinds(db);
+  const persisted = countPersistedOverlay(db);
+  return {
+    surfaceCount:
+      kinds.controllerBackedCount + kinds.closureBackedCount + kinds.unknownProviderKindCount,
+    detectorEdgeCount:
+      db?.countEdgesWithEvidenceFrom({
+        resolvers: createDefaultDetectors().map((detector) => detector.name),
+      }) ?? 0,
+    propagatedEdgeCount: db?.countEdgesWithEvidenceFrom({ resolverPrefix: 'propagation:' }) ?? 0,
+    fileNodeCount: persisted.fileNodes,
+    symbolNodeCount: persisted.symbolNodes,
+    ...kinds,
+  };
+}
+
+/** Collect trust-relevant warnings from the overlay's persisted counts. */
+function collectWarnings(counts: OverlayCounts, enrichmentActive: boolean): string[] {
   const warnings: string[] = [];
 
-  if (symbolNodes === 0) {
+  if (counts.symbolNodeCount === 0) {
     warnings.push(
       'No symbol nodes were materialized — provider propagation trust is reduced. ' +
-        (activeEnrichers === 0
-          ? 'No LSP enrichers were active or configured for this repo.'
-          : 'LSP enrichers ran but produced no symbols.')
+        (enrichmentActive
+          ? 'LSP enrichers ran but produced no symbols.'
+          : 'No LSP enrichers were active or configured for this repo.')
     );
   }
 
-  if (overlay.propagationEdgesAdded === 0 && overlay.surfacesDetected > 0) {
+  if (counts.propagatedEdgeCount === 0 && counts.surfaceCount > 0) {
     warnings.push(
-      `${overlay.surfacesDetected} surface(s) detected but propagation produced no provider edges.`
+      `${counts.surfaceCount} surface(s) detected but propagation produced no provider edges.`
     );
   }
 

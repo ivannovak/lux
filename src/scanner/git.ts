@@ -1,6 +1,6 @@
 import { execSync, execFileSync } from 'child_process';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, posix } from 'path';
 
 export interface GitDiffResult {
   added: string[]; // New files
@@ -48,32 +48,45 @@ export function getGitDiff(
   fromCommit: string,
   toCommit: string = 'HEAD'
 ): GitDiffResult {
-  const added: string[] = [];
-  const modified: string[] = [];
-  const deleted: string[] = [];
+  // --no-renames: a rename is its old path deleted and its new path added. With rename detection on
+  // (git's default) only the new path is listed, and everything indexed under the old one survives.
+  const list = (filter: string): string[] => {
+    const output = execSync(
+      `git diff --no-renames --name-only --diff-filter=${filter} ${fromCommit} ${toCommit}`,
+      { cwd: rootPath, encoding: 'utf-8' }
+    ).trim();
+    return output ? output.split('\n') : [];
+  };
+  const added = list('A');
+  const modified = list('CMT');
+  const deleted = list('D');
 
-  // Get added files
-  const addedOutput = execSync(`git diff --name-only --diff-filter=A ${fromCommit} ${toCommit}`, {
-    cwd: rootPath,
-    encoding: 'utf-8',
-  }).trim();
-  if (addedOutput) added.push(...addedOutput.split('\n'));
-
-  // Get modified files (includes copied and renamed)
-  const modifiedOutput = execSync(
-    `git diff --name-only --diff-filter=CMR ${fromCommit} ${toCommit}`,
-    { cwd: rootPath, encoding: 'utf-8' }
-  ).trim();
-  if (modifiedOutput) modified.push(...modifiedOutput.split('\n'));
-
-  // Get deleted files
-  const deletedOutput = execSync(`git diff --name-only --diff-filter=D ${fromCommit} ${toCommit}`, {
-    cwd: rootPath,
-    encoding: 'utf-8',
-  }).trim();
-  if (deletedOutput) deleted.push(...deletedOutput.split('\n'));
+  // A tracked symlink whose target changed has new content although git lists only the target.
+  const changed = new Set([...added, ...modified, ...deleted]);
+  for (const link of symlinksInto(rootPath, toCommit, changed)) {
+    if (!changed.has(link)) modified.push(link);
+  }
 
   return { added, modified, deleted };
+}
+
+/** Tracked symlinks at `commit` whose target (resolved against the link's directory) is in `paths`. */
+function symlinksInto(rootPath: string, commit: string, paths: ReadonlySet<string>): string[] {
+  if (paths.size === 0) return [];
+  const tree = execSync(`git ls-tree -r ${commit}`, {
+    cwd: rootPath,
+    encoding: 'utf-8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  const links: string[] = [];
+  for (const line of tree.split('\n')) {
+    const match = /^120000 blob ([0-9a-f]+)\t(.+)$/u.exec(line);
+    if (!match) continue;
+    const target = execSync(`git cat-file -p ${match[1]}`, { cwd: rootPath, encoding: 'utf-8' });
+    const resolved = posix.normalize(posix.join(posix.dirname(match[2]), target.trim()));
+    if (paths.has(resolved)) links.push(match[2]);
+  }
+  return links;
 }
 
 /**

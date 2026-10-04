@@ -66,18 +66,15 @@ describe('scoped refresh DB helpers (spec 13 Part A)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('deleteEdgesBySourceNodes({keepLsp}) preserves %:lsp edges', () => {
+  it('deleteEdgesBySourceNodes removes the outbound edges of the given sources', () => {
     db.upsertStructuralEdge(edge('symA→symB:calls:ast', { source_node_id: 'symA' }));
     db.upsertStructuralEdge(edge('symA→symB:calls:lsp', { source_node_id: 'symA' }));
+    db.upsertStructuralEdge(edge('symC→symA:calls:ast', { source_node_id: 'symC' }));
 
-    const removed = db.deleteEdgesBySourceNodes(['symA'], { keepLsp: true });
-    expect(removed).toBe(1);
+    expect(db.deleteEdgesBySourceNodes(['symA'])).toBe(2);
     expect(edgeExists(db, 'symA→symB:calls:ast')).toBe(false);
-    expect(edgeExists(db, 'symA→symB:calls:lsp')).toBe(true); // preserved for the stale-mark
-
-    // Without keepLsp the :lsp edge is removed too.
-    expect(db.deleteEdgesBySourceNodes(['symA'])).toBe(1);
     expect(edgeExists(db, 'symA→symB:calls:lsp')).toBe(false);
+    expect(edgeExists(db, 'symC→symA:calls:ast')).toBe(true); // inbound, untouched
   });
 
   it('deleteEdgesByEvidencePaths never deletes an inbound edge whose evidence is outside R', () => {
@@ -128,20 +125,6 @@ describe('scoped refresh DB helpers (spec 13 Part A)', () => {
     expect(statusOf(db, 'symC→symA:fresh')).toBe('stale');
     expect(statusOf(db, 'symC→symA:dirty')).toBe('stale');
     expect(statusOf(db, 'symC→other:fresh')).toBe('fresh'); // untouched
-  });
-
-  it('markEdgesStaleLspBySourceNodes marks only fresh %:lsp edges of the given sources', () => {
-    db.upsertStructuralEdge(
-      edge('symA→b:calls:lsp', { source_node_id: 'symA', freshness_status: 'fresh' })
-    );
-    db.upsertStructuralEdge(
-      edge('symA→b:calls:ast', { source_node_id: 'symA', freshness_status: 'fresh' })
-    );
-
-    const marked = db.markEdgesStaleLspBySourceNodes(['symA']);
-    expect(marked).toBe(1);
-    expect(statusOf(db, 'symA→b:calls:lsp')).toBe('stale');
-    expect(statusOf(db, 'symA→b:calls:ast')).toBe('fresh');
   });
 
   it('deleteStructuralNodesForFiles removes file + symbol nodes declared in the paths', () => {

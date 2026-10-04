@@ -103,10 +103,8 @@ export class AstStructuralResolver implements AssociationResolver {
       }
       files.push({ relPath, lang, extraction, collisions: context.symbolCollisions });
       relPaths.add(relPath);
-      for (const def of extraction.nodes) {
-        symbolIds.add(
-          astSymbolIdentity(relPath, def, lang, extraction.namespace, context.symbolCollisions).id
-        );
+      for (const id of astSymbolIds(relPath, lang, extraction, context.symbolCollisions)) {
+        symbolIds.add(id);
       }
     }
 
@@ -139,6 +137,18 @@ export class AstStructuralResolver implements AssociationResolver {
     }
     return edges;
   }
+}
+
+/** The AST symbol ids one file defines: what a cross-file call into that file can resolve to. */
+export function astSymbolIds(
+  relPath: string,
+  lang: AstLang,
+  extraction: Extraction,
+  collisions?: SymbolIdCollisions
+): string[] {
+  return extraction.nodes.map(
+    (def) => astSymbolIdentity(relPath, def, lang, extraction.namespace, collisions).id
+  );
 }
 
 // ---------------------------------------------------------------------------

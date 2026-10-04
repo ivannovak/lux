@@ -1,17 +1,23 @@
 #!/usr/bin/env node
+/* global process, Buffer, setTimeout */
 // A deterministic stand-in for a language server, spoken over stdio JSON-RPC, so CLI tests can run
 // the real enrichment and typed-receiver code paths without intelephense or tsserver.
 //
 // documentSymbol: one flat symbol per `namespace|class|interface|function|const` declaration line.
+// initialized: answered with intelephense's `indexingEnded` notification, so a client that waits
+// for workspace indexing proceeds at once.
+// references: every line in a workspace source file that calls the token under the cursor.
 // definition: the token under the cursor resolved to the first `function <token>` / `class <token>`
 // declaration found in any workspace source file. Everything else answers null.
-// FAKE_LSP_DELAY_MS delays each documentSymbol answer, to drive a refresh past its LSP budget.
+// FAKE_LSP_DELAY_MS delays each documentSymbol answer and FAKE_LSP_INIT_DELAY_MS the initialize
+// answer, to drive a refresh past its LSP budget during enrichment or during server start-up.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DELAY_MS = Number(process.env.FAKE_LSP_DELAY_MS ?? '0');
+const INIT_DELAY_MS = Number(process.env.FAKE_LSP_INIT_DELAY_MS ?? '0');
 const SOURCE_EXTENSIONS = new Set(['.php', '.ts', '.tsx', '.js', '.jsx', '.vue']);
 const KINDS = { namespace: 3, class: 5, interface: 11, function: 12, const: 14 };
 const DECLARATION =
@@ -70,13 +76,37 @@ function sourceFiles(dir, out = []) {
   return out;
 }
 
-function definition(uri, position) {
+function tokenAt(uri, position) {
   const line = textFor(uri).split('\n')[position.line] ?? '';
   let start = position.character;
   let end = position.character;
   while (start > 0 && /[\w$]/u.test(line[start - 1])) start--;
   while (end < line.length && /[\w$]/u.test(line[end])) end++;
-  const token = line.slice(start, end);
+  return line.slice(start, end);
+}
+
+function references(uri, position) {
+  const token = tokenAt(uri, position);
+  if (!token) return [];
+  const call = new RegExp(`\\b${token}\\s*\\(`, 'u');
+  const declaration = new RegExp(`\\bfunction\\s+${token}\\b`, 'u');
+  const locations = [];
+  for (const file of sourceFiles(rootPath)) {
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((line, index) => {
+        if (!call.test(line) || declaration.test(line)) return;
+        locations.push({
+          uri: pathToFileURL(file).href,
+          range: { start: { line: index, character: 0 }, end: { line: index, character: 0 } },
+        });
+      });
+  }
+  return locations;
+}
+
+function definition(uri, position) {
+  const token = tokenAt(uri, position);
   if (!token) return null;
   const declaration = new RegExp(`\\b(?:function|class)\\s+${token}\\b`, 'u');
   for (const file of sourceFiles(rootPath)) {
@@ -95,6 +125,7 @@ function definition(uri, position) {
 async function handle(message) {
   const { id, method, params } = message;
   if (method === 'initialize') {
+    if (INIT_DELAY_MS > 0) await new Promise((resolve) => setTimeout(resolve, INIT_DELAY_MS));
     if (params?.rootUri) rootPath = fileURLToPath(params.rootUri);
     send({
       id,
@@ -102,10 +133,16 @@ async function handle(message) {
         capabilities: {
           documentSymbolProvider: true,
           definitionProvider: true,
+          referencesProvider: true,
           textDocumentSync: 1,
         },
       },
     });
+    return;
+  }
+  if (method === 'initialized') {
+    // intelephense's signal that workspace indexing finished; the PHP enricher waits for it.
+    send({ method: 'indexingEnded', params: {} });
     return;
   }
   if (method === 'textDocument/didOpen') {
@@ -121,6 +158,10 @@ async function handle(message) {
   if (method === 'textDocument/documentSymbol') {
     if (DELAY_MS > 0) await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
     send({ id, result: documentSymbols(params.textDocument.uri) });
+    return;
+  }
+  if (method === 'textDocument/references') {
+    send({ id, result: references(params.textDocument.uri, params.position) });
     return;
   }
   if (method === 'textDocument/definition') {

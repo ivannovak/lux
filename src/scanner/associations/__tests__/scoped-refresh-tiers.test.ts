@@ -7,13 +7,18 @@ import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import { execSync, spawnSync } from 'child_process';
 import { LuxDatabase } from '../../../db/index.js';
-import { rebuildWithOverlay } from '../../rebuild-orchestrator.js';
+import {
+  classifyOverlayFromDb,
+  OVERLAY_STATE_COMPONENT,
+  rebuildWithOverlay,
+} from '../../rebuild-orchestrator.js';
 import { loadLspConfig } from '../../config.js';
 import { getHeadCommit } from '../../git.js';
 import { inspectOverlayTrustState, persistRefreshTrustState } from '../../overlay-trust-state.js';
 import { refreshOverlayScoped, type ChangedFile } from '../overlay-refresh.js';
 import type { StructuralEdge } from '../../../db/types.js';
 import { builtCli } from '../../../integration/__tests__/helpers/built-cli.js';
+import { EnricherRegistry, type LspEnricher, type LspEnricherConfig } from '../../lsp/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // src/scanner/associations/__tests__ → project root (four levels up).
@@ -59,6 +64,23 @@ async function openRebuilt(repo: string): Promise<{ db: LuxDatabase; dbPath: str
   return { db, dbPath };
 }
 
+/** Settle trust as the CLI does. */
+function settleAsCli(db: LuxDatabase, repo: string, residualStaleEdges: number): void {
+  const classified = classifyOverlayFromDb(db, {
+    repoPath: repo,
+    configLspEnabled: false,
+    enrichmentActive: false,
+    dirtyFileCount: 0,
+    absorbedWarnings: [],
+  });
+  persistRefreshTrustState(db, inspectOverlayTrustState(db).state ?? classified, {
+    lastIndexedCommit: getHeadCommit(repo),
+    residualStaleEdges,
+    classified,
+    componentsRun: [OVERLAY_STATE_COMPONENT],
+  });
+}
+
 async function scoped(db: LuxDatabase, repo: string, changed: ChangedFile[], opts = {}) {
   return refreshOverlayScoped(db, repo, changed, loadLspConfig(repo), opts);
 }
@@ -86,12 +108,30 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
     db.close();
   });
 
-  it("lspBudgetMs:0 → LSP tier does not run and R's :lsp edges are kept + marked stale (Decision 8)", async () => {
+  it('an LSP tier over budget escalates before writing anything (Decision 8)', async () => {
+    const fakeServer = join(
+      PROJECT_ROOT,
+      'src',
+      'scanner',
+      '__tests__',
+      'fixtures',
+      'fake-lsp-server.mjs'
+    );
     const repo = makeRepo({
+      'lux.yaml': [
+        'lsp:',
+        '  enabled: true',
+        '  enrichers:',
+        '    - language_id: typescript',
+        `      server_command: ${JSON.stringify(process.execPath)}`,
+        '      server_args:',
+        `        - ${JSON.stringify(fakeServer)}`,
+        '',
+      ].join('\n'),
       'a.ts': `export function helper(): number { return 1; }\nexport function run(): number { return helper(); }\n`,
     });
     const { db } = await openRebuilt(repo);
-    // Pre-seed a typed-receiver (:lsp) edge on a.ts's symbol, as a prior LSP-enabled rebuild would.
+    // A typed-receiver (:lsp) edge on a.ts's symbol, as a prior LSP-enabled rebuild would leave.
     const lspEdge: StructuralEdge = {
       id: 'symbol:ts:a.ts#run→symbol:ts:a.ts#helper:calls:lsp',
       source_node_id: 'symbol:ts:a.ts#run',
@@ -105,6 +145,10 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
       updated_at: Math.floor(Date.now() / 1000),
     };
     db.upsertStructuralEdge(lspEdge);
+    const nodesBefore = db
+      .getStructuralNodesForFilePaths(['a.ts'])
+      .map((n) => n.id)
+      .sort();
 
     commit(
       repo,
@@ -115,12 +159,122 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
       lspBudgetMs: 0,
     });
 
-    expect(result.tiers.lsp).not.toBe('ran'); // skipped-budget (or unavailable without a live LSP)
-    // Kept-not-deleted + marked stale (keepLsp path).
-    const kept = db.getEdgeFreshnessByIds([lspEdge.id]);
-    expect(kept).toHaveLength(1);
-    expect(kept[0].freshness_status).toBe('stale');
+    expect(result.tiers.lsp).toBe('skipped-budget');
+    expect(result.escalation).toBe('lsp-budget-exceeded');
+    // Nothing written: the edge keeps its freshness, the nodes are the rebuild's, no fence marks.
+    expect(db.getEdgeFreshnessByIds([lspEdge.id])[0]?.freshness_status).toBe('fresh');
+    expect(
+      db
+        .getStructuralNodesForFilePaths(['a.ts'])
+        .map((n) => n.id)
+        .sort()
+    ).toEqual(nodesBefore);
+    expect(db.countEdgesByFreshness()['dirty-dependent']).toBe(0);
     db.close();
+  });
+
+  it('an LSP tier that cannot start escalates only for an overlay built with LSP', async () => {
+    const repo = makeRepo({
+      'lux.yaml': [
+        'lsp:',
+        '  enabled: true',
+        '  enrichers:',
+        '    - language_id: typescript',
+        '      server_command: /nonexistent/language-server',
+        '',
+      ].join('\n'),
+      'a.ts': `export function helper(): number { return 1; }\nexport function run(): number { return helper(); }\n`,
+    });
+    const { db } = await openRebuilt(repo);
+    commit(
+      repo,
+      'a.ts',
+      `export function helper(): number { return 1; }\nexport function run(): number { return helper() + 0; }\n`
+    );
+    const changed: ChangedFile[] = [{ relPath: 'a.ts', status: 'modified' }];
+
+    const required = await scoped(db, repo, changed, { requireLsp: true });
+    expect(required.tiers.lsp).toBe('unavailable');
+    expect(required.escalation).toBe('lsp-unavailable');
+
+    const notRequired = await scoped(db, repo, changed, { requireLsp: false });
+    expect(notRequired.escalation).toBeUndefined();
+    expect(notRequired.refreshedFiles).toBeGreaterThan(0);
+    db.close();
+  });
+
+  describe('with an injected enricher registry', () => {
+    const LSP_ON = 'lsp:\n  enabled: true\n  enrichers: []\n';
+    const A_V1 = `export function helper(): number { return 1; }\nexport function run(): number { return helper(); }\n`;
+    const A_V2 = `export function helper(): number { return 1; }\nexport function run(): number { return helper() + 0; }\n`;
+    const changed: ChangedFile[] = [{ relPath: 'a.ts', status: 'modified' }];
+
+    /** An in-process enricher: no subprocess, optionally failing at shutdown. */
+    class FakeTsEnricher implements LspEnricher {
+      readonly languageId = 'typescript';
+      readonly fileExtensions = ['.ts'];
+      readonly config: LspEnricherConfig = { serverCommand: 'fake', serverArgs: [] };
+      isReady = false;
+      constructor(private readonly failShutdown = false) {}
+      initialize(): Promise<void> {
+        this.isReady = true;
+        return Promise.resolve();
+      }
+      enrich(): Promise<null> {
+        return Promise.resolve(null);
+      }
+      enrichBatch(): Promise<[]> {
+        return Promise.resolve([]);
+      }
+      shutdown(): Promise<void> {
+        this.isReady = false;
+        return this.failShutdown
+          ? Promise.reject(new Error('server would not exit'))
+          : Promise.resolve();
+      }
+    }
+
+    async function rebuiltWithChange() {
+      const repo = makeRepo({ 'lux.yaml': LSP_ON, 'a.ts': A_V1 });
+      const { db } = await openRebuilt(repo);
+      commit(repo, 'a.ts', A_V2);
+      return { repo, db };
+    }
+
+    it('a tier that throws is `failed`, not over budget: it escalates and records the error', async () => {
+      const { repo, db } = await rebuiltWithChange();
+      const registry = new EnricherRegistry();
+      registry.register(new FakeTsEnricher());
+      registry.getSupportedExtensions = () => {
+        throw new Error('registry exploded');
+      };
+      const before = db.countEdgesByFreshness();
+
+      const result = await scoped(db, repo, changed, { enricherRegistry: registry });
+
+      expect(result.tiers.lsp).toBe('failed');
+      expect(result.escalation).toBe('lsp-failed');
+      expect(result.warnings).toEqual([
+        'The LSP tier failed — registry exploded; the sync runs a full rebuild.',
+      ]);
+      expect(result.warningComponents[result.warnings[0]]).toBe('lsp-tier');
+      expect(db.countEdgesByFreshness()).toEqual(before);
+      db.close();
+    });
+
+    it('a failed enricher shutdown is a warning, and the refresh still completes', async () => {
+      const { repo, db } = await rebuiltWithChange();
+      const registry = new EnricherRegistry();
+      registry.register(new FakeTsEnricher(true));
+
+      const result = await scoped(db, repo, changed, { enricherRegistry: registry });
+
+      expect(result.escalation).toBeUndefined();
+      expect(result.tiers.lsp).toBe('ran');
+      expect(result.warnings.some((w) => w.includes('enricher shutdown errors'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('server would not exit'))).toBe(true);
+      db.close();
+    });
   });
 
   it('a complete refresh (no removed symbols) settles residualStaleEdges: 0 and zero dirty-dependent', async () => {
@@ -187,19 +341,49 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
       'c.ts': `import { removed } from './a.js';\nexport function usesRemoved(): number { return removed(); }\n`,
     });
     const { db, dbPath } = await openRebuilt(repo);
-    const prior = inspectOverlayTrustState(db).state;
     commit(repo, 'a.ts', `export function keep(): number { return 1; }\n`); // removed() deleted
     const result = await scoped(db, repo, [{ relPath: 'a.ts', status: 'modified' }]);
     expect(result.inboundMarkedStale).toBeGreaterThan(0);
     expect(result.residualStaleEdges).toBeGreaterThan(0);
     // Settle trust exactly as the CLI does, then assert `overlay check` exits 1 (degraded overlay).
-    if (prior)
-      persistRefreshTrustState(db, prior, {
-        lastIndexedCommit: getHeadCommit(repo),
-        residualStaleEdges: result.residualStaleEdges,
-      });
+    settleAsCli(db, repo, result.residualStaleEdges);
     db.close();
     expect(runCli(repo, dbPath, ['overlay', 'check']).status).toBe(1);
+  });
+
+  it('a detector-tally mismatch is reported without degrading a refreshed trust state', async () => {
+    const repo = makeRepo({
+      'a.ts': `export function helper(): number { return 1; }\n`,
+    });
+    const { db } = await openRebuilt(repo);
+    const classified = classifyOverlayFromDb(db, {
+      repoPath: repo,
+      configLspEnabled: false,
+      enrichmentActive: false,
+      dirtyFileCount: 0,
+      absorbedWarnings: [],
+      // One more than the surfaces stored: the mismatch a rebuild reports and stays complete over.
+      surfacesDetected: 1,
+    });
+    expect(classified.mode).toBe('overlay-complete');
+    expect(classified.warnings).toHaveLength(1);
+
+    const settled = persistRefreshTrustState(db, classified, {
+      residualStaleEdges: 0,
+      classified,
+      componentsRun: [OVERLAY_STATE_COMPONENT],
+    });
+    expect(settled.warnings).toEqual(classified.warnings);
+    expect(settled.mode).toBe('overlay-complete');
+
+    // Any other warning does degrade it.
+    const degraded = persistRefreshTrustState(db, classified, {
+      residualStaleEdges: 0,
+      classified,
+      warnings: ['detector "d" threw — boom'],
+    });
+    expect(degraded.mode).toBe('degraded-overlay');
+    db.close();
   });
 
   it('a clean scoped refresh settles trust so overlay check exits 0 (SC-9 complement)', async () => {
@@ -207,7 +391,6 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
       'a.ts': `export function helper(): number { return 1; }\nexport function run(): number { return helper(); }\n`,
     });
     const { db, dbPath } = await openRebuilt(repo);
-    const prior = inspectOverlayTrustState(db).state;
     commit(
       repo,
       'a.ts',
@@ -215,11 +398,7 @@ describe('scoped refresh tiers + residuals (spec 13 Part F / SC-9)', () => {
     );
     const result = await scoped(db, repo, [{ relPath: 'a.ts', status: 'modified' }]);
     expect(result.residualStaleEdges).toBe(0);
-    if (prior)
-      persistRefreshTrustState(db, prior, {
-        lastIndexedCommit: getHeadCommit(repo),
-        residualStaleEdges: result.residualStaleEdges,
-      });
+    settleAsCli(db, repo, result.residualStaleEdges);
     db.close();
     expect(runCli(repo, dbPath, ['overlay', 'check']).status).toBe(0);
   });

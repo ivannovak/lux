@@ -175,8 +175,9 @@ describe('scanner degradations reach the warnings channel', () => {
       );
 
       expect(result.tiers.lsp).toBe('skipped-budget');
+      expect(result.escalation).toBe('lsp-budget-exceeded');
       expect(result.warnings).toContain(
-        'LSP tier exceeded budget or failed — skipping; :lsp edges of R left stale.'
+        'The LSP tier did not finish within -1 ms (refresh.lspBudgetMs); the sync runs a full rebuild.'
       );
     } finally {
       db.close();
@@ -205,11 +206,16 @@ describe('scanner degradations reach the warnings channel', () => {
       warnings: [],
     };
     try {
-      const clean = persistRefreshTrustState(db, complete, { residualStaleEdges: 0, warnings: [] });
+      const clean = persistRefreshTrustState(db, complete, {
+        residualStaleEdges: 0,
+        classified: complete,
+        warnings: [],
+      });
       expect(clean.mode).toBe('overlay-complete');
 
       const warned = persistRefreshTrustState(db, complete, {
         residualStaleEdges: 0,
+        classified: complete,
         warnings: ['detector "d" threw — boom'],
       });
       expect(warned.mode).toBe('degraded-overlay');

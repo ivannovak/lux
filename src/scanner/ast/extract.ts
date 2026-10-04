@@ -969,6 +969,9 @@ export function getGrammars(): Promise<Map<AstLang, Parser.Language>> {
  * `hadError` flags a partial parse (tree-sitter is error-tolerant, so partial
  * extractions are still returned).
  */
+/** The diagnostic message of a file tree-sitter produced no tree for at all. */
+export const NO_SYNTAX_TREE = 'tree-sitter returned no syntax tree';
+
 export function extractSource(
   grammars: Map<AstLang, Parser.Language>,
   source: string,
@@ -990,7 +993,7 @@ export function extractSource(
           nodes: [],
           edges: [],
           moduleFacts: [],
-          diagnostics: [{ code: 'parse-error', message: 'tree-sitter returned no syntax tree' }],
+          diagnostics: [{ code: 'parse-error', message: NO_SYNTAX_TREE }],
         },
         hadError: true,
       };

@@ -125,9 +125,10 @@ const FIXTURES: Record<string, FixtureDef> = {
     expectOrphanStale: true,
   },
 
-  // lsp-skipped — modify with refreshOptions { lspBudgetMs: 0 }. Expected stale = exactly the
-  // %:lsp edges of R (none exist without a live LSP ⇒ ∅). Identical over non-:lsp edges.
-  'lsp-skipped': {
+  // lsp-budget-without-lsp — modify with refreshOptions { lspBudgetMs: 0 } on a repo with no LSP
+  // configured: there is no LSP tier to run out of budget, so the refresh completes and matches the
+  // rebuild exactly. (An LSP tier over budget escalates instead; scoped-refresh-tiers covers it.)
+  'lsp-budget-without-lsp': {
     before: {
       'a.ts': `export function helper(): number { return 1; }\nexport function run(): number { return helper(); }\n`,
     },
@@ -136,8 +137,7 @@ const FIXTURES: Record<string, FixtureDef> = {
     },
     changed: [{ relPath: 'a.ts', status: 'modified' }],
     F: ['a.ts'],
-    expectedStale: (_full, scoped) =>
-      new Set([...scoped.staleEdges.keys()].filter((id) => id.endsWith(':lsp'))),
+    expectedStale: NONE,
     refreshOptions: { lspBudgetMs: 0 },
   },
 

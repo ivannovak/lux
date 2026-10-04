@@ -269,179 +269,16 @@ export async function rebuildStructuralOverlay(
     symbolCollisions,
   };
 
-  // React relationships target deterministic framework nodes (components, custom hooks, contexts).
-  // Materialize the complete node set before the association resolver filters exact endpoints.
-  const react = await analyzeReactContext(context);
-  if (react?.nodes.length) {
-    const updatedAt = Math.floor(Date.now() / 1000);
-    db.transaction(() => {
-      for (const node of react.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const expo = await analyzeExpoContext(context);
-  if (expo?.nodes.length) {
-    const updatedAt = Math.floor(Date.now() / 1000);
-    db.transaction(() => {
-      for (const node of expo.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const navigation = await analyzeNavigationContext(context);
-  if (navigation?.nodes.length) {
-    const updatedAt = Math.floor(Date.now() / 1000);
-    db.transaction(() => {
-      for (const node of navigation.nodes)
-        db.upsertStructuralNode(toStructuralNode(node, updatedAt));
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const mobile = await analyzeMobileContext(context);
-  if (mobile?.nodes.length) {
-    const updatedAt = Math.floor(Date.now() / 1000);
-    db.transaction(() => {
-      for (const node of mobile.nodes) db.upsertStructuralNode({ ...node, updated_at: updatedAt });
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const eventBus = await analyzeEventBusContext(context);
-  if (eventBus?.nodes.length) {
-    const updatedAt = Math.floor(Date.now() / 1000);
-    db.transaction(() => {
-      for (const node of eventBus.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const containers = analyzeContainerContext(context);
-  if (containers.nodes.length) {
-    db.transaction(() => {
-      for (const node of containers.nodes) db.upsertStructuralNode(node);
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const terraform = await analyzeTerraformContext(context);
-  if (terraform.nodes.length) {
-    db.transaction(() => {
-      for (const node of terraform.nodes) db.upsertStructuralNode(node);
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const actions = await analyzeActionsContext(context);
-  if (actions.nodes.length) {
-    db.transaction(() => {
-      for (const node of actions.nodes) db.upsertStructuralNode(node);
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  const go = await analyzeGoContext(context);
-  if (go?.nodes.length) {
-    db.transaction(() => {
-      for (const node of go.nodes) db.upsertStructuralNode(node);
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  // Livewire edges target canonical Blade template nodes. Materialize those nodes before the
-  // framework resolver pack runs, then refresh the context from the database so endpoint checks
-  // see the exact persisted identities.
-  const livewire = resolveLivewire(context, {
-    config: options.frameworks?.livewire,
-    now: () => Math.floor(Date.now() / 1000),
-  });
-  if (livewire.nodes.length) {
-    db.transaction(() => {
-      for (const node of livewire.nodes) db.upsertStructuralNode(node);
-    });
-    context.nodes = db.getStructuralNodesForFilePaths(
-      scan.knowledge.map((entry) =>
-        entry.filePath.startsWith(rootPath + '/')
-          ? entry.filePath.slice(rootPath.length + 1)
-          : entry.filePath
-      )
-    );
-  }
-
-  // Nova produces artifact nodes in addition to edges. Persist every node first so the
-  // AssociationEngine can only store edges whose exact PHP/Vue/file endpoints already exist.
-  const novaOptions = { firstPartyRoots: options.firstPartyRoots };
-  const novaResolver = new NovaAssociationResolver(novaOptions);
-  if (options.frameworks?.nova.enabled && novaResolver.supports(context)) {
-    const nova = resolveNova(context, novaOptions);
-    if (nova.nodes.length) {
-      db.transaction(() => {
-        for (const node of nova.nodes) db.upsertStructuralNode(node);
-      });
-      context.nodes = db.getStructuralNodesForFilePaths(
-        scan.knowledge.map((entry) =>
-          entry.filePath.startsWith(rootPath + '/')
-            ? entry.filePath.slice(rootPath.length + 1)
-            : entry.filePath
-        )
-      );
-    }
-  }
+  await materializeFrameworkNodes(
+    db,
+    context,
+    scan.knowledge.map((entry) =>
+      entry.filePath.startsWith(rootPath + '/')
+        ? entry.filePath.slice(rootPath.length + 1)
+        : entry.filePath
+    ),
+    { frameworks: options.frameworks, firstPartyRoots: options.firstPartyRoots }
+  );
 
   // 5. Run association engine
   const resolvers =
@@ -471,7 +308,7 @@ export async function rebuildStructuralOverlay(
   // 6. Run capability surface detectors
   report('Running capability surface detectors...');
   const detectors = options.detectors ?? undefined; // undefined → runDetectors picks defaults
-  const detectorResult = await runDetectors(db, context, detectors, reporter);
+  const detectorResult = await runDetectors(db, context, detectors, reporter, currentCommit);
   report(
     `Detectors complete: ${detectorResult.surfacesDetected} surface(s) detected, ` +
       `${detectorResult.surfaceEdgesStored} edge(s) stored.`
@@ -525,6 +362,132 @@ export async function rebuildStructuralOverlay(
     ...(phaseFailures.length > 0 ? { phaseFailures } : {}),
     symbolCollisions,
   };
+}
+
+/**
+ * Materialize the framework nodes (React, Expo, navigation, mobile, event bus, containers,
+ * Terraform, Actions, Go, Livewire, Nova) that the resolver pack's edges target, refreshing
+ * `context.nodes` from the database after each analyzer writes. The full rebuild and the scoped
+ * refresh both call it, so a refreshed file carries exactly the framework nodes a rebuild gives it.
+ *
+ * @param nodePaths - Relative paths whose persisted nodes make up `context.nodes`.
+ */
+export async function materializeFrameworkNodes(
+  db: LuxDatabase,
+  context: AssociationContext,
+  nodePaths: string[],
+  options: {
+    frameworks?: import('../config.js').FrontendFrameworkConfigV1;
+    firstPartyRoots?: readonly string[];
+  }
+): Promise<void> {
+  // React relationships target deterministic framework nodes (components, custom hooks, contexts).
+  // Materialize the complete node set before the association resolver filters exact endpoints.
+  const react = await analyzeReactContext(context);
+  if (react?.nodes.length) {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    db.transaction(() => {
+      for (const node of react.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const expo = await analyzeExpoContext(context);
+  if (expo?.nodes.length) {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    db.transaction(() => {
+      for (const node of expo.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const navigation = await analyzeNavigationContext(context);
+  if (navigation?.nodes.length) {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    db.transaction(() => {
+      for (const node of navigation.nodes)
+        db.upsertStructuralNode(toStructuralNode(node, updatedAt));
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const mobile = await analyzeMobileContext(context);
+  if (mobile?.nodes.length) {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    db.transaction(() => {
+      for (const node of mobile.nodes) db.upsertStructuralNode({ ...node, updated_at: updatedAt });
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const eventBus = await analyzeEventBusContext(context);
+  if (eventBus?.nodes.length) {
+    const updatedAt = Math.floor(Date.now() / 1000);
+    db.transaction(() => {
+      for (const node of eventBus.nodes) db.upsertStructuralNode(toStructuralNode(node, updatedAt));
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const containers = analyzeContainerContext(context);
+  if (containers.nodes.length) {
+    db.transaction(() => {
+      for (const node of containers.nodes) db.upsertStructuralNode(node);
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const terraform = await analyzeTerraformContext(context);
+  if (terraform.nodes.length) {
+    db.transaction(() => {
+      for (const node of terraform.nodes) db.upsertStructuralNode(node);
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const actions = await analyzeActionsContext(context);
+  if (actions.nodes.length) {
+    db.transaction(() => {
+      for (const node of actions.nodes) db.upsertStructuralNode(node);
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  const go = await analyzeGoContext(context);
+  if (go?.nodes.length) {
+    db.transaction(() => {
+      for (const node of go.nodes) db.upsertStructuralNode(node);
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  // Livewire edges target canonical Blade template nodes. Materialize those nodes before the
+  // framework resolver pack runs, then refresh the context from the database so endpoint checks
+  // see the exact persisted identities.
+  const livewire = resolveLivewire(context, {
+    config: options.frameworks?.livewire,
+    now: () => Math.floor(Date.now() / 1000),
+  });
+  if (livewire.nodes.length) {
+    db.transaction(() => {
+      for (const node of livewire.nodes) db.upsertStructuralNode(node);
+    });
+    context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+  }
+
+  // Nova produces artifact nodes in addition to edges. Persist every node first so the
+  // AssociationEngine can only store edges whose exact PHP/Vue/file endpoints already exist.
+  const novaOptions = { firstPartyRoots: options.firstPartyRoots };
+  const novaResolver = new NovaAssociationResolver(novaOptions);
+  if (options.frameworks?.nova.enabled && novaResolver.supports(context)) {
+    const nova = resolveNova(context, novaOptions);
+    if (nova.nodes.length) {
+      db.transaction(() => {
+        for (const node of nova.nodes) db.upsertStructuralNode(node);
+      });
+      context.nodes = db.getStructuralNodesForFilePaths(nodePaths);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

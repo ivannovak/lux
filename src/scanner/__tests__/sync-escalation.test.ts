@@ -1,8 +1,8 @@
 // Escalation-decision tests (spec 15 Part C / Decisions 7,9 / SC-10 / T3b.3). decideScopedEligibility
-// routes a structural sync scoped-vs-full: the five full/* reasons on the matching condition,
-// scoped otherwise. decideForcedScoped (the --scoped operator override) overrides the
-// fingerprint/first-party/budget policy but never the two HARD preconditions (no-overlay,
-// pending-migration).
+// routes a structural sync scoped-vs-full: the full/* reasons on the matching condition, scoped
+// otherwise. decideForcedScoped (the --scoped operator override) bypasses the changed-count budget
+// but none of the soundness conditions (no-overlay, pending-migration, first-party,
+// config-changed, vendor-pack-changed).
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -148,17 +148,26 @@ describe('decideScopedEligibility (spec 15 Part C)', () => {
 });
 
 describe('decideForcedScoped (spec 15 Part E)', () => {
-  it('overrides the fingerprint/first-party/budget policy → scoped', () => {
-    // firstParty configured + fingerprint never recorded: decideScopedEligibility would escalate,
-    // but --scoped forces scoped because neither hard precondition is violated.
-    const { root, db } = setup('firstParty:\n  packages:\n    - "acme/*"\n', {
-      fingerprint: false,
-    });
+  it('overrides the changed-count budget → scoped', () => {
+    const { root, db } = setup('refresh:\n  maxScopedFiles: 1\n', { fingerprint: true });
+    expect(decideScopedEligibility(db, root, 2)).toEqual({ path: 'full', reason: 'over-budget' });
     expect(decideForcedScoped(db, root)).toEqual({
       path: 'scoped',
-      maxScopedFiles: 100,
+      maxScopedFiles: 1,
       lspBudgetMs: 30000,
     });
+    db.close();
+  });
+
+  it('honors first-party promotion: the refresh does not re-scan first-party roots', () => {
+    const { root, db } = setup('firstParty:\n  packages:\n    - "acme/*"\n', { fingerprint: true });
+    expect(decideForcedScoped(db, root)).toEqual({ path: 'full', reason: 'first-party' });
+    db.close();
+  });
+
+  it('honors a structural config change: facts outside the change set were built under the old config', () => {
+    const { root, db } = setup(NO_FIRST_PARTY, { fingerprint: false });
+    expect(decideForcedScoped(db, root)).toEqual({ path: 'full', reason: 'config-changed' });
     db.close();
   });
 

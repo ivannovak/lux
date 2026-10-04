@@ -2,7 +2,8 @@
 // change makes a second file declare a route, an event's listeners or a command name, or removes
 // that second declaration, the refreshed index holds the rows a cold rebuild of the same commit
 // holds. The census that decides a file-qualified id needs every declaring file, and the refresh
-// has them because any PHP change widens its repair set to every PHP file.
+// has them because any PHP change widens its repair set to every PHP file: through the Nova
+// expansion when Nova is on (the default), and through the PHP widening whether or not it is.
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -93,11 +94,11 @@ Route::get('/', function () {
   'src/Module/Beta/Console/SendReport.php': command('Beta'),
 };
 
-function makeRepo(): string {
+function makeRepo(luxYamlExtra = ''): string {
   const repo = tempDir('lux-shared-decl-');
   execSync('git init -q && git config user.email a@b.c && git config user.name x', { cwd: repo });
   write(repo, {
-    'lux.yaml': `lsp:\n  enabled: false\n  workspace_root: ${repo}\n`,
+    'lux.yaml': `lsp:\n  enabled: false\n  workspace_root: ${repo}\n${luxYamlExtra}`,
     '.gitignore': '.lux/\n',
     'composer.json': JSON.stringify({
       name: 'fixture/app',
@@ -198,34 +199,38 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     db.close();
   }, 120_000);
 
-  it('still sees every declaring file when the change set also holds a React file', async () => {
-    const repo = makeRepo();
-    const db = await rebuilt(repo);
+  // Nova, on by default, widens a PHP change to every PHP file by itself. With it off, only the
+  // PHP widening keeps the census whole, so both settings are covered.
+  for (const nova of [true, false]) {
+    it(`still sees every declaring file when the change set also holds a React file (nova ${nova ? 'on' : 'off'})`, async () => {
+      const repo = makeRepo(nova ? '' : 'frameworks:\n  nova:\n    enabled: false\n');
+      const db = await rebuilt(repo);
 
-    // A React change widens the refresh to the JavaScript universe; the PHP census must not be
-    // left with only the changed PHP files because of it.
-    const mixed = {
-      ...SECOND,
-      'resources/js/Widget.tsx':
-        "import React from 'react';\nexport function Widget() {\n  return <div>widget</div>;\n}\n",
-    };
-    write(repo, mixed);
-    commitAll(repo);
-    const added: ChangedFile[] = Object.keys(mixed).map((relPath) => ({
-      relPath,
-      status: 'added',
-    }));
-    await refreshOverlayScoped(db, repo, added, loadLspConfig(repo), {});
+      // A React change widens the refresh to the JavaScript universe; the PHP census must not be
+      // left with only the changed PHP files because of it.
+      const mixed = {
+        ...SECOND,
+        'resources/js/Widget.tsx':
+          "import React from 'react';\nexport function Widget() {\n  return <div>widget</div>;\n}\n",
+      };
+      write(repo, mixed);
+      commitAll(repo);
+      const added: ChangedFile[] = Object.keys(mixed).map((relPath) => ({
+        relPath,
+        status: 'added',
+      }));
+      await refreshOverlayScoped(db, repo, added, loadLspConfig(repo), {});
 
-    const facts = declaredFacts(db);
-    expect(ids(facts.surfaces)).toEqual([
-      'surface:http:GET:/#file:routes/web.php',
-      'surface:http:GET:/#file:workbench/routes/web.php',
-      'surface:http:GET:/faq',
-    ]);
-    const cold = await rebuilt(repo);
-    expect(facts).toEqual(declaredFacts(cold));
-    cold.close();
-    db.close();
-  }, 120_000);
+      const facts = declaredFacts(db);
+      expect(ids(facts.surfaces)).toEqual([
+        'surface:http:GET:/#file:routes/web.php',
+        'surface:http:GET:/#file:workbench/routes/web.php',
+        'surface:http:GET:/faq',
+      ]);
+      const cold = await rebuilt(repo);
+      expect(facts).toEqual(declaredFacts(cold));
+      cold.close();
+      db.close();
+    }, 120_000);
+  }
 });

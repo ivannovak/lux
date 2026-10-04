@@ -29,6 +29,7 @@ import { AssociationEngine } from './associations/engine.js';
 import { langForFile, type Extraction } from './ast/extract.js';
 import { resolveTypedReceiverEdges } from './ast/lsp-resolve.js';
 import { makeExternalTargetResolver } from './pack/external-resolve.js';
+import { VENDOR_PACK_MERGED_META, vendorPackIdentity } from './pack/cache.js';
 import { resolveFacadeAndHelperEdges } from './pack/facade-resolve.js';
 import { classifyHandlerOwnership, resolveAppNamespace } from './associations/ownership.js';
 import { WarningLog, warnSink, type WarnFn } from './reporter.js';
@@ -549,7 +550,7 @@ const ENRICHER_FACTORIES: Record<
  * The pack build (REQ-4, 3–6× the files) is the real beneficiary — treat this as
  * a conservative tuning knob, not a correctness parameter.
  */
-const ENRICH_FILE_CONCURRENCY = 12;
+export const ENRICH_FILE_CONCURRENCY = 12;
 
 /**
  * Build the typed-receiver LSP work-list (E1 follow-up #2): app source plus any
@@ -676,50 +677,14 @@ export async function generalScan(
 
       activeRegistry = registry;
 
-      // 5. Collect enrichable files from scan results
-      const filesToEnrich = collectEnrichableFiles(scan, registry);
-      report(`Found ${filesToEnrich.size} files to enrich across ${activeCount} enrichers.`);
-
-      // 6. Run enrichment (bounded-parallel — Lever B). The refcounted document
-      //    lease + open-document semaphore in LspClient make this safe; a naive
-      //    Promise.all would flush every didOpen past the request semaphore and
-      //    let one file's didClose close a URI another op is mid-request on.
-      //
-      //    NOTE (Lever C, deferred per CANONICAL-DECISIONS §8): the combined-open
-      //    warmth micro-optimization — running this enrichment pass and the
-      //    step-8b typed-receiver pass against ONE document open per file — is
-      //    deferred. It conflicts with Phase-3's step-8a merge sequencing (the
-      //    typed-receiver pass must stay AFTER materialization + merge). Lever A
-      //    alone meets the REQ-3 app-build target; B+D+E carry the rest.
-      for (const [languageId, filePaths] of filesToEnrich) {
-        const enricher = registry.get(languageId);
-        if (!enricher?.isReady) {
-          // A server that started and died before its files came up leaves the whole language
-          // without LSP data; skipping it without a record would read as complete output.
-          const lost = enricher && lostServerFailure(enricher, startedServers);
-          if (lost) lostServers.push(lost);
-          continue;
-        }
-
-        report(`Enriching ${filePaths.length} ${languageId} files (bounded parallel)...`);
-
-        await mapWithConcurrency(filePaths, ENRICH_FILE_CONCURRENCY, async (filePath) => {
-          try {
-            const result = await enricher.enrich(filePath);
-            if (result) {
-              // Safe under the single-threaded event loop — no shared-index write.
-              enrichments.set(filePath, result);
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push({ filePath, error: message });
-            options?.onEnrichmentError?.(
-              filePath,
-              error instanceof Error ? error : new Error(message)
-            );
-          }
-        });
-      }
+      // 5-6. Enrich every file a started enricher handles (bounded parallel — Lever B).
+      const enriched = await enrichScannedFiles(scan, registry, startedServers, {
+        report,
+        onEnrichmentError: options?.onEnrichmentError,
+      });
+      for (const [filePath, result] of enriched.enrichments) enrichments.set(filePath, result);
+      errors.push(...enriched.errors);
+      lostServers.push(...enriched.lostServers);
     }
   }
 
@@ -767,6 +732,10 @@ export async function generalScan(
     report('Merging vendor pack into overlay...');
     try {
       const merged = options.db.importVendorPack(options.vendorPackPath);
+      options.db.setIndexMetadata(
+        VENDOR_PACK_MERGED_META,
+        vendorPackIdentity(options.vendorPackPath)
+      );
       report(`Vendor pack merged: ${merged.nodes} node(s), ${merged.edges} edge(s).`);
     } catch (error) {
       warn(`vendor pack merge failed — ${error instanceof Error ? error.message : String(error)}`);
@@ -816,7 +785,8 @@ export async function generalScan(
             callResolutionErrors.push({ filePath, error: error.message }),
         }
       );
-      const stored = AssociationEngine.persistEdges(options.db, edges);
+      // Stamped with the rebuild's commit, as the scoped refresh stamps the edges it re-derives.
+      const stored = AssociationEngine.persistEdges(options.db, edges, overlay.currentCommit);
       report(`Typed-receiver resolution: ${stored} edge(s) stored.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -847,7 +817,8 @@ export async function generalScan(
         Math.floor(Date.now() / 1000),
         overlay.symbolCollisions
       );
-      const stored = AssociationEngine.persistEdges(options.db, edges);
+      // Stamped with the rebuild's commit, as the scoped refresh stamps the edges it re-derives.
+      const stored = AssociationEngine.persistEdges(options.db, edges, overlay.currentCommit);
       report(`Facade & helper resolution: ${stored} edge(s) stored.`);
     } catch (error) {
       // Log the full error (stack, not just .message) so a genuine resolver fault is
@@ -932,6 +903,83 @@ export async function generalScan(
     warnings: log.messages,
     warningComponents: log.components,
   };
+}
+
+export interface EnrichScannedFilesOptions {
+  report?: (message: string) => void;
+  onEnrichmentError?: (filePath: string, error: Error) => void;
+  /** Epoch ms after which no further file is started; the result then reports `budgetExceeded`. */
+  deadline?: number;
+}
+
+export interface EnrichScannedFilesResult {
+  enrichments: EnrichmentMap;
+  errors: Array<{ filePath: string; error: string }>;
+  /** Languages whose server started and then died before their files were enriched. */
+  lostServers: LspEnrichmentFailure[];
+  /** True when the deadline passed before every enrichable file was enriched. */
+  budgetExceeded: boolean;
+}
+
+/**
+ * Enrich every scanned file that an initialized enricher handles, routed by file extension. This is
+ * the one definition of "which files LSP enrichment covers and with which server": the full rebuild
+ * and the scoped refresh both call it, so a refreshed file carries exactly the symbols a rebuild
+ * would give it.
+ *
+ * Files run bounded-parallel (Lever B). The refcounted document lease and open-document semaphore
+ * in LspClient make this safe; a naive Promise.all would flush every didOpen past the request
+ * semaphore and let one file's didClose close a URI another op is mid-request on.
+ *
+ * The combined-open warmth micro-optimization (Lever C, deferred per CANONICAL-DECISIONS §8) —
+ * running this pass and the typed-receiver pass against one document open per file — is deferred:
+ * the typed-receiver pass must stay after materialization and the vendor-pack merge.
+ */
+export async function enrichScannedFiles(
+  scan: ScanResult,
+  registry: EnricherRegistry,
+  startedServers: Set<string>,
+  options: EnrichScannedFilesOptions = {}
+): Promise<EnrichScannedFilesResult> {
+  const enrichments: EnrichmentMap = new Map();
+  const errors: Array<{ filePath: string; error: string }> = [];
+  const lostServers: LspEnrichmentFailure[] = [];
+  let budgetExceeded = false;
+  const filesToEnrich = collectEnrichableFiles(scan, registry);
+  options.report?.(
+    `Found ${filesToEnrich.size} files to enrich across ${startedServers.size} enrichers.`
+  );
+
+  for (const [languageId, filePaths] of filesToEnrich) {
+    const enricher = registry.get(languageId);
+    if (!enricher?.isReady) {
+      // A server that started and died before its files came up leaves the whole language
+      // without LSP data; skipping it without a record would read as complete output.
+      const lost = enricher && lostServerFailure(enricher, startedServers);
+      if (lost) lostServers.push(lost);
+      continue;
+    }
+
+    options.report?.(`Enriching ${filePaths.length} ${languageId} files (bounded parallel)...`);
+
+    await mapWithConcurrency(filePaths, ENRICH_FILE_CONCURRENCY, async (filePath) => {
+      if (options.deadline !== undefined && Date.now() > options.deadline) {
+        budgetExceeded = true;
+        return;
+      }
+      try {
+        const result = await enricher.enrich(filePath);
+        // Safe under the single-threaded event loop — no shared-index write.
+        if (result) enrichments.set(filePath, result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push({ filePath, error: message });
+        options.onEnrichmentError?.(filePath, error instanceof Error ? error : new Error(message));
+      }
+    });
+  }
+
+  return { enrichments, errors, lostServers, budgetExceeded };
 }
 
 /**
@@ -1023,6 +1071,49 @@ function collectEnrichableFiles(
 
 /** Files kept per module dependency: the first ones by path, so the choice is reproducible. */
 const MODULE_DEPENDENCY_SAMPLE_SIZE = 5;
+
+/** The whole working tree as a full rebuild reads it: the scan, in scan order, and its analysis. */
+export interface WorkingTreeProgram {
+  scan: ScanResult;
+  /** Absent when the analysis failed; a full rebuild then proceeds without it too. */
+  analysis?: ProgramAnalysisBuildV1;
+}
+
+/**
+ * Scan and analyze the whole working tree exactly as a full rebuild does. A scoped sync needs the
+ * whole-repository facts a rebuild derives from it: the module dependencies, the AST symbol
+ * universe that cross-file calls resolve against, and the order in which files are read.
+ */
+export async function analyzeWorkingTree(
+  rootPath: string,
+  config: LuxLspConfig,
+  warn: WarnFn
+): Promise<WorkingTreeProgram> {
+  const scan = await new GeneralScanner(rootPath, resolveIgnorePatterns(config.scan)).scan();
+  for (const w of scan.warnings ?? []) warn(w.message, w.component);
+  try {
+    return { scan, analysis: await analyzeProgram(scan, rootPath, warn) };
+  } catch (error) {
+    warn(
+      `project resolution analysis failed — ${error instanceof Error ? error.message : String(error)}`
+    );
+    return { scan };
+  }
+}
+
+/**
+ * The module dependencies of the whole working tree, aggregated as a full rebuild aggregates them.
+ * The table is a repository-wide aggregate (counts and the first sample files in scan order) and
+ * import resolution depends on which files and modules exist, so no subset of files can update it.
+ */
+export function computeModuleDependencies(
+  tree: WorkingTreeProgram,
+  rootPath: string,
+  config: LuxLspConfig,
+  report: (message: string) => void = () => {}
+): AggregatedDependency[] {
+  return parseDependencies(tree.scan, rootPath, config, report, tree.analysis);
+}
 
 /**
  * Parse imports from scanned source files and aggregate into module-level dependencies.

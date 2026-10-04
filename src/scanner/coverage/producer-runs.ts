@@ -1,5 +1,9 @@
+import { relative } from 'path';
 import type { LuxDatabase } from '../../db/index.js';
-import type { GeneralScanResult } from '../general.js';
+import type { GeneralScanResult, WorkingTreeProgram } from '../general.js';
+import type { ScanResult } from '../types.js';
+import type { ProgramAnalysisV1 } from '../adapters/program-analysis.js';
+import type { EnrichmentMap } from '../lsp/index.js';
 import {
   mergeLspEnrichmentFailures,
   persistLspEnrichmentFailures,
@@ -46,96 +50,110 @@ export interface ProducerRunSignal {
 
 export type ProducerRunSignals = Readonly<Record<string, ProducerRunSignal>>;
 
-/** Persist explicit run outcomes in existing index_metadata (no schema migration). */
-export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanResult): void {
+/** What a run's producer signals are computed from, whichever path ran. */
+interface ProducerRunInput {
+  knowledge: ScanResult['knowledge'];
+  analysis?: Pick<ProgramAnalysisV1, 'facts' | 'vueFacts' | 'diagnostics'>;
+  /** The structural overlay was built or refreshed. */
+  overlayBuilt: boolean;
+  fileNodes: number;
+  /** Vue files the Vue language server enriched, and those it failed on. */
+  vueEnriched: number;
+  vueEnrichmentFailures: number;
+}
+
+/** One definition of the producer signals, shared by the full rebuild and the scoped sync. */
+function producerRuns(input: ProducerRunInput): Record<string, ProducerRunSignal> {
   const candidateCounts = new Map<string, number>();
-  for (const entry of scan.scan.knowledge) {
+  for (const entry of input.knowledge) {
     if (entry.type !== 'source-code') continue;
     const language = normalizeLanguage(entry.frontmatter?.language);
     if (language) candidateCounts.set(language, (candidateCounts.get(language) ?? 0) + 1);
   }
-
-  const errorsByLanguage = new Map<string, number>();
-  for (const error of scan.stats.enrichmentErrors) {
-    const language = languageFromPath(error.filePath);
-    if (language) errorsByLanguage.set(language, (errorsByLanguage.get(language) ?? 0) + 1);
-  }
+  const built = input.overlayBuilt;
+  const parserFailures =
+    input.analysis?.diagnostics.filter((diagnostic) =>
+      ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
+        diagnostic.code
+      )
+    ).length ?? 0;
 
   const runs: Record<string, ProducerRunSignal> = {};
   for (const language of ['php', 'typescript'] as const) {
     const candidates = candidateCounts.get(language) ?? 0;
     runs[`${language}-tree-sitter`] = {
-      status: candidates === 0 ? 'not-applicable' : scan.overlay ? 'success' : 'failed',
-      failures: scan.overlay ? 0 : candidates,
-      completedCandidates: scan.overlay ? candidates : 0,
+      status: candidates === 0 ? 'not-applicable' : built ? 'success' : 'failed',
+      failures: built ? 0 : candidates,
+      completedCandidates: built ? candidates : 0,
     };
   }
 
   const javascriptCandidates = candidateCounts.get('javascript') ?? 0;
-  const javascriptFacts =
-    scan.overlay?.programAnalysis?.facts.filter((facts) => facts.languageId === 'javascript') ?? [];
-  const javascriptFailures =
-    scan.overlay?.programAnalysis?.diagnostics.filter((diagnostic) =>
-      ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
-        diagnostic.code
-      )
-    ).length ?? 0;
+  const javascriptFacts = built
+    ? (input.analysis?.facts.filter((facts) => facts.languageId === 'javascript') ?? [])
+    : [];
   runs['javascript-tree-sitter'] = {
     status:
       javascriptCandidates === 0
         ? 'not-applicable'
-        : !scan.overlay || javascriptFacts.length === 0
+        : !built || javascriptFacts.length === 0
           ? 'failed'
-          : javascriptFailures > 0 || javascriptFacts.length < javascriptCandidates
+          : parserFailures > 0 || javascriptFacts.length < javascriptCandidates
             ? 'partial'
             : 'success',
-    failures: javascriptFailures || (!scan.overlay ? javascriptCandidates : 0),
+    failures: (built ? parserFailures : 0) || (!built ? javascriptCandidates : 0),
     completedCandidates: javascriptFacts.length,
   };
 
   const vueCandidates = candidateCounts.get('vue') ?? 0;
-  const vueFacts = scan.overlay?.programAnalysis?.vueFacts ?? [];
-  const vueCompilerFailures =
-    scan.overlay?.programAnalysis?.diagnostics.filter((diagnostic) =>
-      ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
-        diagnostic.code
-      )
-    ).length ?? 0;
+  const vueFacts = built ? (input.analysis?.vueFacts ?? []) : [];
   runs['vue-compiler-sfc'] = {
     status:
       vueCandidates === 0
         ? 'not-applicable'
-        : !scan.overlay || vueFacts.length === 0
+        : !built || vueFacts.length === 0
           ? 'failed'
-          : vueCompilerFailures > 0 || vueFacts.length < vueCandidates
+          : parserFailures > 0 || vueFacts.length < vueCandidates
             ? 'partial'
             : 'success',
-    failures: vueCompilerFailures || (!scan.overlay ? vueCandidates : 0),
+    failures: (built ? parserFailures : 0) || (!built ? vueCandidates : 0),
     completedCandidates: vueFacts.length,
   };
 
-  const vueCompleted = [...scan.enrichments.values()].filter(
-    (result) => result.languageId === 'vue'
-  ).length;
-  const vueFailures = errorsByLanguage.get('vue') ?? 0;
   runs['vue-language-server'] = {
     status:
       vueCandidates === 0
         ? 'not-applicable'
-        : vueCompleted === 0
+        : input.vueEnriched === 0
           ? 'failed'
-          : vueFailures > 0 || vueCompleted < vueCandidates
+          : input.vueEnrichmentFailures > 0 || input.vueEnriched < vueCandidates
             ? 'partial'
             : 'success',
-    failures: vueFailures,
-    completedCandidates: vueCompleted,
+    failures: input.vueEnrichmentFailures,
+    completedCandidates: input.vueEnriched,
   };
 
   runs['structural-overlay'] = {
-    status: scan.overlay ? 'success' : 'failed',
-    failures: scan.overlay ? 0 : 1,
-    completedCandidates: scan.overlay?.fileNodes ?? 0,
+    status: built ? 'success' : 'failed',
+    failures: built ? 0 : 1,
+    completedCandidates: input.fileNodes,
   };
+  return runs;
+}
+
+/** Persist explicit run outcomes in existing index_metadata (no schema migration). */
+export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanResult): void {
+  const runs = producerRuns({
+    knowledge: scan.scan.knowledge,
+    analysis: scan.overlay?.programAnalysis,
+    overlayBuilt: Boolean(scan.overlay),
+    fileNodes: scan.overlay?.fileNodes ?? 0,
+    vueEnriched: [...scan.enrichments.values()].filter((result) => result.languageId === 'vue')
+      .length,
+    vueEnrichmentFailures: scan.stats.enrichmentErrors.filter(
+      (error) => languageFromPath(error.filePath) === 'vue'
+    ).length,
+  });
   db.setIndexMetadata(COVERAGE_PRODUCER_RUNS_KEY, JSON.stringify(runs));
 
   // References dropped because they named an id several files declare (identity/symbol-collisions.ts).
@@ -150,88 +168,50 @@ export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanRe
   persistLspEnrichmentFailures(db, scan.stats.lspFailures);
 }
 
+/**
+ * Persist the producer signals after a scoped sync, computed from the whole working tree the
+ * refresh read, so they are the ones a full rebuild of the same commit records. The one signal a
+ * scoped run cannot always recompute is the Vue language server's: when the refresh did not
+ * re-enrich every Vue file, the last recorded signal stands.
+ */
 export function persistScopedCoverageProducerRuns(
   db: LuxDatabase,
+  rootPath: string,
   result: {
-    tiers: { ast: 'ran' | 'failed'; lsp: 'ran' | 'skipped-budget' | 'unavailable' };
-    refreshedFiles: number;
-    refreshedPaths?: string[];
-    lspEnrichmentFailures?: LspEnrichmentFailure[];
-  },
-  changedPaths: string[]
+    tiers: { ast: 'ran' | 'failed'; lsp: 'ran' | 'skipped-budget' | 'failed' | 'unavailable' };
+    refreshedPaths: string[];
+    lspEnrichmentFailures: LspEnrichmentFailure[];
+    enrichments: EnrichmentMap;
+    workingTree?: WorkingTreeProgram;
+  }
 ): void {
   // A tier that ran replaces R's outcomes; one that could not start still records why.
-  const failures = result.lspEnrichmentFailures ?? [];
-  if (result.refreshedPaths && (result.tiers.lsp === 'ran' || failures.length > 0)) {
+  const failures = result.lspEnrichmentFailures;
+  if (result.tiers.lsp === 'ran' || failures.length > 0) {
     mergeLspEnrichmentFailures(db, result.refreshedPaths, failures);
   }
-  const previous = loadCoverageProducerRuns(db) ?? {};
-  const next: Record<string, ProducerRunSignal> = { ...previous };
-  const touched = countLanguages(changedPaths);
+  if (!result.workingTree) return;
 
-  // A scoped run says nothing about languages outside its refresh set. Preserve their last
-  // complete-run evidence rather than fabricating a new success/failure from an unrelated change.
-  for (const language of ['php', 'typescript', 'javascript'] as const) {
-    const count = touched.get(language) ?? 0;
-    if (count === 0) continue;
-    const producer = `${language}-tree-sitter`;
-    if (result.tiers.ast === 'failed') {
-      next[producer] = {
-        status: 'partial',
-        failures: count,
-        completedCandidates: previous[producer]?.completedCandidates ?? 0,
-      };
-    } else if (!previous[producer]) {
-      next[producer] = { status: 'success', failures: 0, completedCandidates: count };
-    } else {
-      next[producer] = {
-        status: 'success',
-        failures: 0,
-        completedCandidates: previous[producer].completedCandidates,
-      };
-    }
+  const refreshed = new Set(result.refreshedPaths);
+  const everyVueFileRefreshed = result.workingTree.scan.knowledge
+    .filter((entry) => entry.type === 'source-code' && /\.vue$/iu.test(entry.filePath))
+    .every((entry) => refreshed.has(relative(rootPath, entry.filePath)));
+  const runs = producerRuns({
+    knowledge: result.workingTree.scan.knowledge,
+    // A failed AST tier leaves the overlay without program analysis, as it does a rebuild.
+    analysis: result.tiers.ast === 'ran' ? result.workingTree.analysis : undefined,
+    overlayBuilt: true,
+    fileNodes: db.countLocalStructuralNodesByType('file'),
+    vueEnriched: [...result.enrichments.values()].filter((r) => r.languageId === 'vue').length,
+    vueEnrichmentFailures: failures.filter(
+      (failure) => failure.stage === 'symbols' && languageFromPath(failure.filePath) === 'vue'
+    ).length,
+  });
+  const previous = loadCoverageProducerRuns(db)?.['vue-language-server'];
+  if (!(everyVueFileRefreshed && result.tiers.lsp === 'ran') && previous) {
+    runs['vue-language-server'] = previous;
   }
-
-  const vueCount = touched.get('vue') ?? 0;
-  if (vueCount > 0) {
-    if (result.tiers.ast === 'failed') {
-      next['vue-compiler-sfc'] = {
-        status: 'partial',
-        failures: vueCount,
-        completedCandidates: previous['vue-compiler-sfc']?.completedCandidates ?? 0,
-      };
-    } else {
-      next['vue-compiler-sfc'] = {
-        status: 'success',
-        failures: 0,
-        completedCandidates: previous['vue-compiler-sfc']?.completedCandidates ?? vueCount,
-      };
-    }
-    if (result.tiers.lsp !== 'ran') {
-      next['vue-language-server'] = {
-        status: 'partial',
-        failures: vueCount,
-        completedCandidates: previous['vue-language-server']?.completedCandidates ?? 0,
-      };
-    } else if (!previous['vue-language-server']) {
-      next['vue-language-server'] = {
-        status: 'success',
-        failures: 0,
-        completedCandidates: vueCount,
-      };
-    }
-  }
-
-  // The scoped overlay transaction itself completed. Preserve a prior full-run signal, or create
-  // one only when this is the first recorded run; AST tier failures make that first run partial.
-  if (!previous['structural-overlay']) {
-    next['structural-overlay'] = {
-      status: result.tiers.ast === 'ran' ? 'success' : 'partial',
-      failures: result.tiers.ast === 'ran' ? 0 : result.refreshedFiles,
-      completedCandidates: result.refreshedFiles,
-    };
-  }
-  db.setIndexMetadata(COVERAGE_PRODUCER_RUNS_KEY, JSON.stringify(next));
+  db.setIndexMetadata(COVERAGE_PRODUCER_RUNS_KEY, JSON.stringify(runs));
 }
 
 export function loadCoverageProducerRuns(db: LuxDatabase): ProducerRunSignals | null {
@@ -263,15 +243,6 @@ export function loadCoverageProducerRuns(db: LuxDatabase): ProducerRunSignals | 
     // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return null;
   }
-}
-
-function countLanguages(paths: string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const path of paths) {
-    const language = languageFromPath(path);
-    if (language) counts.set(language, (counts.get(language) ?? 0) + 1);
-  }
-  return counts;
 }
 
 function normalizeLanguage(value: unknown): string | null {

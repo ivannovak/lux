@@ -10,11 +10,24 @@
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 import { PACK_FORMAT_VERSION, VendorPackReader } from './pack-format.js';
 
-/** Metadata key under which the project DB records the pack key it last merged. */
+/** Metadata key under which `vendor-pack build` records the pack key the project is aligned to. */
 export const VENDOR_PACK_KEY_META = 'vendor_pack_key';
+
+/**
+ * Metadata key under which a rebuild records the identity of the pack it merged into the overlay
+ * (see vendorPackIdentity). Cleared with the overlay, so an absent key means nothing was merged
+ * since the overlay was last cleared — unless vendor-pack nodes predate the key.
+ */
+export const VENDOR_PACK_MERGED_META = 'vendor_pack_merged';
+
+/** The identity a merged pack is recorded under: its key directory and versioned file name. */
+export function vendorPackIdentity(packPath: string | null): string {
+  if (!packPath) return 'none';
+  return `${basename(dirname(packPath))}/${basename(packPath)}`;
+}
 
 export type PackKeyScheme = 'composer-lock' | 'per-package';
 
