@@ -134,11 +134,24 @@ export class MigrationRunner {
       return 0;
     }
 
-    for (const migration of pending) {
-      console.error(`Applying migration ${migration.version}: ${migration.name}`);
-      this.applyMigration(migration);
-      console.error(`✓ Migration ${migration.version} applied successfully`);
-    }
+    // One enclosing transaction, so a fresh index commits once rather than once per migration;
+    // each migration is still its own savepoint. A failing migration ends the loop without
+    // throwing inside the transaction, so the migrations before it stay applied, as they would
+    // with a commit each.
+    let failure: Error | undefined;
+    this.db.transaction(() => {
+      for (const migration of pending) {
+        console.error(`Applying migration ${migration.version}: ${migration.name}`);
+        try {
+          this.applyMigration(migration);
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error(String(error));
+          return;
+        }
+        console.error(`✓ Migration ${migration.version} applied successfully`);
+      }
+    })();
+    if (failure) throw failure;
 
     return pending.length;
   }
