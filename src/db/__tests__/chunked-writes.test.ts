@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LuxDatabase } from '../index.js';
-import { writeAllInChunks, writeInChunks } from '../chunked-writes.js';
+import { MAX_TRANSACTION_MS, writeAllInChunks, writeInChunks } from '../chunked-writes.js';
 
 // node-sqlite3-wasm's VFS calls openSync on the shared CommonJS fs object, so counting opens of
 // `<db>-journal` there counts committed write transactions under `journal_mode = delete`.
@@ -60,6 +60,26 @@ describe('writeInChunks', () => {
 
     expect(journals).toBe(3);
     expect(nodeIds(db)).toHaveLength(10);
+    db.close();
+  });
+
+  it('commits early once a transaction has held the lock for MAX_TRANSACTION_MS', () => {
+    const db = fileDb();
+    const perItemMs = Math.ceil(MAX_TRANSACTION_MS / 2.5);
+    const items = Array.from({ length: 6 }, (_, i) => i);
+
+    // Each transaction reaches the limit on its third item, so six items take two commits, however
+    // large the chunk size.
+    const journals = countJournals(() =>
+      writeAllInChunks(db, items, 1_000, (i) => {
+        db.upsertStructuralNode(node(i));
+        const until = Date.now() + perItemMs;
+        while (Date.now() < until);
+      })
+    );
+
+    expect(journals).toBe(2);
+    expect(nodeIds(db)).toHaveLength(6);
     db.close();
   });
 
