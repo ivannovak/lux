@@ -5,8 +5,10 @@
 // transactions, counted as rollback-journal creations by a `node --import` preload in the real CLI
 // subprocess. That count does not depend on how fast the machine is: a rebuild that commits per row
 // produces more transactions for a larger repository, and one that batches produces the same number
-// for any size. Each test therefore indexes the same fixture shape at two sizes and requires the
-// transaction counts to be equal.
+// for any size. Bulk writes commit once per chunk (db/chunked-writes.ts), so the count is
+// O(phases + rows / chunk); both fixture sizes fit in one chunk per phase, so the bound here is
+// equality: each test indexes the same fixture shape at two sizes and requires equal counts.
+// chunked-writes.test.ts covers the per-chunk term.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
