@@ -301,14 +301,21 @@ export class LuxDatabase {
   // Node anchor lexical index (migration 014 — Decision 4/5). The FTS is standalone, so each write
   // deletes-then-inserts the node's FTS row; the structural_node_texts upsert REPLACEs. Callers run
   // these inside the materialization transaction (materialize.ts).
+  //
+  // The FTS delete is a full scan of structural_node_fts (node_id is UNINDEXED), so running it for
+  // every node made materialization quadratic in the node count. A node has an FTS row only if it has
+  // a structural_node_texts row: this method writes the two together, and every delete removes both
+  // in one transaction (deleteNodeAnchorRowsForNodeIds, clearOverlay). So the scan runs only for a
+  // node whose text already exists, found by primary key.
   upsertNodeAnchorText(row: NodeAnchorTextInsert): void {
     const q = this.getQueries();
+    const hadText = q.hasNodeAnchorText.get(row.node_id) !== undefined;
     q.upsertNodeAnchorTextRow.run({
       node_id: row.node_id,
       prepared: row.prepared,
       content_hash: row.content_hash,
     });
-    q.deleteNodeFtsRow.run(row.node_id);
+    if (hadText) q.deleteNodeFtsRow.run(row.node_id);
     q.insertNodeFtsRow.run({
       node_id: row.node_id,
       name: row.name,
@@ -333,14 +340,17 @@ export class LuxDatabase {
    *  the other half). Returns nothing — no caller uses a count (the re-materialization at
    *  overlay-refresh.ts:223 restores surviving nodes' rows). */
   deleteNodeAnchorRowsForNodeIds(nodeIds: string[]): void {
-    for (let i = 0; i < nodeIds.length; i += LuxDatabase.DELTA_IN_CHUNK) {
-      const chunk = nodeIds.slice(i, i + LuxDatabase.DELTA_IN_CHUNK);
-      if (chunk.length === 0) continue;
-      const ph = LuxDatabase.deltaPlaceholders(chunk.length);
-      this.db.run(`DELETE FROM structural_node_texts      WHERE node_id IN (${ph})`, chunk);
-      this.db.run(`DELETE FROM structural_node_fts        WHERE node_id IN (${ph})`, chunk);
-      this.db.run(`DELETE FROM structural_node_embeddings WHERE node_id IN (${ph})`, chunk);
-    }
+    // One transaction: a text row must never be deleted without its FTS row (upsertNodeAnchorText).
+    this.transaction(() => {
+      for (let i = 0; i < nodeIds.length; i += LuxDatabase.DELTA_IN_CHUNK) {
+        const chunk = nodeIds.slice(i, i + LuxDatabase.DELTA_IN_CHUNK);
+        if (chunk.length === 0) continue;
+        const ph = LuxDatabase.deltaPlaceholders(chunk.length);
+        this.db.run(`DELETE FROM structural_node_texts      WHERE node_id IN (${ph})`, chunk);
+        this.db.run(`DELETE FROM structural_node_fts        WHERE node_id IN (${ph})`, chunk);
+        this.db.run(`DELETE FROM structural_node_embeddings WHERE node_id IN (${ph})`, chunk);
+      }
+    });
   }
 
   /** Count of anchor-viable nodes with prepared text (the coverage denominator + the
@@ -1467,20 +1477,24 @@ export class LuxDatabase {
 
   clearOverlay(): void {
     const queries = this.getQueries();
-    queries.clearEdgeEvidence.run();
-    queries.clearStructuralEdges.run();
-    queries.clearStructuralNodes.run();
-    // Anchor plane clear (Decision 5) — a full rebuild regenerates every node id, so it re-indexes
-    // (and, Phase 3, re-embeds) the whole anchor plane; clearing here, in the one method that resets
-    // the overlay, keeps a populated-then-rebuilt corpus orphan-free. LuxDatabase has no `.exec`; use
-    // `this.db.run` (the adapter's raw-SQL entry), the same form the victim delete uses.
-    this.db.run('DELETE FROM structural_node_texts');
-    this.db.run('DELETE FROM structural_node_fts');
-    this.db.run('DELETE FROM structural_node_embeddings'); // Phase 3 (mig 015): the vector plane clears with its siblings.
-    queries.clearOperationalContracts.run();
-    queries.clearOperationalEdges.run();
-    queries.clearOperationalHandlers.run();
-    queries.clearOperationalBoundaries.run();
+    // One transaction: a single commit, and the text and FTS planes are never cleared apart
+    // (upsertNodeAnchorText relies on an FTS row never outliving its text row).
+    this.transaction(() => {
+      queries.clearEdgeEvidence.run();
+      queries.clearStructuralEdges.run();
+      queries.clearStructuralNodes.run();
+      // Anchor plane clear (Decision 5) — a full rebuild regenerates every node id, so it re-indexes
+      // (and, Phase 3, re-embeds) the whole anchor plane; clearing here, in the one method that resets
+      // the overlay, keeps a populated-then-rebuilt corpus orphan-free. LuxDatabase has no `.exec`; use
+      // `this.db.run` (the adapter's raw-SQL entry), the same form the victim delete uses.
+      this.db.run('DELETE FROM structural_node_texts');
+      this.db.run('DELETE FROM structural_node_fts');
+      this.db.run('DELETE FROM structural_node_embeddings'); // Phase 3 (mig 015): the vector plane clears with its siblings.
+      queries.clearOperationalContracts.run();
+      queries.clearOperationalEdges.run();
+      queries.clearOperationalHandlers.run();
+      queries.clearOperationalBoundaries.run();
+    });
   }
 
   clearRebuildTrustState(): void {

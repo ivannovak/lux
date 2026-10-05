@@ -102,6 +102,7 @@ export class PreparedQueries {
 
   // Node anchor lexical index (Decision 4/5). Standalone FTS maintained by delete-then-insert.
   readonly upsertNodeAnchorTextRow: Stmt;
+  readonly hasNodeAnchorText: Stmt;
   readonly deleteNodeFtsRow: Stmt;
   readonly insertNodeFtsRow: Stmt;
   readonly rankAnchorsLexical: Stmt;
@@ -503,8 +504,14 @@ export class PreparedQueries {
       VALUES (@node_id, @prepared, @content_hash, unixepoch())
     `);
 
+    // Whether a node already has prepared text — and therefore an FTS row (see upsertNodeAnchorText).
+    this.hasNodeAnchorText = db.prepare(
+      `SELECT 1 AS present FROM structural_node_texts WHERE node_id = ?`
+    );
+
     // structural_node_fts is a standalone (non-external-content) table keyed on an UNINDEXED node_id,
-    // so it has no INSERT OR REPLACE semantics — maintained by delete-then-insert per node.
+    // so it has no INSERT OR REPLACE semantics — maintained by delete-then-insert per node. The
+    // UNINDEXED column cannot be searched by index, so this delete scans the whole FTS table.
     this.deleteNodeFtsRow = db.prepare(`DELETE FROM structural_node_fts WHERE node_id = ?`);
     this.insertNodeFtsRow = db.prepare(`
       INSERT INTO structural_node_fts (node_id, name, identifiers, qualified, path_segments, context)
