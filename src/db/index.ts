@@ -33,6 +33,13 @@ import type {
 // into search-query.js (D3). The shared limit coercer rides the same barrel so every coercing caller
 // (federated CLI + MCP, single-repo MCP) imports the ONE rule from here.
 export { SearchRefusalError, coerceSearchLimit } from './search-query.js';
+export {
+  writeInChunks,
+  writeAllInChunks,
+  ROWS_PER_COMMIT,
+  FILES_PER_COMMIT,
+} from './chunked-writes.js';
+export type { ChunkedWriteResult, ChunkedWriteTarget } from './chunked-writes.js';
 export type { SearchRefusalReason } from './search-query.js';
 // Re-export the lexical anchor row so the non-fenced ranker (scanner/anchors/lexical-ranker.ts) can
 // import it from the DB barrel without reaching into ./types.js directly (mig 014).
@@ -530,6 +537,11 @@ export class LuxDatabase {
    */
   transaction<T>(fn: () => T): T {
     return this.db.transaction(fn)();
+  }
+
+  /** Whether a transaction is open (see LuxSqlite.inTransaction). */
+  inTransaction(): boolean {
+    return this.db.inTransaction();
   }
 
   /**

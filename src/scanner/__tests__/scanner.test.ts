@@ -192,6 +192,7 @@ describe('GeneralScanner', () => {
       // Create mock database
       mockDb = {
         transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => 1),
       } as unknown as LuxDatabase;
 
@@ -279,6 +280,7 @@ describe('GeneralScanner', () => {
       const scanner = new GeneralScanner();
       const errorDb = {
         transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           throw new Error('DB constraint violation');
         }),
@@ -311,6 +313,7 @@ describe('GeneralScanner', () => {
       let callCount = 0;
       const partialDb = {
         transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           callCount++;
           if (callCount === 2) throw new Error('Second insertion failed');
@@ -345,6 +348,44 @@ describe('GeneralScanner', () => {
       expect(db.getAllKnowledgeEntries().map((e) => e.title)).toEqual(['First', 'Second']);
       db.close();
     });
+
+    it.each([
+      [
+        'ABORT',
+        'only the failing statement',
+        'Partial index created: 2 knowledge entries',
+        ['First', 'Second'],
+      ],
+      ['ROLLBACK', 'the whole transaction', 'Partial index created: 0 knowledge entries', []],
+    ])(
+      'reports what committed when a RAISE(%s) undoes %s',
+      async (mode, _undone, partial, committed) => {
+        const scanner = new GeneralScanner();
+        const db = new LuxDatabase(':memory:');
+        const sqlite = (db as unknown as { db: { exec(sql: string): void } }).db;
+        sqlite.exec(
+          `CREATE TRIGGER fail_third BEFORE INSERT ON knowledge_entries
+             WHEN (SELECT count(*) FROM knowledge_entries) >= 2
+           BEGIN SELECT RAISE(${mode}, 'injected failure'); END;`
+        );
+        const result: ScanResult = {
+          knowledge: ['First', 'Second', 'Third', 'Fourth'].map((title) => ({
+            type: 'methodology',
+            title,
+            filePath: `/test/${title}.md`,
+            content: title,
+          })),
+        };
+
+        const error = await scanner.index(db, result).catch((e: Error) => e);
+
+        expect((error as Error).message).toContain(partial);
+        expect((error as Error).message).toContain('injected failure');
+        expect((error as Error).message).not.toContain('no transaction is active');
+        expect(db.getAllKnowledgeEntries().map((e) => e.title)).toEqual(committed);
+        db.close();
+      }
+    );
 
     it('should handle empty scan result', async () => {
       const scanner = new GeneralScanner();
@@ -391,6 +432,7 @@ describe('GeneralScanner', () => {
 
       const errorDb = {
         transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           throw 'String error'; // Non-Error exception
         }),

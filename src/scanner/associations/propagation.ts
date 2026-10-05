@@ -12,7 +12,7 @@
 // evidence (LSP symbol data, file naming, or import patterns). It does
 // NOT infer by convention alone when symbol truth exists.
 
-import type { LuxDatabase } from '../../db/index.js';
+import { writeAllInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralNode } from '../../db/types.js';
 import type { AssociationContext, EdgeType, TransportContractMetadata } from './types.js';
 import { AssociationEngine } from './engine.js';
@@ -26,6 +26,9 @@ export interface PropagationResult {
   consumerEdgesAdded: number;
   artifactEdgesAdded: number;
 }
+
+/** Surfaces propagated per commit: on a large Laravel app one surface's passes take tens of ms. */
+const SURFACES_PER_COMMIT = 32;
 
 /**
  * Run all propagation passes for the detected surfaces in the given context.
@@ -51,15 +54,15 @@ export function propagateSurfaces(
   let consumerEdgesAdded = 0;
   let artifactEdgesAdded = 0;
 
-  // The passes write one node or edge at a time; one enclosing transaction turns those into a single
-  // commit (each persistEdges call becomes a savepoint), and later passes still read earlier writes.
-  db.transaction(() => {
-    for (const surface of surfaces) {
-      providerEdgesAdded += runProviderPropagation(db, surface, context);
-      consumerEdgesAdded += runConsumerPropagation(db, surface, context);
-      consumerEdgesAdded += runBladeConsumerPropagation(db, surface, context);
-      artifactEdgesAdded += runArtifactPropagation(db, surface, context);
-    }
+  // The passes write one node or edge at a time; enclosing transactions turn those into a few
+  // commits (each persistEdges call becomes a savepoint), and later passes still read earlier
+  // writes. A surface's passes do far more reading than writing, so commits are per run of
+  // surfaces, to keep each transaction short.
+  writeAllInChunks(db, surfaces, SURFACES_PER_COMMIT, (surface) => {
+    providerEdgesAdded += runProviderPropagation(db, surface, context);
+    consumerEdgesAdded += runConsumerPropagation(db, surface, context);
+    consumerEdgesAdded += runBladeConsumerPropagation(db, surface, context);
+    artifactEdgesAdded += runArtifactPropagation(db, surface, context);
   });
 
   return Promise.resolve({ providerEdgesAdded, consumerEdgesAdded, artifactEdgesAdded });

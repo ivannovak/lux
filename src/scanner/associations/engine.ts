@@ -4,7 +4,7 @@
 // cross-language structural overlay. It does not perform graph projection —
 // it only produces and persists flat edge records with evidence.
 
-import type { LuxDatabase } from '../../db/index.js';
+import { ROWS_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralEdge, EdgeEvidence } from '../../db/types.js';
 import type { AssociationContext, AssociationResolver, StructuralRelationEdge } from './types.js';
 
@@ -105,18 +105,16 @@ export class AssociationEngine {
       `Persisting ${toStore.length} edges (${deduped.length - toStore.length} heuristics filtered).`
     );
 
-    // 4. Persist — batch all edge + evidence writes into one transaction (Lever E).
+    // 4. Persist — batch edge + evidence writes into bounded transactions (Lever E).
     // The inner replaceEdgeEvidence transaction is promoted to a savepoint when
-    // nested, so behaviour is unchanged beyond collapsing many commits into one.
+    // nested, so behaviour is unchanged beyond collapsing many commits into few.
     const ts = Math.floor(Date.now() / 1000);
-    this.db.transaction(() => {
-      for (const rel of toStore) {
-        const dbEdge = this.toDbEdge(rel, context, ts);
-        this.db.upsertStructuralEdge(dbEdge);
+    writeAllInChunks(this.db, toStore, ROWS_PER_COMMIT, (rel) => {
+      const dbEdge = this.toDbEdge(rel, context, ts);
+      this.db.upsertStructuralEdge(dbEdge);
 
-        const evidence = this.toDbEvidence(rel, ts);
-        this.db.replaceEdgeEvidence(rel.id, evidence);
-      }
+      const evidence = this.toDbEvidence(rel, ts);
+      this.db.replaceEdgeEvidence(rel.id, evidence);
     });
 
     return {
@@ -145,39 +143,37 @@ export class AssociationEngine {
   ): number {
     const ts = Math.floor(Date.now() / 1000);
 
-    // Batch all edge + evidence writes into one transaction (Lever E).
-    db.transaction(() => {
-      for (const rel of edges) {
-        const dbEdge: StructuralEdge = {
-          id: rel.id,
-          source_node_id: rel.sourceNodeId,
-          target_node_id: rel.targetNodeId,
-          edge_type: rel.edgeType,
-          confidence: rel.confidence,
-          confidence_class: rel.confidenceClass,
-          freshness_status: 'fresh',
-          // Was absent (⇒ NULL), which born these tiers' edges exempt from the commit-based
-          // staleness guard (SC-8 / Decision 13). The scoped settle passes HEAD; the full-rebuild
-          // path omits it (unchanged NULL — the propagation tier's documented exclusion).
-          source_commit: sourceCommit,
-          dirty_dependency_count: 0,
-          provenance_summary: `${rel.provenance.resolver} [${rel.provenance.evidenceKind}]`,
-          updated_at: ts,
-        };
-        db.upsertStructuralEdge(dbEdge);
+    // Batch edge + evidence writes into bounded transactions (Lever E).
+    writeAllInChunks(db, edges, ROWS_PER_COMMIT, (rel) => {
+      const dbEdge: StructuralEdge = {
+        id: rel.id,
+        source_node_id: rel.sourceNodeId,
+        target_node_id: rel.targetNodeId,
+        edge_type: rel.edgeType,
+        confidence: rel.confidence,
+        confidence_class: rel.confidenceClass,
+        freshness_status: 'fresh',
+        // Was absent (⇒ NULL), which born these tiers' edges exempt from the commit-based
+        // staleness guard (SC-8 / Decision 13). The scoped settle passes HEAD; the full-rebuild
+        // path omits it (unchanged NULL — the propagation tier's documented exclusion).
+        source_commit: sourceCommit,
+        dirty_dependency_count: 0,
+        provenance_summary: `${rel.provenance.resolver} [${rel.provenance.evidenceKind}]`,
+        updated_at: ts,
+      };
+      db.upsertStructuralEdge(dbEdge);
 
-        const evidence: EdgeEvidence[] = rel.provenance.evidenceLocations.map((loc, i) => ({
-          id: `${rel.id}:ev:${i}`,
-          edge_id: rel.id,
-          resolver: rel.provenance.resolver,
-          evidence_kind: rel.provenance.evidenceKind,
-          file_path: loc.filePath,
-          line: loc.line,
-          note: loc.note,
-          recorded_at: ts,
-        }));
-        db.replaceEdgeEvidence(rel.id, evidence);
-      }
+      const evidence: EdgeEvidence[] = rel.provenance.evidenceLocations.map((loc, i) => ({
+        id: `${rel.id}:ev:${i}`,
+        edge_id: rel.id,
+        resolver: rel.provenance.resolver,
+        evidence_kind: rel.provenance.evidenceKind,
+        file_path: loc.filePath,
+        line: loc.line,
+        note: loc.note,
+        recorded_at: ts,
+      }));
+      db.replaceEdgeEvidence(rel.id, evidence);
     });
 
     return edges.length;

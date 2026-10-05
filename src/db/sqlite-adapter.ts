@@ -340,6 +340,13 @@ export class LuxSqlite {
     return this.db.get(`PRAGMA ${str}`);
   }
 
+  /** Whether a transaction is open. SQLite rolls a whole transaction back on some errors (I/O, a
+   *  full disk, `RAISE(ROLLBACK)`), so a caller that caught a statement error checks this before
+   *  carrying on as if the rest of its transaction still stood. */
+  inTransaction(): boolean {
+    return this.db.inTransaction;
+  }
+
   /** better-sqlite3 semantics: returns a callable with the same args; BEGIN/COMMIT with
    *  SAVEPOINT nesting and rollback-on-throw. */
   transaction<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {

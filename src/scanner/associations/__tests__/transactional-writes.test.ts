@@ -46,6 +46,10 @@ class FakeTxDb {
     }
   }
 
+  inTransaction(): boolean {
+    return this.inTx;
+  }
+
   upsertStructuralEdge(edge: StructuralEdge): void {
     if (edge.id === this.failOnEdgeId) throw new Error('write failed');
     (this.inTx ? this.stagedEdges : this.committedEdges).push(edge);
@@ -138,7 +142,7 @@ describe('Lever E — batched, atomic persistence', () => {
     expect(db.committedEdges).toHaveLength(2);
   });
 
-  it('materializeAstSymbols upserts its nodes in a single transaction', async () => {
+  it('materializeAstSymbols upserts its nodes, then its anchor texts, in one transaction each', async () => {
     const db = new FakeTxDb();
     const scan: ScanResult = {
       knowledge: [
@@ -155,7 +159,7 @@ describe('Lever E — batched, atomic persistence', () => {
     const count = await materializeAstSymbols(db.asDb(), scan, '/repo', 1000);
 
     expect(count).toBeGreaterThan(0);
-    expect(db.txCount).toBe(1);
+    expect(db.txCount).toBe(2);
     expect(db.committedNodes.length).toBe(count);
   });
 });

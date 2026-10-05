@@ -5,7 +5,7 @@
 // Gated by lux.yaml `ast.enabled`; invoked from rebuildStructuralOverlay before
 // the association engine runs, so the AST resolver's edges reference real nodes.
 
-import type { LuxDatabase } from '../../db/index.js';
+import { ROWS_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
 import type { ScanResult } from '../types.js';
 import type { StructuralNode } from '../../db/types.js';
 import {
@@ -76,32 +76,30 @@ export async function materializeAstSymbols(
     anchorTexts.push(...buildAnchorTexts(relPath, extraction, lang, entry.content));
   }
 
-  // Batch all upserts into one transaction (Lever E) — WAL + synchronous=NORMAL
-  // turns the many small commits into a single fsync.
+  // Batch the upserts (Lever E) in bounded transactions, so the many small commits become a few
+  // without one transaction holding the file lock for the whole pass.
   let count = 0;
-  db.transaction(() => {
-    for (const node of nodes) {
-      db.upsertStructuralNode(node);
-      if (!seen.has(node.id)) {
-        seen.add(node.id);
-        count++;
-      }
+  writeAllInChunks(db, nodes, ROWS_PER_COMMIT, (node) => {
+    db.upsertStructuralNode(node);
+    if (!seen.has(node.id)) {
+      seen.add(node.id);
+      count++;
     }
-    // Anchor texts second — the FTS join needs the node row to exist. One row per anchor-viable node
-    // (Decision 6); a re-materialised same-id node REPLACEs its text + rewrites its FTS row, so a
-    // changed body/signature under a stable id yields a fresh content_hash the Phase-3 queue detects.
-    for (const text of anchorTexts) {
-      db.upsertNodeAnchorText({
-        node_id: text.nodeId,
-        prepared: text.embedText,
-        content_hash: text.contentHash,
-        name: text.fields.name,
-        identifiers: text.fields.identifiers,
-        qualified: text.fields.qualified,
-        path_segments: text.fields.pathSegments,
-        context: text.fields.context,
-      });
-    }
+  });
+  // Anchor texts second — the FTS join needs the node row to exist. One row per anchor-viable node
+  // (Decision 6); a re-materialised same-id node REPLACEs its text + rewrites its FTS row, so a
+  // changed body/signature under a stable id yields a fresh content_hash the Phase-3 queue detects.
+  writeAllInChunks(db, anchorTexts, ROWS_PER_COMMIT, (text) => {
+    db.upsertNodeAnchorText({
+      node_id: text.nodeId,
+      prepared: text.embedText,
+      content_hash: text.contentHash,
+      name: text.fields.name,
+      identifiers: text.fields.identifiers,
+      qualified: text.fields.qualified,
+      path_segments: text.fields.pathSegments,
+      context: text.fields.context,
+    });
   });
 
   return count;

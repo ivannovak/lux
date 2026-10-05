@@ -77,4 +77,26 @@ describe('migration batching (issue #15)', () => {
     expect(tables).not.toContain('third_table');
     sqlite.close();
   });
+
+  it('surfaces the original error, and keeps nothing, when a migration aborts the whole transaction', () => {
+    const sqlite = new LuxSqlite(':memory:');
+    const runner = new MigrationRunner(sqlite);
+    vi.spyOn(runner, 'loadMigrations').mockReturnValue([
+      {
+        version: 1,
+        name: 'first',
+        sql:
+          'CREATE TABLE first_table (x INTEGER); CREATE TABLE guard (x INTEGER); ' +
+          "CREATE TRIGGER guard_rollback BEFORE INSERT ON guard BEGIN SELECT RAISE(ROLLBACK, 'injected rollback'); END;",
+      },
+      { version: 2, name: 'second', sql: 'CREATE TABLE second_table (x INTEGER);' },
+      { version: 3, name: 'aborting', sql: 'INSERT INTO guard VALUES (1);' },
+    ]);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => runner.runMigrations()).toThrow('injected rollback');
+    expect(runner.getCurrentVersion()).toBe(0);
+    expect(sqlite.inTransaction()).toBe(false);
+    sqlite.close();
+  });
 });

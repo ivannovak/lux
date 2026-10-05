@@ -3,7 +3,7 @@ import { join, basename, extname } from 'path';
 import { glob, globSync } from 'glob';
 import matter from 'gray-matter';
 import type { Frontmatter, ScannedKnowledge, ScanResult } from './types.js';
-import type { LuxDatabase } from '../db/index.js';
+import { ROWS_PER_COMMIT, writeInChunks, type LuxDatabase } from '../db/index.js';
 import {
   loadLspConfig,
   type LuxLspConfig,
@@ -366,52 +366,45 @@ export class GeneralScanner {
       return Promise.reject(new Error('Invalid scan result: knowledge must be an array'));
     }
 
-    let indexedCounts = { knowledge: 0 };
+    const indexedCounts = { knowledge: 0 };
 
     try {
-      // Index knowledge entries in one transaction (issue #15: a commit per entry costs a rollback-
-      // journal create/sync/delete each). A failing entry ends the loop without throwing inside the
-      // transaction, so the entries before it still commit and the partial index reported below is
-      // the one on disk.
-      let failure: Error | undefined;
-      db.transaction(() => {
-        for (const entry of scanResult.knowledge) {
-          // Validate knowledge data
-          if (!entry.type || typeof entry.type !== 'string') {
-            failure = new Error(
-              `Invalid knowledge entry: missing or invalid type (file: ${entry.filePath})`
-            );
-            return;
-          }
-          if (!entry.title || typeof entry.title !== 'string') {
-            failure = new Error(
-              `Invalid knowledge entry: missing or invalid title (file: ${entry.filePath})`
-            );
-            return;
-          }
+      // Index knowledge entries in bounded transactions (issue #15: a commit per entry costs a
+      // rollback-journal create/sync/delete each). A failing entry stops the run; the partial index
+      // reported below counts exactly the entries that committed.
+      const result = writeInChunks(db, scanResult.knowledge, ROWS_PER_COMMIT, (entry) => {
+        // Validate knowledge data
+        if (!entry.type || typeof entry.type !== 'string') {
+          throw new Error(
+            `Invalid knowledge entry: missing or invalid type (file: ${entry.filePath})`
+          );
+        }
+        if (!entry.title || typeof entry.title !== 'string') {
+          throw new Error(
+            `Invalid knowledge entry: missing or invalid title (file: ${entry.filePath})`
+          );
+        }
 
-          try {
-            db.insertKnowledgeEntry({
-              type: entry.type,
-              title: entry.title,
-              file_path: entry.filePath,
-              tags: entry.tags,
-              metadata: entry.frontmatter,
-              content: entry.content,
-            });
-            indexedCounts.knowledge++;
-          } catch (error) {
-            failure = new Error(
-              `Failed to insert knowledge entry "${entry.title}" (${entry.filePath}): ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-              { cause: error }
-            );
-            return;
-          }
+        try {
+          db.insertKnowledgeEntry({
+            type: entry.type,
+            title: entry.title,
+            file_path: entry.filePath,
+            tags: entry.tags,
+            metadata: entry.frontmatter,
+            content: entry.content,
+          });
+        } catch (error) {
+          throw new Error(
+            `Failed to insert knowledge entry "${entry.title}" (${entry.filePath}): ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            { cause: error }
+          );
         }
       });
-      if (failure) throw failure;
+      indexedCounts.knowledge = result.committed;
+      if (result.error) throw result.error;
 
       return Promise.resolve(indexedCounts);
     } catch (error) {

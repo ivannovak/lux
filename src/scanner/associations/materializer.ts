@@ -8,7 +8,7 @@
 //   - file   : one per indexed source code file
 //   - symbol : top-level symbols from LSP enrichment results
 
-import type { LuxDatabase } from '../../db/index.js';
+import { FILES_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralNode } from '../../db/types.js';
 import type { ScanResult, ScannedKnowledge } from '../types.js';
 import type { EnrichmentMap, EnrichmentResult } from '../lsp/index.js';
@@ -43,28 +43,25 @@ export function materializeNodes(
   let fileNodes = 0;
   let symbolNodes = 0;
 
-  // One transaction for the whole pass: outside one, every upsert commits on its own, and under the
-  // rollback journal each commit costs a journal create/sync/delete (issue #15).
-  db.transaction(() => {
-    for (const entry of scan.knowledge) {
-      if (entry.type !== 'source-code') continue;
+  // Bounded transactions: outside one, every upsert commits on its own, and under the rollback
+  // journal each commit costs a journal create/sync/delete (issue #15).
+  const sources = scan.knowledge.filter((entry) => entry.type === 'source-code');
+  writeAllInChunks(db, sources, FILES_PER_COMMIT, (entry) => {
+    // File node — one per source file
+    const fileNode = buildFileNode(entry, rootPath);
+    db.upsertStructuralNode(fileNode);
+    fileNodes++;
 
-      // File node — one per source file
-      const fileNode = buildFileNode(entry, rootPath);
-      db.upsertStructuralNode(fileNode);
-      fileNodes++;
-
-      // Symbol nodes — from LSP enrichment (may be absent for unenriched files)
-      const enrichment = enrichments.get(entry.filePath);
-      if (enrichment && enrichment.symbols.length > 0) {
-        const symNodes = buildSymbolNodes(entry.filePath, enrichment, rootPath, entry.content);
-        const seenIds = new Set<string>();
-        for (const node of symNodes) {
-          db.upsertStructuralNode(node);
-          if (!seenIds.has(node.id)) {
-            seenIds.add(node.id);
-            symbolNodes++;
-          }
+    // Symbol nodes — from LSP enrichment (may be absent for unenriched files)
+    const enrichment = enrichments.get(entry.filePath);
+    if (enrichment && enrichment.symbols.length > 0) {
+      const symNodes = buildSymbolNodes(entry.filePath, enrichment, rootPath, entry.content);
+      const seenIds = new Set<string>();
+      for (const node of symNodes) {
+        db.upsertStructuralNode(node);
+        if (!seenIds.has(node.id)) {
+          seenIds.add(node.id);
+          symbolNodes++;
         }
       }
     }
