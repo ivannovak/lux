@@ -5,7 +5,11 @@ import { Worker, type WorkerOptions } from 'node:worker_threads';
 
 import type { Extraction } from '../ast/extract.js';
 import type { AdapterInputV1 } from './types.js';
-import type { AdapterWorkerRequestV1, AdapterWorkerResponseV1 } from './worker-protocol.js';
+import {
+  PERSISTENT_WORKER_DATA,
+  type AdapterWorkerRequestV1,
+  type AdapterWorkerResponseV1,
+} from './worker-protocol.js';
 
 function hasControlCharacter(value: string): boolean {
   return [...value].some((character) => {
@@ -40,6 +44,8 @@ export interface WorkerHostOptions {
   createWorker?: (url: URL, options: WorkerOptions) => WorkerLike;
   /** Internal bounded-cache seam; keeps Extraction out of the frozen adapter contract. */
   includeExtraction?: boolean;
+  /** Test seam: the entry point of the persistent worker tried before a single-use one. */
+  persistentWorkerUrl?: URL;
 }
 
 interface ConfinedSource {
@@ -198,6 +204,23 @@ function isWorkerResponse(value: unknown): value is AdapterWorkerResponseV1 {
   );
 }
 
+/** Decode one worker reply, enforcing the result-size limit before any decoding. */
+function decodeWorkerMessage(value: unknown, maxResultBytes: number): AdapterWorkerResponseV1 {
+  const bytes = messageBytes(value);
+  if (!bytes) return diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError);
+  // This check intentionally precedes TextDecoder and JSON.parse.
+  if (bytes.byteLength > maxResultBytes) {
+    return diagnostic('limit', WORKER_DIAGNOSTICS.resultLimit);
+  }
+  try {
+    const decoded: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!isWorkerResponse(decoded)) throw new Error('invalid worker response');
+    return decoded;
+  } catch {
+    return diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError);
+  }
+}
+
 function defaultCreateWorker(url: URL, options: WorkerOptions): WorkerLike {
   return new Worker(url, options);
 }
@@ -209,11 +232,22 @@ function graceDelay(milliseconds: number): Promise<void> {
   });
 }
 
-async function executeWorker(
+function workerOptions(url: URL, workerData: unknown): WorkerOptions {
+  const isTypeScriptEntry = url.pathname.endsWith('.ts');
+  return {
+    workerData,
+    resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32, stackSizeMb: 8 },
+    ...(isTypeScriptEntry ? { execArgv: ['--import', tsxLoaderUrl()] } : {}),
+  };
+}
+
+type WorkerWire = WorkerWireRequestV1 & { includeExtraction?: boolean };
+
+function wireRequest(
   request: AdapterWorkerRequestV1,
   confined: ConfinedSource,
   options: WorkerHostOptions
-): Promise<AdapterWorkerResponseV1> {
+): WorkerWire {
   const canonicalRequest: AdapterWorkerRequestV1 = {
     schemaVersion: 1,
     adapterId: request.adapterId,
@@ -224,23 +258,118 @@ async function executeWorker(
       filePath: confined.canonicalFilePath,
     },
   };
-  const wire: WorkerWireRequestV1 & { includeExtraction?: boolean } = {
+  return {
     schemaVersion: 1,
     request: canonicalRequest,
     source: confined.source,
     ...(options.includeExtraction ? { includeExtraction: true } : {}),
   };
+}
+
+// ── Persistent worker pool ────────────────────────────────────────────────────
+// Starting a worker and loading the parser into it costs far more than most parses, and a rebuild
+// asks for one parse per JavaScript and Vue file. So a parse first runs in an idle persistent worker
+// of the same entry, which serves one request per message, under the same path, size, time and
+// heap guards. Any failure there (timeout, crash, unreadable reply, `worker-error`) discards that
+// worker and re-runs the request in a fresh single-use worker, so every outcome other than a clean
+// parse is decided exactly as it is without the pool. Idle workers are unref'd and never keep the
+// process alive.
+
+const idleWorkers = new Map<string, Worker[]>();
+let persistentWorkersStarted = 0;
+
+/** Persistent parser workers started by this process (observability for tests). */
+export function persistentParserWorkersStarted(): number {
+  return persistentWorkersStarted;
+}
+
+function acquirePersistentWorker(url: URL): Worker {
+  const idle = idleWorkers.get(url.href)?.pop();
+  if (idle) return idle;
+  const worker = new Worker(url, workerOptions(url, PERSISTENT_WORKER_DATA));
+  persistentWorkersStarted++;
+  // Always listen, so a worker that dies while idle never raises an unhandled 'error'.
+  const forget = (): void => {
+    const pool = idleWorkers.get(url.href);
+    const index = pool?.indexOf(worker) ?? -1;
+    if (pool && index >= 0) pool.splice(index, 1);
+  };
+  worker.on('error', forget);
+  worker.on('exit', forget);
+  return worker;
+}
+
+function releasePersistentWorker(url: URL, worker: Worker): void {
+  worker.unref();
+  const pool = idleWorkers.get(url.href) ?? [];
+  pool.push(worker);
+  idleWorkers.set(url.href, pool);
+}
+
+/** Run a request in a persistent worker; `undefined` means it must be re-run in a fresh worker. */
+function executePersistent(
+  request: AdapterWorkerRequestV1,
+  wire: WorkerWire,
+  url: URL
+): Promise<AdapterWorkerResponseV1 | undefined> {
+  let worker: Worker;
+  try {
+    worker = acquirePersistentWorker(url);
+  } catch {
+    return Promise.resolve(undefined);
+  }
+  worker.ref();
+
+  return new Promise((resolveResponse) => {
+    const finish = (response: AdapterWorkerResponseV1 | undefined): void => {
+      clearTimeout(timeout);
+      worker.off('message', onMessage);
+      worker.off('error', onFailure);
+      worker.off('exit', onFailure);
+      if (response === undefined) {
+        void worker.terminate().catch(() => undefined);
+      } else {
+        releasePersistentWorker(url, worker);
+      }
+      resolveResponse(response);
+    };
+    const onFailure = (): void => finish(undefined);
+    const onMessage = (value: unknown): void => {
+      const response = decodeWorkerMessage(value, request.input.limits.maxResultBytes);
+      const failed = !response.ok && response.diagnostic.code === 'worker-error';
+      finish(failed ? undefined : response);
+    };
+
+    const timeout = setTimeout(onFailure, request.input.limits.timeoutMs);
+    timeout.unref();
+    worker.on('message', onMessage);
+    worker.once('error', onFailure);
+    worker.once('exit', onFailure);
+    worker.postMessage(wire);
+  });
+}
+
+async function executeWorker(
+  request: AdapterWorkerRequestV1,
+  confined: ConfinedSource,
+  options: WorkerHostOptions
+): Promise<AdapterWorkerResponseV1> {
+  const wire = wireRequest(request, confined, options);
+  // The worker seams name a single-use entry point, so they bypass the pool.
+  if (!options.workerUrl && !options.createWorker) {
+    const pooled = await executePersistent(
+      request,
+      wire,
+      options.persistentWorkerUrl ?? workerEntryUrl(request.adapterId)
+    );
+    if (pooled) return pooled;
+  }
   const url = options.workerUrl ?? workerEntryUrl(request.adapterId);
   const createWorker = options.createWorker ?? defaultCreateWorker;
 
   let worker: WorkerLike;
   try {
-    const isTypeScriptEntry = url.pathname.endsWith('.ts');
-    worker = createWorker(url, {
-      workerData: wire,
-      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32, stackSizeMb: 8 },
-      ...(isTypeScriptEntry ? { execArgv: ['--import', tsxLoaderUrl()] } : {}),
-    });
+    worker = createWorker(url, workerOptions(url, wire));
   } catch {
     return diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError);
   }
@@ -269,29 +398,8 @@ async function executeWorker(
 
     worker.once('message', (value: unknown) => {
       if (settled) return;
-      const bytes = messageBytes(value);
-      if (!bytes) {
-        void worker.terminate().catch(() => undefined);
-        settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError));
-        return;
-      }
-      // This check intentionally precedes TextDecoder and JSON.parse.
-      if (bytes.byteLength > request.input.limits.maxResultBytes) {
-        void worker.terminate().catch(() => undefined);
-        settle(diagnostic('limit', WORKER_DIAGNOSTICS.resultLimit));
-        return;
-      }
-      try {
-        const decoded: unknown = JSON.parse(
-          new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-        );
-        if (!isWorkerResponse(decoded)) throw new Error('invalid worker response');
-        void worker.terminate().catch(() => undefined);
-        settle(decoded);
-      } catch {
-        void worker.terminate().catch(() => undefined);
-        settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError));
-      }
+      void worker.terminate().catch(() => undefined);
+      settle(decodeWorkerMessage(value, request.input.limits.maxResultBytes));
     });
     worker.once('error', () => settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError)));
     worker.once('exit', () => settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError)));
