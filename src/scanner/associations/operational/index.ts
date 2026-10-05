@@ -111,18 +111,21 @@ export async function runOperationalExtractors(
     }
   }
 
-  for (const boundary of boundaries.values()) {
-    db.upsertOperationalBoundary(boundary);
-  }
-  for (const handler of handlers.values()) {
-    db.upsertOperationalHandler(handler);
-  }
-  for (const edge of edges.values()) {
-    db.upsertOperationalEdge(edge);
-  }
-  for (const contract of contracts.values()) {
-    db.upsertOperationalContract(contract);
-  }
+  // One transaction for every operational row (a commit per row is a journal round-trip each).
+  db.transaction(() => {
+    for (const boundary of boundaries.values()) {
+      db.upsertOperationalBoundary(boundary);
+    }
+    for (const handler of handlers.values()) {
+      db.upsertOperationalHandler(handler);
+    }
+    for (const edge of edges.values()) {
+      db.upsertOperationalEdge(edge);
+    }
+    for (const contract of contracts.values()) {
+      db.upsertOperationalContract(contract);
+    }
+  });
 
   return {
     extractorsRun,

@@ -369,39 +369,49 @@ export class GeneralScanner {
     let indexedCounts = { knowledge: 0 };
 
     try {
-      // Index knowledge entries
-      for (const entry of scanResult.knowledge) {
-        // Validate knowledge data
-        if (!entry.type || typeof entry.type !== 'string') {
-          throw new Error(
-            `Invalid knowledge entry: missing or invalid type (file: ${entry.filePath})`
-          );
-        }
-        if (!entry.title || typeof entry.title !== 'string') {
-          throw new Error(
-            `Invalid knowledge entry: missing or invalid title (file: ${entry.filePath})`
-          );
-        }
+      // Index knowledge entries in one transaction (issue #15: a commit per entry costs a rollback-
+      // journal create/sync/delete each). A failing entry ends the loop without throwing inside the
+      // transaction, so the entries before it still commit and the partial index reported below is
+      // the one on disk.
+      let failure: Error | undefined;
+      db.transaction(() => {
+        for (const entry of scanResult.knowledge) {
+          // Validate knowledge data
+          if (!entry.type || typeof entry.type !== 'string') {
+            failure = new Error(
+              `Invalid knowledge entry: missing or invalid type (file: ${entry.filePath})`
+            );
+            return;
+          }
+          if (!entry.title || typeof entry.title !== 'string') {
+            failure = new Error(
+              `Invalid knowledge entry: missing or invalid title (file: ${entry.filePath})`
+            );
+            return;
+          }
 
-        try {
-          db.insertKnowledgeEntry({
-            type: entry.type,
-            title: entry.title,
-            file_path: entry.filePath,
-            tags: entry.tags,
-            metadata: entry.frontmatter,
-            content: entry.content,
-          });
-          indexedCounts.knowledge++;
-        } catch (error) {
-          throw new Error(
-            `Failed to insert knowledge entry "${entry.title}" (${entry.filePath}): ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-            { cause: error }
-          );
+          try {
+            db.insertKnowledgeEntry({
+              type: entry.type,
+              title: entry.title,
+              file_path: entry.filePath,
+              tags: entry.tags,
+              metadata: entry.frontmatter,
+              content: entry.content,
+            });
+            indexedCounts.knowledge++;
+          } catch (error) {
+            failure = new Error(
+              `Failed to insert knowledge entry "${entry.title}" (${entry.filePath}): ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { cause: error }
+            );
+            return;
+          }
         }
-      }
+      });
+      if (failure) throw failure;
 
       return Promise.resolve(indexedCounts);
     } catch (error) {

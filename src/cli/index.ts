@@ -271,15 +271,18 @@ indexCmd
       // Write module dependencies
       if (generalResult.dependencies.length > 0) {
         try {
-          db.clearModuleDependencies();
-          for (const dep of generalResult.dependencies) {
-            db.insertModuleDependency({
-              source_module: dep.source_module,
-              target_module: dep.target_module,
-              reference_count: dep.reference_count,
-              sample_files: JSON.stringify(dep.sample_files),
-            });
-          }
+          const database = db; // const so the narrowed (non-undefined) type survives into the closure
+          database.transaction(() => {
+            database.clearModuleDependencies();
+            for (const dep of generalResult.dependencies) {
+              database.insertModuleDependency({
+                source_module: dep.source_module,
+                target_module: dep.target_module,
+                reference_count: dep.reference_count,
+                sample_files: JSON.stringify(dep.sample_files),
+              });
+            }
+          });
         } catch (error) {
           if (!options.quiet) {
             console.warn(
@@ -726,17 +729,20 @@ indexCmd
             });
             // Content index still reflects HEAD (the incremental content sync runs for docs).
             const plan = buildIncrementalPlan(corpusPath, diff);
-            for (const p of plan.toDelete) db.deleteKnowledgeEntryByPath(p);
-            for (const entry of plan.toIndex) {
-              db.insertKnowledgeEntry({
-                type: entry.type,
-                title: entry.title,
-                file_path: entry.filePath,
-                tags: entry.tags,
-                metadata: entry.frontmatter,
-                content: entry.content,
-              });
-            }
+            const contentDb = db; // const so the narrowed (non-undefined) type survives into the closure
+            contentDb.transaction(() => {
+              for (const p of plan.toDelete) contentDb.deleteKnowledgeEntryByPath(p);
+              for (const entry of plan.toIndex) {
+                contentDb.insertKnowledgeEntry({
+                  type: entry.type,
+                  title: entry.title,
+                  file_path: entry.filePath,
+                  tags: entry.tags,
+                  metadata: entry.frontmatter,
+                  content: entry.content,
+                });
+              }
+            });
             db.setIndexMetadata('last_indexed_commit', headCommit); // OQ4-safe (Phase 2 mark-read landed)
             persistScopedCoverageProducerRuns(
               db,
@@ -887,9 +893,12 @@ indexCmd
         }
 
         // Delete removed entries from DB
-        for (const filePath of plan.toDelete) {
-          db.deleteKnowledgeEntryByPath(filePath);
-        }
+        const deletingDb = db; // const so the narrowed (non-undefined) type survives into the closure
+        deletingDb.transaction(() => {
+          for (const filePath of plan.toDelete) {
+            deletingDb.deleteKnowledgeEntryByPath(filePath);
+          }
+        });
 
         // LSP enrichment for changed source files only
         const sourceFilesToEnrich = plan.toIndex

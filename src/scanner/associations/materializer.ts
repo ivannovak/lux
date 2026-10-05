@@ -43,28 +43,32 @@ export function materializeNodes(
   let fileNodes = 0;
   let symbolNodes = 0;
 
-  for (const entry of scan.knowledge) {
-    if (entry.type !== 'source-code') continue;
+  // One transaction for the whole pass: outside one, every upsert commits on its own, and under the
+  // rollback journal each commit costs a journal create/sync/delete (issue #15).
+  db.transaction(() => {
+    for (const entry of scan.knowledge) {
+      if (entry.type !== 'source-code') continue;
 
-    // File node — one per source file
-    const fileNode = buildFileNode(entry, rootPath);
-    db.upsertStructuralNode(fileNode);
-    fileNodes++;
+      // File node — one per source file
+      const fileNode = buildFileNode(entry, rootPath);
+      db.upsertStructuralNode(fileNode);
+      fileNodes++;
 
-    // Symbol nodes — from LSP enrichment (may be absent for unenriched files)
-    const enrichment = enrichments.get(entry.filePath);
-    if (enrichment && enrichment.symbols.length > 0) {
-      const symNodes = buildSymbolNodes(entry.filePath, enrichment, rootPath, entry.content);
-      const seenIds = new Set<string>();
-      for (const node of symNodes) {
-        db.upsertStructuralNode(node);
-        if (!seenIds.has(node.id)) {
-          seenIds.add(node.id);
-          symbolNodes++;
+      // Symbol nodes — from LSP enrichment (may be absent for unenriched files)
+      const enrichment = enrichments.get(entry.filePath);
+      if (enrichment && enrichment.symbols.length > 0) {
+        const symNodes = buildSymbolNodes(entry.filePath, enrichment, rootPath, entry.content);
+        const seenIds = new Set<string>();
+        for (const node of symNodes) {
+          db.upsertStructuralNode(node);
+          if (!seenIds.has(node.id)) {
+            seenIds.add(node.id);
+            symbolNodes++;
+          }
         }
       }
     }
-  }
+  });
 
   return { fileNodes, symbolNodes };
 }

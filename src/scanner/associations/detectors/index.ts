@@ -71,12 +71,14 @@ export async function runDetectors(
       continue;
     }
 
-    // Persist surface nodes
-    for (const surface of batch.surfaces) {
-      const node = capabilitySurfaceToStructuralNode(surface);
-      db.upsertStructuralNode(node);
-      surfacesDetected++;
-    }
+    // Persist surface nodes in one transaction (a commit per node is a journal round-trip each).
+    db.transaction(() => {
+      for (const surface of batch.surfaces) {
+        const node = capabilitySurfaceToStructuralNode(surface);
+        db.upsertStructuralNode(node);
+        surfacesDetected++;
+      }
+    });
 
     // Persist boundary edges + evidence using the engine's static helper.
     // sourceCommit is threaded on the scoped-refresh path (SC-8); undefined on full rebuild.

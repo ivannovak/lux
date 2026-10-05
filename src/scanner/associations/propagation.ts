@@ -51,12 +51,16 @@ export function propagateSurfaces(
   let consumerEdgesAdded = 0;
   let artifactEdgesAdded = 0;
 
-  for (const surface of surfaces) {
-    providerEdgesAdded += runProviderPropagation(db, surface, context);
-    consumerEdgesAdded += runConsumerPropagation(db, surface, context);
-    consumerEdgesAdded += runBladeConsumerPropagation(db, surface, context);
-    artifactEdgesAdded += runArtifactPropagation(db, surface, context);
-  }
+  // The passes write one node or edge at a time; one enclosing transaction turns those into a single
+  // commit (each persistEdges call becomes a savepoint), and later passes still read earlier writes.
+  db.transaction(() => {
+    for (const surface of surfaces) {
+      providerEdgesAdded += runProviderPropagation(db, surface, context);
+      consumerEdgesAdded += runConsumerPropagation(db, surface, context);
+      consumerEdgesAdded += runBladeConsumerPropagation(db, surface, context);
+      artifactEdgesAdded += runArtifactPropagation(db, surface, context);
+    }
+  });
 
   return Promise.resolve({ providerEdgesAdded, consumerEdgesAdded, artifactEdgesAdded });
 }
