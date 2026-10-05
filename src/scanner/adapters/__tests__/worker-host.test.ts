@@ -236,10 +236,17 @@ describe('bounded parser worker host', () => {
       ...request(root, file),
       adapterId: 'javascript-tree-sitter',
     });
+    // The real parser entry, under a URL of its own so no earlier test has warmed this pool.
+    const persistentWorkerUrl = new URL(
+      '../tree-sitter-worker.ts?pool=consecutive',
+      import.meta.url
+    );
 
     const before = persistentParserWorkersStarted();
     const pooled = [];
-    for (const file of files) pooled.push(await runAdapterWorker(javascript(file)));
+    for (const file of files) {
+      pooled.push(await runAdapterWorker(javascript(file), { persistentWorkerUrl }));
+    }
     const started = persistentParserWorkersStarted() - before;
 
     // A fresh single-use worker per file (the createWorker seam bypasses the pool) parses each file
@@ -253,9 +260,38 @@ describe('bounded parser worker host', () => {
       );
     }
 
-    expect(started).toBeLessThanOrEqual(1);
+    expect(started).toBe(1);
     expect(pooled.every((result) => result.ok)).toBe(true);
     expect(pooled).toEqual(fresh);
+  });
+
+  it('gives a parse the same time limit in a warm persistent worker as in a fresh one', async () => {
+    const root = await temporaryRoot();
+    const near = join(root, 'near.js');
+    const over = join(root, 'over.js');
+    // The fixture worker takes 200 ms to start; with a 300 ms limit, a 150 ms parse fits only if
+    // start-up is not charged to it, and a 1 s parse never fits.
+    await writeFile(near, 'parse-ms:150');
+    await writeFile(over, 'parse-ms:1000');
+    const timed = (file: string): AdapterWorkerRequestV1 => request(root, file, { timeoutMs: 300 });
+    const workerUrl = fixture('timed-parse-adapter.mjs');
+    const persistentWorkerUrl = new URL(`${workerUrl.href}?pool=timed`);
+
+    await runAdapterWorker(timed(near), { persistentWorkerUrl }); // warm the pool
+    const warmNear = await runAdapterWorker(timed(near), { persistentWorkerUrl });
+    const freshNear = await runAdapterWorker(timed(near), { workerUrl });
+    const started = Date.now();
+    const warmOver = await runAdapterWorker(timed(over), { persistentWorkerUrl });
+    const warmOverMs = Date.now() - started;
+    const freshOver = await runAdapterWorker(timed(over), { workerUrl });
+
+    expect(warmNear.ok).toBe(true);
+    expect(freshNear).toEqual(warmNear);
+    expect(!warmOver.ok && warmOver.diagnostic.code).toBe('timeout');
+    expect(freshOver).toEqual(warmOver);
+    // A parse that overran in the persistent worker is final: it is not run again in a fresh one,
+    // which would take at least a second full limit.
+    expect(warmOverMs).toBeLessThan(600);
   });
 
   it('discards a persistent worker that hangs and re-runs the parse in a fresh worker', async () => {

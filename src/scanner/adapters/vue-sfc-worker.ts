@@ -1,9 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { relative, sep, win32 } from 'node:path';
 
+import { getGrammars } from '../ast/extract.js';
 import { extractVueSfc } from '../vue/sfc-extract.js';
 import type { AdapterOutputV1 } from './types.js';
 import {
+  PARSE_STARTED_MESSAGE,
   isPersistentWorkerData,
   type AdapterWorkerRequestV1,
   type AdapterWorkerResponseV1,
@@ -77,6 +79,9 @@ async function execute(wire: WorkerWireRequestV1): Promise<AdapterWorkerResponse
 }
 
 async function respond(wire: unknown): Promise<void> {
+  // Load the grammars before the host's parse clock starts (worker-protocol.ts).
+  await getGrammars();
+  parentPort?.postMessage(PARSE_STARTED_MESSAGE);
   const response = validWire(wire)
     ? await execute(wire)
     : refusal('worker-error', 'Vue worker received an invalid request.');

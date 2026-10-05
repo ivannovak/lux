@@ -7,6 +7,7 @@ import { extractSource, getGrammars, langForFile, type AstLang } from '../ast/ex
 import { extractionToSourceFacts } from '../ast/source-facts.js';
 import type { AdapterOutputV1 } from './types.js';
 import {
+  PARSE_STARTED_MESSAGE,
   isPersistentWorkerData,
   type AdapterWorkerRequestV1,
   type AdapterWorkerResponseV1,
@@ -148,6 +149,9 @@ function postBounded(response: AdapterWorkerResponseV1, maxResultBytes: number):
 }
 
 async function respond(wire: unknown): Promise<void> {
+  // Load the grammars before the host's parse clock starts (worker-protocol.ts).
+  await getGrammars();
+  parentPort?.postMessage(PARSE_STARTED_MESSAGE);
   const response = validateWire(wire)
     ? await parse(wire)
     : responseError('worker-error', 'Parser worker received an invalid request.');

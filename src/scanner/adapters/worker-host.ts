@@ -7,6 +7,7 @@ import type { Extraction } from '../ast/extract.js';
 import type { AdapterInputV1 } from './types.js';
 import {
   PERSISTENT_WORKER_DATA,
+  isParseStartedMessage,
   type AdapterWorkerRequestV1,
   type AdapterWorkerResponseV1,
 } from './worker-protocol.js';
@@ -31,6 +32,8 @@ export const WORKER_DIAGNOSTICS = {
 } as const;
 
 interface WorkerLike {
+  on(event: 'message', listener: (value: unknown) => void): this;
+  off(event: 'message', listener: (value: unknown) => void): this;
   once(event: 'message', listener: (value: unknown) => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
   once(event: 'exit', listener: (exitCode: number) => void): this;
@@ -270,10 +273,11 @@ function wireRequest(
 // Starting a worker and loading the parser into it costs far more than most parses, and a rebuild
 // asks for one parse per JavaScript and Vue file. So a parse first runs in an idle persistent worker
 // of the same entry, which serves one request per message, under the same path, size, time and
-// heap guards. Any failure there (timeout, crash, unreadable reply, `worker-error`) discards that
-// worker and re-runs the request in a fresh single-use worker, so every outcome other than a clean
-// parse is decided exactly as it is without the pool. Idle workers are unref'd and never keep the
-// process alive.
+// heap guards. In both kinds of worker the time limit runs from the worker's parse-started message,
+// so a parse gets the same budget warm or fresh, and a timeout after it is final. Any other failure
+// in a persistent worker (no parse-started message in time, a crash, an unreadable reply,
+// `worker-error`) discards that worker and re-runs the request in a fresh single-use worker, so it
+// is decided exactly as without the pool. Idle workers are unref'd and never keep the process alive.
 
 const idleWorkers = new Map<string, Worker[]>();
 let persistentWorkersStarted = 0;
@@ -321,26 +325,39 @@ function executePersistent(
   worker.ref();
 
   return new Promise((resolveResponse) => {
-    const finish = (response: AdapterWorkerResponseV1 | undefined): void => {
+    /** `undefined`: re-run in a fresh worker. A worker is kept only after a clean reply. */
+    const finish = (response: AdapterWorkerResponseV1 | undefined, keepWorker = false): void => {
       clearTimeout(timeout);
       worker.off('message', onMessage);
       worker.off('error', onFailure);
       worker.off('exit', onFailure);
-      if (response === undefined) {
-        void worker.terminate().catch(() => undefined);
-      } else {
+      if (keepWorker) {
         releasePersistentWorker(url, worker);
+      } else {
+        void worker.terminate().catch(() => undefined);
       }
       resolveResponse(response);
     };
     const onFailure = (): void => finish(undefined);
+    let parseStarted = false;
+    // A timeout after parse-started is the parse overrunning its limit, which a fresh worker would
+    // measure the same way, so it is final; before it, the worker never got going.
+    const onTimeout = (): void =>
+      finish(parseStarted ? diagnostic('timeout', WORKER_DIAGNOSTICS.timeout) : undefined);
     const onMessage = (value: unknown): void => {
+      if (isParseStartedMessage(value)) {
+        parseStarted = true;
+        clearTimeout(timeout);
+        timeout = setTimeout(onTimeout, request.input.limits.timeoutMs);
+        timeout.unref();
+        return;
+      }
       const response = decodeWorkerMessage(value, request.input.limits.maxResultBytes);
       const failed = !response.ok && response.diagnostic.code === 'worker-error';
-      finish(failed ? undefined : response);
+      finish(failed ? undefined : response, !failed);
     };
 
-    const timeout = setTimeout(onFailure, request.input.limits.timeoutMs);
+    let timeout = setTimeout(onTimeout, request.input.limits.timeoutMs);
     timeout.unref();
     worker.on('message', onMessage);
     worker.once('error', onFailure);
@@ -383,7 +400,7 @@ async function executeWorker(
       resolveResponse(response);
     };
 
-    const timeout = setTimeout(() => {
+    const onTimeout = (): void => {
       if (settled) return;
       settled = true;
       void Promise.race([
@@ -393,14 +410,24 @@ async function executeWorker(
           .catch(() => undefined),
         graceDelay(TERMINATION_GRACE_MS),
       ]).then(() => resolveResponse(diagnostic('timeout', WORKER_DIAGNOSTICS.timeout)));
-    }, request.input.limits.timeoutMs);
+    };
+    // The limit covers starting the worker until it reports the parse started, then the parse.
+    let timeout = setTimeout(onTimeout, request.input.limits.timeoutMs);
     timeout.unref();
 
-    worker.once('message', (value: unknown) => {
+    const onMessage = (value: unknown): void => {
       if (settled) return;
+      if (isParseStartedMessage(value)) {
+        clearTimeout(timeout);
+        timeout = setTimeout(onTimeout, request.input.limits.timeoutMs);
+        timeout.unref();
+        return;
+      }
+      worker.off('message', onMessage);
       void worker.terminate().catch(() => undefined);
       settle(decodeWorkerMessage(value, request.input.limits.maxResultBytes));
-    });
+    };
+    worker.on('message', onMessage);
     worker.once('error', () => settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError)));
     worker.once('exit', () => settle(diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError)));
   });
