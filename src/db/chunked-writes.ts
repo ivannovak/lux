@@ -17,7 +17,7 @@
 export const MAX_TRANSACTION_MS = 500;
 
 /** How long the lock stays free after a transaction that ran out of time. */
-export const READER_WINDOW_MS = 20;
+const READER_WINDOW_MS = 20;
 
 /** The slice of LuxDatabase / LuxSqlite this needs, so test doubles can provide it. */
 export interface ChunkedWriteTarget {
