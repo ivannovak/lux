@@ -161,6 +161,21 @@ function ensureRollbackJournal(path: string): void {
   }
 }
 
+/**
+ * Reset a statement through node-sqlite3-wasm's internal `_reset` (sqlite3_reset), which its public
+ * API does not expose. The package is pinned (0.8.59); stmt-get-lock.test.ts fails if this stops
+ * releasing the lock.
+ */
+function resetStatement(statement: WasmStatement): void {
+  const internal = statement as unknown as { _reset?: () => boolean };
+  if (typeof internal._reset !== 'function') {
+    throw new Error(
+      'node-sqlite3-wasm Statement has no _reset(); cannot release its lock after get()'
+    );
+  }
+  internal._reset();
+}
+
 export interface RunResult {
   changes: number;
   lastInsertRowid: number | bigint;
@@ -211,8 +226,17 @@ export class Stmt {
   run(...p: unknown[]): RunResult {
     return this.exec(() => this.raw.run(bindArgs(p)));
   }
+  /**
+   * node-sqlite3-wasm's Statement.get() steps once and leaves the statement active, and an active
+   * statement holds the file's lock (a `.lock` directory, shared by readers and writers) until the
+   * statement next runs. Reset it once the row is read, so the lock goes when the read is done.
+   */
   get(...p: unknown[]): unknown {
-    return this.exec(() => normalizeGet(this.raw.get(bindArgs(p))));
+    return this.exec(() => {
+      const row = normalizeGet(this.raw.get(bindArgs(p)));
+      resetStatement(this.raw);
+      return row;
+    });
   }
   all(...p: unknown[]): unknown[] {
     return this.exec(() => this.raw.all(bindArgs(p)));
