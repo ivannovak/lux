@@ -8,7 +8,7 @@
 //   - file   : one per indexed source code file
 //   - symbol : top-level symbols from LSP enrichment results
 
-import { FILES_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
+import { FILES_PER_COMMIT, writeInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralNode } from '../../db/types.js';
 import type { ScanResult, ScannedKnowledge } from '../types.js';
 import type { EnrichmentMap, EnrichmentResult } from '../lsp/index.js';
@@ -45,8 +45,9 @@ export function materializeNodes(
 
   // Bounded transactions: outside one, every upsert commits on its own, and under the rollback
   // journal each commit costs a journal create/sync/delete (issue #15).
+  // A failure stops the pass with the files before it committed, and the error says how far it got.
   const sources = scan.knowledge.filter((entry) => entry.type === 'source-code');
-  writeAllInChunks(db, sources, FILES_PER_COMMIT, (entry) => {
+  const written = writeInChunks(db, sources, FILES_PER_COMMIT, (entry) => {
     // File node — one per source file
     const fileNode = buildFileNode(entry, rootPath);
     db.upsertStructuralNode(fileNode);
@@ -66,6 +67,13 @@ export function materializeNodes(
       }
     }
   });
+  if (written.error) {
+    throw new Error(
+      `file-node materialization stopped after ${written.committed} of ${sources.length} files: ` +
+        written.error.message,
+      { cause: written.error }
+    );
+  }
 
   return { fileNodes, symbolNodes };
 }

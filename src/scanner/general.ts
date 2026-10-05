@@ -452,6 +452,8 @@ export interface GeneralScanResult {
   };
   /** Structural overlay rebuild result (only present when overlayEnabled=true). */
   overlay?: OverlayRebuildResult;
+  /** Why the overlay rebuild failed, when it was enabled and threw (overlay is then absent). */
+  overlayError?: string;
 }
 
 /** Options for the general scan pipeline. */
@@ -678,6 +680,7 @@ export async function generalScan(
 
   // 8. Optionally rebuild structural overlay
   let overlay: OverlayRebuildResult | undefined;
+  let overlayError: string | undefined;
   if (options?.overlayEnabled && options.db) {
     report('Rebuilding structural overlay...');
     try {
@@ -701,9 +704,8 @@ export async function generalScan(
           `${overlay.edgesStored} edge(s) stored.`
       );
     } catch (error) {
-      report(
-        `Warning: overlay rebuild failed — ${error instanceof Error ? error.message : String(error)}`
-      );
+      overlayError = error instanceof Error ? error.message : String(error);
+      report(`Warning: overlay rebuild failed — ${overlayError}`);
     }
   }
 
@@ -844,6 +846,7 @@ export async function generalScan(
       enrichmentErrors: errors,
     },
     overlay,
+    ...(overlayError !== undefined ? { overlayError } : {}),
   };
 }
 

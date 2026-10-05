@@ -5,7 +5,7 @@
 // Gated by lux.yaml `ast.enabled`; invoked from rebuildStructuralOverlay before
 // the association engine runs, so the AST resolver's edges reference real nodes.
 
-import { ROWS_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
+import { ROWS_PER_COMMIT, writeInChunks, type LuxDatabase } from '../../db/index.js';
 import type { ScanResult } from '../types.js';
 import type { StructuralNode } from '../../db/types.js';
 import {
@@ -78,18 +78,26 @@ export async function materializeAstSymbols(
 
   // Batch the upserts (Lever E) in bounded transactions, so the many small commits become a few
   // without one transaction holding the file lock for the whole pass.
+  // A failure stops the pass with the rows before it committed, and the error says how far it got.
   let count = 0;
-  writeAllInChunks(db, nodes, ROWS_PER_COMMIT, (node) => {
+  const nodesWritten = writeInChunks(db, nodes, ROWS_PER_COMMIT, (node) => {
     db.upsertStructuralNode(node);
     if (!seen.has(node.id)) {
       seen.add(node.id);
       count++;
     }
   });
+  if (nodesWritten.error) {
+    throw new Error(
+      `AST symbol materialization stopped after ${nodesWritten.committed} of ${nodes.length} ` +
+        `symbol nodes: ${nodesWritten.error.message}`,
+      { cause: nodesWritten.error }
+    );
+  }
   // Anchor texts second — the FTS join needs the node row to exist. One row per anchor-viable node
   // (Decision 6); a re-materialised same-id node REPLACEs its text + rewrites its FTS row, so a
   // changed body/signature under a stable id yields a fresh content_hash the Phase-3 queue detects.
-  writeAllInChunks(db, anchorTexts, ROWS_PER_COMMIT, (text) => {
+  const textsWritten = writeInChunks(db, anchorTexts, ROWS_PER_COMMIT, (text) => {
     db.upsertNodeAnchorText({
       node_id: text.nodeId,
       prepared: text.embedText,
@@ -101,6 +109,13 @@ export async function materializeAstSymbols(
       context: text.fields.context,
     });
   });
+  if (textsWritten.error) {
+    throw new Error(
+      `anchor-text materialization stopped after ${textsWritten.committed} of ` +
+        `${anchorTexts.length} anchor texts: ${textsWritten.error.message}`,
+      { cause: textsWritten.error }
+    );
+  }
 
   return count;
 }

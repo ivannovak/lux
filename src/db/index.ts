@@ -967,6 +967,15 @@ export class LuxDatabase {
     return this.getQueries().getLocalStructuralNodesByType.all(nodeType) as StructuralNode[];
   }
 
+  /** Number of project (non-vendor) structural nodes of a type — what an overlay counter reports. */
+  countLocalStructuralNodesByType(nodeType: string): number {
+    const row = this.db.get(
+      `SELECT COUNT(*) AS n FROM structural_nodes WHERE node_type = ? AND origin = 'local'`,
+      [nodeType]
+    ) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
   /** True when a node was imported from a vendor pack (not project-local). (ADR-3) */
   static isExternalNode(node: Pick<StructuralNode, 'origin'>): boolean {
     return (node.origin ?? 'local') !== 'local';
