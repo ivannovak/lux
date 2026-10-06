@@ -1,6 +1,7 @@
 import eslint from '@eslint/js';
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
+import catchMustReport from './eslint-rules/catch-must-report.js';
 
 const ignorePatterns = [
   'dist/**',
@@ -76,6 +77,32 @@ export default [
       // Test doubles that satisfy an async interface (e.g. Embedder.embed → Promise) legitimately
       // have no internal await; require-await is a production-code signal, not meaningful for mocks.
       '@typescript-eslint/require-await': 'off',
+    },
+  },
+  // Issue #6: a run's warnings travel through one channel. Every catch block reports what it caught
+  // (or says why it doesn't), and code a rebuild or sync runs prints no warning or error of its own:
+  // that goes through the Reporter, the run-warnings printer, or the database notice handler.
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['**/__tests__/**', '**/*.test.ts'],
+    plugins: { lux: { rules: { 'catch-must-report': catchMustReport } } },
+    rules: {
+      'lux/catch-must-report': 'error',
+    },
+  },
+  {
+    files: ['src/scanner/**/*.ts', 'src/db/**/*.ts', 'src/cli/index.ts'],
+    ignores: ['**/__tests__/**', '**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.object.name='console'][callee.property.name=/^(warn|error)$/]",
+          message:
+            'Report a warning through the Reporter (or the CLI run-warnings printer), not console.',
+        },
+      ],
     },
   },
 ];

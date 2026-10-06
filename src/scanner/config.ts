@@ -267,6 +267,7 @@ export function loadLspConfig(rootPath: string): LuxLspConfig {
   try {
     rawContent = readFileSync(configPath, 'utf-8');
   } catch {
+    // lux-intentional-swallow: no lux.yaml is the documented default configuration.
     // No config file — return defaults (LSP disabled)
     return DEFAULT_CONFIG;
   }

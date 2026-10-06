@@ -30,6 +30,7 @@ export async function sourceFiles(input: EventBusInputV1): Promise<Map<string, s
     try {
       result.set(filePath, await readFile(absolute, 'utf8'));
     } catch {
+      // lux-intentional-swallow: a listed file that no longer exists is a bounded-input omission, not a failure.
       // Missing files are bounded-input omissions. Other files and cached text remain usable.
     }
   }

@@ -63,6 +63,7 @@ export function assessWorkingTreeFreshness(
   try {
     headCommit = getHeadCommit(corpusPath);
   } catch {
+    // lux-intentional-swallow: reported as gitAvailable: false in the freshness result.
     return {
       gitAvailable: false,
       indexedCommit,

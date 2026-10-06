@@ -24,6 +24,7 @@ export function extractActionFacts(input: AdapterInputV1) {
   try {
     doc = parse(source, { schema: 'core', uniqueKeys: true, merge: false, maxAliasCount: 20 });
   } catch (error) {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return {
       facts: [],
       diagnostics: [

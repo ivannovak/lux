@@ -126,6 +126,7 @@ export function runSpecEvidenceAsk(
     }
     if (result.exitCode !== 0) process.exitCode = result.exitCode;
   } catch (error) {
+    // lux-intentional-swallow: reported as the command's error output and exit code.
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {

@@ -90,6 +90,7 @@ function hookProcessCleanup(): void {
       try {
         inst.close();
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         /* best-effort on shutdown */
       }
     }
@@ -115,6 +116,7 @@ function registerOwner(path: string): void {
     mkdirSync(ownersDir(path), { recursive: true });
     writeFileSync(`${ownersDir(path)}/${process.pid}`, hostname());
   } catch {
+    // lux-intentional-swallow: the owner registry only assists stale-lock recovery; the open itself is unaffected.
     /* best-effort; the registry only assists stale-lock recovery */
   }
 }
@@ -124,6 +126,7 @@ function deregisterOwner(path: string): void {
     rmSync(`${ownersDir(path)}/${process.pid}`, { force: true });
     rmdirSync(ownersDir(path)); // remove the registry dir iff now empty (last owner out); throws otherwise
   } catch {
+    // lux-intentional-swallow: a live co-owner keeps the registry non-empty, which is expected.
     /* best-effort: a live co-owner keeps the dir non-empty (rmdir throws) — fine */
   }
 }
@@ -142,6 +145,7 @@ function ensureRollbackJournal(path: string): void {
   try {
     fd = openSync(path, 'r+');
   } catch {
+    // lux-intentional-swallow: absent or read-only: the open proceeds and fails with the engine's own error if it must.
     return; // absent / not writable — let the open proceed (or fail with the engine's own error)
   }
   try {
@@ -208,11 +212,13 @@ export class Stmt {
       try {
         this.raw.finalize();
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         /* the poisoned statement may re-throw its deferred error at finalize — discard it */
       }
       try {
         this.raw = this.db.prepare(this.sql);
       } catch {
+        // lux-intentional-swallow: the original error is rethrown below; a failed re-prepare must not replace it.
         // Re-prepare can itself fail (a dropped table, real corruption). The caller must still see the
         // ORIGINAL error `e` — never let a re-prepare failure mask/replace it — so swallow this one and
         // fall through to `throw e`. `this.raw` is left at the finalized handle; that is safe because
@@ -273,6 +279,7 @@ export class LuxSqlite {
     try {
       markers = readdirSync(dir);
     } catch {
+      // lux-intentional-swallow: no owner registry: no owners to check.
       markers = [];
     }
     let liveOwner = false;
@@ -283,6 +290,7 @@ export class LuxSqlite {
       try {
         markerHost = readFileSync(`${dir}/${m}`, 'utf8').trim();
       } catch {
+        // lux-intentional-swallow: an unreadable marker is treated as same-host, the conservative reading.
         /* ignore unreadable marker */
       }
       if (markerHost && markerHost !== hostname()) {
@@ -293,9 +301,11 @@ export class LuxSqlite {
         process.kill(pid, 0); // throws ESRCH if the process is gone
         liveOwner = true;
       } catch {
+        // lux-intentional-swallow: the process is gone (ESRCH); its marker is pruned.
         try {
           rmSync(`${dir}/${m}`, { force: true }); // prune the dead owner's marker
         } catch {
+          // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
           /* best-effort */
         }
       }
@@ -305,6 +315,7 @@ export class LuxSqlite {
       rmSync(lockDir, { recursive: true, force: true });
       return true;
     } catch {
+      // lux-intentional-swallow: the lock stays, and the caller reports a locked database.
       return false;
     }
   }
@@ -403,6 +414,7 @@ export class LuxSqlite {
       try {
         s.raw.finalize();
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         // A cached statement's finalize can throw for two reasons, both non-actionable at teardown:
         // (1) node-sqlite3-wasm re-throws a statement's DEFERRED execution error at finalize (e.g. a
         // `searchRanked` FTS5 MATCH that failed on invalid user input — the refusal path classifies

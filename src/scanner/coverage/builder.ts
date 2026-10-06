@@ -303,6 +303,7 @@ function parseObject(value: unknown): Record<string, unknown> | null {
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
+    // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return null;
   }
 }

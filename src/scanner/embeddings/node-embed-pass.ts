@@ -24,6 +24,10 @@ import type { LuxDatabase, AnchorEmbeddingCoverage } from '../../db/index.js';
 import type { Embedder } from './embedder.js';
 import { ANCHOR_EMBED_DIMS, ANCHOR_EMBED_BUDGET_MS } from './model-pin.js';
 import { encodeVector } from './codec.js';
+import { reporterFrom } from '../reporter.js';
+
+/** Thrown inside the pass when the deadline passes; identity tells it apart from a real failure. */
+const BUDGET_REACHED = new Error('anchor-embed-budget');
 
 /**
  * Rows fetched per `getUnembeddedAnchorNodes` call and handed to `embedder.embed()` as one batch —
@@ -46,14 +50,17 @@ export interface NodeEmbedPassOptions {
   /** Rows per embed batch. Defaults to `DEFAULT_NODE_EMBED_BATCH_SIZE`. */
   batchSize?: number;
   onProgress?: (msg: string) => void;
+  /** Receives an internal failure that stopped the pass. Without it, the warning reaches onProgress. */
+  onWarning?: (msg: string) => void;
 }
 
 export interface NodeEmbedPassResult {
   /** Anchor nodes embedded (upserted) this pass. */
   embedded: number;
-  /** `true` iff the pass stopped early — the budget deadline OR any unexpected embedder/DB failure
-   *  (both fold into this one flag; see the outer catch below for why). */
+  /** `true` iff the pass stopped at its budget deadline: expected under the time-budgeted design. */
   budgetHit: boolean;
+  /** Set iff an internal failure (an embedder rejection, a DB write) stopped the pass: its message. */
+  failure?: string;
   /** Post-pass coverage under the ACTIVE model (always computed, even when `budgetHit`). */
   coverage: AnchorEmbeddingCoverage;
 }
@@ -70,12 +77,12 @@ export interface NodeEmbedPassResult {
  * reports coverage.
  *
  * Budget shape mirrors `overlay-refresh.ts`'s LSP tier (the deadline-check + throw + single outer
- * catch + degrade-and-report idiom) exactly: a deadline computed once up front, checked before
- * starting each batch and again after finishing it, and ANY failure that reaches the outer `catch` —
- * whether the deadline sentinel or a genuinely unexpected error (an `embedder.embed()` rejection, a
- * corrupt-weights crash surfacing mid-pass, an `encodeVector` dims mismatch, a DB write failure) —
- * degrades the SAME way: stop, mark `budgetHit`, report once, return whatever was embedded before the
- * failure. Never rethrown past this function (Decision 5).
+ * catch idiom): a deadline computed once up front, checked before starting each batch and again after
+ * finishing it. Whatever reaches the outer `catch` stops the pass and keeps what was embedded before
+ * it, but the two causes are reported apart: the deadline sentinel marks `budgetHit` as progress, and
+ * any other error (an `embedder.embed()` rejection, a corrupt-weights crash mid-pass, an
+ * `encodeVector` dims mismatch, a DB write failure) sets `failure` and is reported as a warning.
+ * Never rethrown past this function (Decision 5).
  *
  * Resume (Re-key R1): a budget-interrupted pass leaves un-embedded rows in the queue and re-reads them
  * on a later index path. It re-parses NOTHING — the `prepared` text and its `content_hash` are already
@@ -92,15 +99,16 @@ export async function runNodeEmbedPass(
   const model = embedder.model;
   const budgetMs = opts?.budgetMs ?? ANCHOR_EMBED_BUDGET_MS;
   const batchSize = opts?.batchSize ?? DEFAULT_NODE_EMBED_BATCH_SIZE;
-  const report = opts?.onProgress ?? (() => {});
+  const reporter = reporterFrom(opts?.onProgress, opts?.onWarning);
   const deadline = Date.now() + budgetMs;
 
   let embedded = 0;
   let budgetHit = false;
+  let failure: string | undefined;
 
   try {
     for (;;) {
-      if (Date.now() > deadline) throw new Error('anchor-embed-budget');
+      if (Date.now() > deadline) throw BUDGET_REACHED;
 
       // The widened freshness queue (Decision 5, spec 11): structural_node_texts LEFT JOIN
       // structural_node_embeddings ON node_id AND model=? WHERE e.node_id IS NULL OR
@@ -136,22 +144,25 @@ export async function runNodeEmbedPass(
       });
       embedded += rows.length;
 
-      if (Date.now() > deadline) throw new Error('anchor-embed-budget');
+      if (Date.now() > deadline) throw BUDGET_REACHED;
     }
   } catch (error) {
-    // One catch, one degrade path (Decision 5): the deadline sentinel and a genuinely unexpected
-    // failure both land here and are handled identically — stop, mark budgetHit, report once, never
-    // rethrow to the caller. `embedded` already reflects every row committed before the failure;
-    // each batch is its own committed transaction, not part of one pass-wide transaction, so partial
-    // progress within a budget-limited pass is the intended behaviour — the queue naturally excludes
-    // what was already embedded on the next run.
-    budgetHit = true;
-    const reason = error instanceof Error ? error.message : String(error);
-    report(
-      `Anchor embed pass: stopped early after embedding ${embedded} node(s) this pass ` +
-        `(budget ${budgetMs}ms exceeded or embedder failed: ${reason}) — ` +
-        `remainder resumes on the next index run.`
-    );
+    // Either way the pass stops, keeps what it embedded (each batch commits as its own transaction)
+    // and never rethrows: the queue resumes the remainder on the next index run. Reaching the budget
+    // is the design working, so it is progress; any other error is a failure the run reports.
+    if (error === BUDGET_REACHED) {
+      budgetHit = true;
+      reporter.progress(
+        `Anchor embed pass: stopped at its ${budgetMs}ms budget after embedding ${embedded} node(s); ` +
+          `the remainder resumes on the next index run.`
+      );
+    } else {
+      failure = error instanceof Error ? error.message : String(error);
+      reporter.warn(
+        `anchor embed pass failed after embedding ${embedded} node(s): ${failure} — ` +
+          `the remainder resumes on the next index run`
+      );
+    }
   }
 
   // Computed unconditionally, even on a degrade — this is what lets the CLI print an honest gap
@@ -160,5 +171,7 @@ export async function runNodeEmbedPass(
   // wrapper (`runNodeEmbedTail`, Part B) wraps the entire `runNodeEmbedPass` call and is the final
   // backstop, so a double failure here still cannot fail the surrounding rebuild/sync.
   const coverage = db.getAnchorEmbeddingCoverage(model);
-  return { embedded, budgetHit, coverage };
+  return failure === undefined
+    ? { embedded, budgetHit, coverage }
+    : { embedded, budgetHit, failure, coverage };
 }

@@ -441,6 +441,7 @@ export function extractVueEvents(source: string, filePath: string): VueEventExtr
   try {
     parsed = parse(source, { filename: filePath, sourceMap: false });
   } catch (error) {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return {
       events,
       listeners,

@@ -474,6 +474,7 @@ async function canonicalWithin(root: string, candidate: string): Promise<boolean
     ]);
     return isWithin(canonicalRoot, canonicalCandidate);
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }
@@ -496,6 +497,7 @@ async function pathExists(path: string): Promise<boolean> {
     await access(path);
     return true;
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }

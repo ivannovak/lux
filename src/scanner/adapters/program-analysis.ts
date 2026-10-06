@@ -15,6 +15,7 @@ import {
   type SharedExtractionBuildV1,
 } from '../ast/extraction-cache.js';
 import { buildProjectResolutionContext } from '../project-resolution/context.js';
+import type { WarnFn } from '../reporter.js';
 
 export interface ProgramAnalysisV1 {
   facts: readonly SourceFactsV1[];
@@ -38,7 +39,7 @@ export interface ProgramAnalysisBuildV1 extends ProgramAnalysisV1 {
 export async function analyzeProgram(
   scan: ScanResult,
   rootPath: string,
-  onWarn?: (message: string) => void
+  onWarn?: WarnFn
 ): Promise<ProgramAnalysisBuildV1> {
   const shared = await buildSharedExtractionAnalysis(scan, rootPath, onWarn);
   const vueFacts: VueSfcFactsV1[] = [];

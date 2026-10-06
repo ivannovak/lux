@@ -81,6 +81,7 @@ function parseArgv(v: string) {
     const x: unknown = JSON.parse(v);
     return Array.isArray(x) && x.every((item: unknown) => typeof item === 'string') ? x : undefined;
   } catch {
+    // lux-intentional-swallow: a non-JSON argv is the shell form, not an error.
     return undefined;
   }
 }

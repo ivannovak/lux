@@ -72,6 +72,7 @@ function parseUsageEvent(event: Event): UsageEventV1 | null {
     const parsed = JSON.parse(event.payload) as UsageEventV1;
     return parsed.schemaVersion === 1 ? parsed : null;
   } catch {
+    // lux-intentional-swallow: an event that is not a usage event is skipped by the report.
     return null;
   }
 }

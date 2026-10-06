@@ -108,6 +108,7 @@ export function resolveDeltaChangeSet(
   try {
     head = { sha: getHeadCommit(corpusPath), workingTreeIncluded: !input.committedOnly };
   } catch {
+    // lux-intentional-swallow: no HEAD (an unborn branch): the change set reports a null head.
     head = { sha: null, workingTreeIncluded: !input.committedOnly };
   }
 

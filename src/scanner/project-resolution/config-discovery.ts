@@ -112,6 +112,7 @@ export async function canonicalizeConfigRoots(
       canonicalAllowedRoots: [...new Set(canonicalRoots)].sort(),
     };
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return undefined;
   }
 }
@@ -167,6 +168,7 @@ export async function readConfinedConfigFile(
       await handle.close();
     }
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return undefined;
   }
 }

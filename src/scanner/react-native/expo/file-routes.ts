@@ -68,6 +68,7 @@ export function discoverExpoRoutes(input: ExpoRouterInputV1): ExpoRouteDiscovery
     try {
       candidates.push(canonicalExpoRoute(root, filePath));
     } catch {
+      // lux-intentional-swallow: only unsupported extensions fail here, and those are excluded.
       // Files selected by isBelowRoot can only fail for unsupported extensions, which are excluded.
     }
   }

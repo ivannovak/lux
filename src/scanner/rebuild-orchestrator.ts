@@ -19,6 +19,8 @@ import { loadLspConfig } from './config.js';
 import { resolveFirstPartyRoots } from './pack/first-party.js';
 import { lookupPack } from './pack/cache.js';
 import type { EnricherRegistry } from './lsp/index.js';
+import { persistModuleDependencies } from './module-dependency-store.js';
+import { warnSink, type WarnFn } from './reporter.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -64,6 +66,11 @@ export interface RebuildResult {
   propagationStatus: 'ran' | 'skipped' | 'empty';
   /** Trust-relevant warnings. Non-empty when mode is degraded-overlay. */
   warnings: string[];
+  /**
+   * The component that raised each warning, by message, where one is known. A scoped refresh that
+   * re-runs that component cleanly retires the warning.
+   */
+  warningComponents?: Record<string, string>;
   /** How many files were dirty in the working tree when the overlay was built. */
   dirtyAtIndexTime?: number;
 }
@@ -89,12 +96,15 @@ export interface RebuildOptions {
  * when there is no Composer project or no matching cached pack. Keyed by the
  * lockfile hash, so a dependency bump misses the cache (no stale merge).
  */
-function resolveVendorPackPath(rootPath: string): string | null {
+function resolveVendorPackPath(rootPath: string, warn?: WarnFn): string | null {
   try {
     if (!existsSync(join(rootPath, 'composer.lock'))) return null;
     const lookup = lookupPack(rootPath);
     return lookup.hit ? lookup.packPath : null;
-  } catch {
+  } catch (error) {
+    warn?.(
+      `vendor pack lookup failed, so this rebuild is app-only — ${error instanceof Error ? error.message : String(error)}`
+    );
     return null;
   }
 }
@@ -104,8 +114,8 @@ function resolveVendorPackPath(rootPath: string): string | null {
  * engine (spec 13 Part F). Same composer.lock-keyed cached-pack lookup; `null` ⇒ the facade
  * tier is skipped (`skipped-no-pack`).
  */
-export function resolveVendorPackPathForRefresh(rootPath: string): string | null {
-  return resolveVendorPackPath(rootPath);
+export function resolveVendorPackPathForRefresh(rootPath: string, warn?: WarnFn): string | null {
+  return resolveVendorPackPath(rootPath, warn);
 }
 
 // ---------------------------------------------------------------------------
@@ -136,12 +146,22 @@ export async function rebuildWithOverlay(
 
   // ADR-1/ADR-2: locate the cached pack for this dependency set (null ⇒ app-only).
   // An explicit option (incl. null) overrides auto-resolution.
+  const lookupWarnings: string[] = [];
   const vendorPackPath =
-    options.vendorPackPath !== undefined ? options.vendorPackPath : resolveVendorPackPath(rootPath);
+    options.vendorPackPath !== undefined
+      ? options.vendorPackPath
+      : resolveVendorPackPath(
+          rootPath,
+          warnSink((message) => lookupWarnings.push(message))
+        );
 
   // E1: promote declared first-party packages to app-source (empty ⇒ single-root).
   const firstPartyRoots = config.firstParty
-    ? resolveFirstPartyRoots(rootPath, config.firstParty.packages).map((r) => r.sourceRoot)
+    ? resolveFirstPartyRoots(
+        rootPath,
+        config.firstParty.packages,
+        warnSink((message) => lookupWarnings.push(message))
+      ).map((r) => r.sourceRoot)
     : [];
 
   const scanResult = await generalScan(rootPath, {
@@ -153,8 +173,16 @@ export async function rebuildWithOverlay(
     firstPartyRoots,
     enricherRegistry: options.enricherRegistry,
   });
+  const dependencyWarning = persistModuleDependencies(db, scanResult);
 
-  const result = classifyResult(rootPath, scanResult, db, 'overlay', config.lsp.enabled);
+  const result: RebuildResult = {
+    ...classifyResult(rootPath, scanResult, db, 'overlay', config.lsp.enabled, [
+      ...lookupWarnings,
+      ...scanResult.warnings,
+      ...(dependencyWarning ? [dependencyWarning] : []),
+    ]),
+    warningComponents: scanResult.warningComponents,
+  };
   return { result, scanResult };
 }
 
@@ -184,8 +212,15 @@ export async function rebuildContentOnly(
     config,
     onProgress: options.onProgress,
   });
+  const dependencyWarning = options.db ? persistModuleDependencies(options.db, scanResult) : null;
 
-  const result = classifyResult(rootPath, scanResult, null, 'content', config.lsp.enabled);
+  const result: RebuildResult = {
+    ...classifyResult(rootPath, scanResult, null, 'content', config.lsp.enabled, [
+      ...scanResult.warnings,
+      ...(dependencyWarning ? [dependencyWarning] : []),
+    ]),
+    warningComponents: scanResult.warningComponents,
+  };
   return { result, scanResult };
 }
 
@@ -202,7 +237,8 @@ function classifyResult(
   scanResult: GeneralScanResult,
   db: LuxDatabase | null,
   intent: 'overlay' | 'content',
-  configLspEnabled: boolean
+  configLspEnabled: boolean,
+  absorbedWarnings: string[]
 ): RebuildResult {
   if (intent === 'content') {
     return {
@@ -220,7 +256,7 @@ function classifyResult(
       unknownProviderKindCount: 0,
       enrichmentStatus: scanResult.stats.activeEnrichers > 0 ? 'active' : 'inactive',
       propagationStatus: 'skipped',
-      warnings: [],
+      warnings: [...absorbedWarnings],
     };
   }
 
@@ -250,23 +286,23 @@ function classifyResult(
           ? `Overlay rebuild failed: ${scanResult.overlayError}. ${persisted.fileNodes} file ` +
             `node(s) and ${persisted.symbolNodes} symbol node(s) were persisted before it stopped.`
           : 'Overlay rebuild did not produce a result — structural overlay state is absent.',
+        ...absorbedWarnings,
       ],
     };
   }
 
   // A phase that failed part-way left its partial writes behind, so the in-run tallies no longer
-  // describe the index; count it instead.
+  // describe the index; count it instead. The failure itself is already one of the absorbed
+  // warnings: the overlay reported it through the run's warning channel.
   const phaseFailures = overlay.phaseFailures ?? [];
   const persisted =
     phaseFailures.length > 0
       ? countPersistedOverlay(db)
       : { fileNodes: overlay.fileNodes, symbolNodes: overlay.symbolNodes };
-  const warnings = collectWarnings(
-    overlay,
-    persisted.symbolNodes,
-    scanResult.stats.activeEnrichers
-  );
-  warnings.push(...phaseFailures);
+  const warnings = [
+    ...collectWarnings(overlay, persisted.symbolNodes, scanResult.stats.activeEnrichers),
+    ...absorbedWarnings,
+  ];
   const mode: RebuildMode = warnings.length > 0 ? 'degraded-overlay' : 'overlay-complete';
 
   const { controllerBackedCount, closureBackedCount, unknownProviderKindCount } =
@@ -397,6 +433,7 @@ function countProviderKinds(db: LuxDatabase | null): {
           unknownProviderKindCount++;
         }
       } catch {
+        // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
         unknownProviderKindCount++;
       }
     } else {

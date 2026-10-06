@@ -3,6 +3,7 @@ import { join } from 'path';
 import type { LuxDatabase } from '../../db/index.js';
 import type { StructuralNode } from '../../db/types.js';
 import type { ResolvedKernel } from './kernel-area.js';
+import type { WarnFn } from '../reporter.js';
 
 /**
  * Ownership of an HTTP surface's handler relative to the app/kernel boundary
@@ -18,7 +19,7 @@ export type OwnershipLabel = 'kernel-owned' | 'client-override' | 'client-gap' |
  * (`"App\\"` → `App`). Graceful (returns `App`) when composer.json is absent or
  * unparseable, so single-repo behavior is unchanged.
  */
-export function resolveAppNamespace(corpusPath: string): string {
+export function resolveAppNamespace(corpusPath: string, warn?: WarnFn): string {
   const composerPath = join(corpusPath, 'composer.json');
   if (!existsSync(composerPath)) return 'App';
   try {
@@ -30,7 +31,11 @@ export function resolveAppNamespace(corpusPath: string): string {
     const entries = Object.entries(psr4);
     const appRoot = entries.find(([, path]) => path.replace(/\/+$/, '') === 'app') ?? entries[0];
     return appRoot ? appRoot[0].replace(/\\+$/, '') : 'App';
-  } catch {
+  } catch (error) {
+    warn?.(
+      `composer.json could not be read, so handlers were classified under the default App ` +
+        `namespace — ${error instanceof Error ? error.message : String(error)}`
+    );
     return 'App';
   }
 }

@@ -240,8 +240,12 @@ describe('anchor embed-pass CLI wiring — queue-gated + cached-only (network-fr
 
     expect(sync.status).toBe(0); // never throws — the tail is contractually crash-proof
     expect(combined).toContain('Index matches HEAD'); // took the no-change resume seam
-    // The raw config error must NOT surface as an uncaught crash.
-    expect(combined).not.toContain('embedding.token` is not permitted');
+    // The config error is not an uncaught crash: it is the run's warning, and the local model is used.
+    expect(sync.stderr).toMatch(
+      /^Warning: lux\.yaml could not be read for its embedding settings, so the local model was used — .*`embedding\.token` is not permitted/m
+    );
+    // The warning names the problem without echoing the leaked key.
+    expect(combined).not.toContain('sk-leaked-into-a-committed-file');
     expect(sync.stderr).not.toContain('Error: Failed');
   });
 

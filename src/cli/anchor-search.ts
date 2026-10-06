@@ -236,6 +236,7 @@ export async function runAnchorSearch(
   try {
     embeddingConfig = opts.corpusPath ? loadLspConfig(opts.corpusPath).embedding : undefined;
   } catch {
+    // lux-intentional-swallow: read path: `lux anchors` answers lexically with the local model; rebuild and sync report the unreadable config as a warning.
     embeddingConfig = undefined;
   }
   const activeModel = activeEmbeddingModel(embeddingConfig);
@@ -326,6 +327,7 @@ export async function runAnchorSearch(
       // The half ran; it CONTRIBUTED iff at least one candidate cleared the cosine floor.
       semanticReason = semantic.length > 0 ? 'used' : 'below-cosine-floor';
     } catch {
+      // lux-intentional-swallow: read path: the semantic half degrades to lexical-only and the result's semanticReason says so.
       // A weights-unavailable / mid-load failure at read time degrades to lexical-only rather than
       // failing the whole query: the semantic half is a lift, not a prerequisite (03 §Fusion, floor,
       // honesty). The rejected memo already self-cleared so a later query can retry.

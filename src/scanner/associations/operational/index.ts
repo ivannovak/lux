@@ -45,6 +45,7 @@ export type {
   OperationalExtractor,
   OperationalHandlerDescriptor,
 } from './types.js';
+import { silentReporter, type Reporter } from '../../reporter.js';
 
 export interface OperationalExtractionResult {
   extractorsRun: number;
@@ -67,7 +68,7 @@ export async function runOperationalExtractors(
   db: LuxDatabase,
   context: AssociationContext,
   extractors?: OperationalExtractor[],
-  report: (message: string) => void = () => {}
+  reporter: Reporter = silentReporter
 ): Promise<OperationalExtractionResult> {
   const pack = extractors ?? createDefaultOperationalExtractors();
   const boundaries = new Map<string, OperationalBoundaryDescriptor>();
@@ -78,16 +79,18 @@ export async function runOperationalExtractors(
 
   for (const extractor of pack) {
     if (!extractor.supports(context)) continue;
+    reporter.ran(`extractor:${extractor.name}`);
     extractorsRun++;
 
     let batch: OperationalExtractionBatch;
     try {
       batch = await extractor.extract(context);
     } catch (error) {
-      report(
-        `Warning: operational extractor "${extractor.name}" threw — ${
+      reporter.warn(
+        `operational extractor "${extractor.name}" threw — ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
+        `extractor:${extractor.name}`
       );
       continue;
     }
@@ -103,7 +106,7 @@ export async function runOperationalExtractors(
       batch.edges.length > 0 ||
       batch.contracts.length > 0
     ) {
-      report(
+      reporter.progress(
         `Operational extractor "${extractor.name}": ${batch.boundaries.length} boundary(s), ` +
           `${batch.handlers.length} handler(s), ${batch.edges.length} edge(s), ` +
           `${batch.contracts.length} contract(s).`

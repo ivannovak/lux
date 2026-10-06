@@ -89,6 +89,7 @@ function hasSubdirectories(dirPath: string): boolean {
     const entries = readdirSync(dirPath, { withFileTypes: true });
     return entries.some((e) => e.isDirectory());
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }
@@ -110,6 +111,7 @@ function getTopLevelSourceDirs(rootPath: string): string[] {
       })
       .map((e) => e.name);
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return [];
   }
 }
@@ -139,11 +141,13 @@ function containsSourceFiles(dirPath: string): boolean {
           return subEntries.some((sub) => sourceExts.has(sub.slice(sub.lastIndexOf('.'))));
         }
       } catch {
+        // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
         // ignore
       }
       return false;
     });
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }

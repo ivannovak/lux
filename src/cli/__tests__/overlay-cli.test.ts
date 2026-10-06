@@ -264,11 +264,9 @@ describe('overlay CLI trust surface', () => {
   it('canonical rebuild reaches real overlay-complete state when symbols materialize', () => {
     const rebuild = runCli(repoDir, dbPath, ['index', 'rebuild', '--quiet']);
     expect(rebuild.status).toBe(0);
-    expect(rebuild.stdout).toContain('▶ index rebuild (overlay-complete)');
-    expect(rebuild.stdout).toContain('Scanning content directory:');
-    expect(rebuild.stdout).toContain('Rebuilding structural overlay...');
-    expect(rebuild.stdout).toContain('✓ index rebuild complete in ');
-    expect(rebuild.stdout).toContain('✓ Index rebuilt successfully (overlay-complete, ');
+    // A clean --quiet run prints nothing at all.
+    expect(rebuild.stdout).toBe('');
+    expect(rebuild.stderr).toBe('');
 
     const db = new LuxDatabase(dbPath);
     const trustState = loadOverlayTrustState(db);
@@ -314,7 +312,7 @@ describe('overlay CLI trust surface', () => {
   it('canonical rebuild preserves detected Laravel HTTP surfaces and detector edges', () => {
     writeLaravelHttpFixture(repoDir);
 
-    const rebuild = runCli(repoDir, dbPath, ['index', 'rebuild', '--quiet']);
+    const rebuild = runCli(repoDir, dbPath, ['index', 'rebuild']);
     expect(rebuild.status).toBe(0);
     expect(rebuild.stdout).toContain('Detector "laravel-http-surfaces": 2 surface(s), 3 edge(s).');
 

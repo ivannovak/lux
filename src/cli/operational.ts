@@ -137,6 +137,7 @@ function parsePayloadSchema(payloadSchema?: string): unknown {
   try {
     return JSON.parse(payloadSchema) as unknown;
   } catch {
+    // lux-intentional-swallow: a schema that is not JSON is shown as the stored text.
     return payloadSchema;
   }
 }

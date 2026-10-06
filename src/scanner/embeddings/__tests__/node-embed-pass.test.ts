@@ -194,7 +194,8 @@ describe('runNodeEmbedPass', () => {
     };
     // Must resolve, not reject — a failed embed pass never fails the surrounding index.
     const r = await runNodeEmbedPass(db, boom);
-    expect(r.budgetHit).toBe(true);
+    expect(r.budgetHit).toBe(false);
+    expect(r.failure).toBe('weights corrupt');
     expect(r.embedded).toBe(0);
     expect(r.coverage.embeddedNodes).toBe(0);
     expect(r.coverage.anchorViableNodes).toBe(3);
@@ -218,7 +219,8 @@ describe('runNodeEmbedPass', () => {
     };
 
     const r = await runNodeEmbedPass(db, flaky, { batchSize: 1 });
-    expect(r.budgetHit).toBe(true);
+    expect(r.budgetHit).toBe(false);
+    expect(r.failure).toBe('boom mid-pass');
     expect(r.embedded).toBe(failAfter); // two single-row batches committed before the throw
     expect(r.coverage.embeddedNodes).toBe(failAfter); // the partial IS persisted (per-upsert commit)
 
@@ -249,5 +251,32 @@ describe('runNodeEmbedPass', () => {
     expect(r.embedded).toBe(0);
     expect(r.budgetHit).toBe(false);
     expect(r.coverage).toEqual({ embeddedNodes: 0, anchorViableNodes: 0, model: MODEL });
+  });
+
+  it('a pass stopped by its budget is no warning; one stopped by a failure is', async () => {
+    for (let i = 0; i < 3; i++) seedNode(db, `n${i}`, `text ${i}`);
+    const budgetWarnings: string[] = [];
+    const budget = await runNodeEmbedPass(db, new StubEmbedder({ model: MODEL }), {
+      budgetMs: -1,
+      onWarning: (m) => budgetWarnings.push(m),
+    });
+    expect(budget.budgetHit).toBe(true);
+    expect(budget.failure).toBeUndefined();
+    expect(budgetWarnings).toEqual([]);
+
+    const failureWarnings: string[] = [];
+    const boom: Embedder = {
+      model: MODEL,
+      dims: ANCHOR_EMBED_DIMS,
+      embed: () => Promise.reject(new Error('weights corrupt')),
+      embedQuery: () => Promise.reject(new Error('weights corrupt')),
+    };
+    const failed = await runNodeEmbedPass(db, boom, {
+      onWarning: (m) => failureWarnings.push(m),
+    });
+    expect(failed.budgetHit).toBe(false);
+    expect(failureWarnings).toEqual([
+      'anchor embed pass failed after embedding 0 node(s): weights corrupt — the remainder resumes on the next index run',
+    ]);
   });
 });

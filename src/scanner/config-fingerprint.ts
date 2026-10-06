@@ -57,6 +57,7 @@ export function computeStructuralConfigFingerprint(rootPath: string, db: LuxData
       try {
         return realpathSync(r.sourceRoot);
       } catch {
+        // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
         return r.sourceRoot;
       }
     })

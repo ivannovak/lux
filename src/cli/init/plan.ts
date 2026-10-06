@@ -225,6 +225,7 @@ function isGitDirty(root: string, path: string): boolean {
     });
     return output.trim().length > 0;
   } catch {
+    // lux-intentional-swallow: not a git checkout, or git unavailable: there is no uncommitted work to protect.
     return false;
   }
 }
@@ -440,6 +441,7 @@ export function writeAtomicallyInsideRoot(
     try {
       unlinkSync(temporaryPath);
     } catch {
+      // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
       // Successful rename and failed-before-create both leave no temp file to remove.
     }
   }

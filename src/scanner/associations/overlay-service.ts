@@ -47,6 +47,7 @@ import {
 } from './operational/index.js';
 import type { OperationalExtractor } from './operational/types.js';
 import { propagateSurfaces } from './propagation.js';
+import { reporterFrom, type Reporter } from '../reporter.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -71,6 +72,10 @@ export interface OverlayRebuildOptions {
   programAnalysis?: ProgramAnalysisV1 & { shared: { extractions: SharedExtractions } };
   /** Progress callback. */
   onProgress?: (message: string) => void;
+  /** Warning callback: a tier or detector that failed. Without it, warnings reach `onProgress`. */
+  onWarning?: (message: string) => void;
+  /** A ready-made Reporter, used instead of onProgress/onWarning (keeps warning components). */
+  reporter?: Reporter;
 }
 
 export interface OverlayRebuildResult {
@@ -115,7 +120,8 @@ export async function rebuildStructuralOverlay(
   enrichments: EnrichmentMap,
   options: OverlayRebuildOptions = {}
 ): Promise<OverlayRebuildResult> {
-  const report = options.onProgress ?? (() => {});
+  const reporter = options.reporter ?? reporterFrom(options.onProgress, options.onWarning);
+  const report = reporter.progress;
 
   // 1. Collect git state
   let currentCommit: string | undefined;
@@ -127,7 +133,7 @@ export async function rebuildStructuralOverlay(
       dirtyFiles = getDirtyFiles(rootPath);
       report(`Git state: commit=${currentCommit.slice(0, 8)}, dirty=${dirtyFiles.length} file(s).`);
     } catch {
-      report('Warning: could not read git state — freshness tracking will use "unknown".');
+      reporter.warn('could not read git state — freshness tracking will use "unknown".');
     }
   } else {
     report('Not a git repository — freshness tracking will use "unknown".');
@@ -160,12 +166,13 @@ export async function rebuildStructuralOverlay(
   let programAnalysis: ProgramAnalysisV1 | undefined = options.programAnalysis;
   if (options.astEnabled && !programAnalysis) {
     try {
-      const analysis = await analyzeProgram(scan, rootPath, report);
+      const analysis = await analyzeProgram(scan, rootPath, reporter.warn);
       sharedExtractions = analysis.shared.extractions;
       programAnalysis = analysis;
     } catch (error) {
-      report(
-        `Warning: shared AST extraction failed — ${error instanceof Error ? error.message : String(error)}`
+      reporter.warn(
+        `shared AST extraction failed — ${error instanceof Error ? error.message : String(error)}`,
+        'ast'
       );
     }
   }
@@ -183,13 +190,14 @@ export async function rebuildStructuralOverlay(
         rootPath,
         Math.floor(Date.now() / 1000),
         sharedExtractions,
-        report
+        reporter.warn
       );
       symbolNodes += astNodes;
       report(`Materialized ${astNodes} AST symbol node(s).`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      report(`Warning: AST symbol materialization failed — ${message}`);
+      // The message names the phase, how far it got and why.
+      reporter.warn(message, 'ast');
       phaseFailures.push(message);
     }
   }
@@ -425,7 +433,7 @@ export async function rebuildStructuralOverlay(
         }));
   const engine = new AssociationEngine(db, resolvers, {
     includeHeuristics: options.includeHeuristics ?? false,
-    onProgress: report,
+    reporter,
   });
 
   report('Running association engine...');
@@ -438,7 +446,7 @@ export async function rebuildStructuralOverlay(
   // 6. Run capability surface detectors
   report('Running capability surface detectors...');
   const detectors = options.detectors ?? undefined; // undefined → runDetectors picks defaults
-  const detectorResult = await runDetectors(db, context, detectors, report);
+  const detectorResult = await runDetectors(db, context, detectors, reporter);
   report(
     `Detectors complete: ${detectorResult.surfacesDetected} surface(s) detected, ` +
       `${detectorResult.surfaceEdgesStored} edge(s) stored.`
@@ -452,7 +460,7 @@ export async function rebuildStructuralOverlay(
     db,
     context,
     operationalExtractorPack,
-    report
+    reporter
   );
   report(
     `Operational extraction complete: ${operationalResult.boundariesStored} boundary(s), ` +

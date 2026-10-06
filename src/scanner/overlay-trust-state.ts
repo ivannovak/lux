@@ -61,26 +61,75 @@ export function persistRebuildTrustState(
 }
 
 /**
- * Settle trust after a scoped overlay refresh (Decision 12): zero residual not-fresh edges restores
- * the prior mode (overlay-complete stays overlay-complete). `meta.residualStaleEdges` counts BOTH
+ * Settle trust after a scoped overlay refresh (Decision 12). `meta.residualStaleEdges` counts BOTH
  * `stale` AND `dirty-dependent` (overlay-refresh step 9b drives dirty-dependent to zero on a
  * complete refresh; any leftover of either is an honest settle failure), so a non-zero residual
- * yields degraded-overlay ⇒ stale-overlay via the source-action derivation. Records sourceAction
- * 'index-refresh' — provenance, not a new trust level (the five levels are frozen).
+ * yields degraded-overlay ⇒ stale-overlay via the source-action derivation, as does any warning the
+ * refresh raised. A warning carried from the prior state stays, and keeps trust degraded, until a
+ * refresh re-runs the component that raised it without raising it again; once nothing that degraded
+ * the prior state remains, trust is restored. Records sourceAction 'index-refresh' — provenance, not
+ * a new trust level (the five levels are frozen).
  */
 export function persistRefreshTrustState(
   db: LuxDatabase,
-  result: RebuildResult,
-  meta: { lastIndexedCommit?: string; residualStaleEdges: number }
+  prior: RebuildResult,
+  meta: RunWarningMeta & { lastIndexedCommit?: string; residualStaleEdges: number }
 ): PersistedOverlayTrustState {
-  const mode: RebuildMode = meta.residualStaleEdges === 0 ? result.mode : 'degraded-overlay';
+  const fresh = meta.warnings ?? [];
+  const { warnings, warningComponents } = settleWarnings(prior, meta);
+
+  let mode: RebuildMode = prior.mode;
+  if (meta.residualStaleEdges > 0 || fresh.length > 0) mode = 'degraded-overlay';
+  else if (prior.mode === 'degraded-overlay' && warnings.length === 0) mode = 'overlay-complete';
+
   return persistOverlayTrustState(db, {
-    ...result,
+    ...prior,
     mode,
+    warnings,
+    warningComponents,
     recordedAt: new Date().toISOString(),
     lastIndexedCommit: meta.lastIndexedCommit,
     sourceAction: 'index-refresh',
   });
+}
+
+/** The warnings a run produced, which component raised each, and which components it ran. */
+export interface RunWarningMeta {
+  warnings?: string[];
+  warningComponents?: Record<string, string>;
+  componentsRun?: string[];
+}
+
+/**
+ * Merge a run's warnings into the ones a prior state carried. A carried warning is retired when the
+ * run re-ran the component that raised it and did not raise it again; any other stays.
+ */
+function settleWarnings(
+  prior: Pick<RebuildResult, 'warnings' | 'warningComponents'>,
+  run: RunWarningMeta
+): { warnings: string[]; warningComponents: Record<string, string> } {
+  const fresh = run.warnings ?? [];
+  const ran = new Set(run.componentsRun ?? []);
+  const priorComponents = prior.warningComponents ?? {};
+  const carried = prior.warnings.filter((warning) => {
+    if (fresh.includes(warning)) return false; // raised again: it is this run's warning now
+    const component = priorComponents[warning];
+    return !(component && ran.has(component));
+  });
+  const warningComponents: Record<string, string> = {};
+  for (const warning of carried) {
+    if (priorComponents[warning]) warningComponents[warning] = priorComponents[warning];
+  }
+  Object.assign(warningComponents, run.warningComponents ?? {});
+  return { warnings: [...new Set([...carried, ...fresh])], warningComponents };
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string'
+  );
+  return Object.fromEntries(entries);
 }
 
 export function loadOverlayTrustState(db: LuxDatabase): PersistedOverlayTrustState | null {
@@ -114,6 +163,7 @@ export function loadOverlayTrustState(db: LuxDatabase): PersistedOverlayTrustSta
           ? parsed.propagationStatus
           : 'skipped',
       warnings: parsed.warnings.filter((w): w is string => typeof w === 'string'),
+      warningComponents: asStringRecord(parsed.warningComponents),
       recordedAt:
         typeof parsed.recordedAt === 'string' ? parsed.recordedAt : new Date().toISOString(),
       lastIndexedCommit:
@@ -129,6 +179,7 @@ export function loadOverlayTrustState(db: LuxDatabase): PersistedOverlayTrustSta
         typeof parsed.dirtyAtIndexTime === 'number' ? parsed.dirtyAtIndexTime : undefined,
     };
   } catch {
+    // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return null;
   }
 }
@@ -200,14 +251,32 @@ export function describeOverlayTrustInspection(
 
 export function markOverlayTrustAfterSync(
   db: LuxDatabase,
-  details: OverlaySyncMutationDetails
+  details: OverlaySyncMutationDetails & RunWarningMeta
 ): PersistedOverlayTrustState {
   const inspection = inspectOverlayTrustState(db);
-  const base = inspection.state ?? defaultDegradedState(details.lastIndexedCommit);
+  const prior = inspection.state ?? defaultDegradedState(details.lastIndexedCommit);
+  // The sync's own warnings (a file it re-read) join the carried ones; a file it re-read cleanly
+  // retires a carried warning about that file.
+  const settled = settleWarnings(prior, details);
+  const fresh = details.warnings ?? [];
+  const base = { ...prior, ...settled };
 
   if (details.overlayRelevantPaths.length === 0) {
+    let mode: RebuildMode = base.mode;
+    if (mode !== 'content-only') {
+      if (fresh.length > 0) mode = 'degraded-overlay';
+      // Restored only when this sync retired the last warning behind the degradation; a state
+      // degraded for another reason (residual stale edges) has no warnings to retire.
+      else if (
+        mode === 'degraded-overlay' &&
+        prior.warnings.length > 0 &&
+        settled.warnings.length === 0
+      )
+        mode = 'overlay-complete';
+    }
     return persistOverlayTrustState(db, {
       ...base,
+      mode,
       recordedAt: new Date().toISOString(),
       lastIndexedCommit: details.lastIndexedCommit,
       sourceAction: 'index-sync',
@@ -305,6 +374,7 @@ function countProviderKinds(surfaces: Array<{ metadata?: string | null }>): {
       else if (meta.providerKind === 'closure') closureBackedCount++;
       else unknownProviderKindCount++;
     } catch {
+      // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
       unknownProviderKindCount++;
     }
   }

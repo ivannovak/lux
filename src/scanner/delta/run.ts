@@ -229,8 +229,8 @@ export function runDeltaCli(program: Command, opts: DeltaOptions): void {
         )
       );
     } else {
-      console.error(`Error: ${refusal.message}`);
-      if (refusal.remediation) console.error(`  ${refusal.remediation}`);
+      printRefusal(`Error: ${refusal.message}`);
+      if (refusal.remediation) printRefusal(`  ${refusal.remediation}`);
     }
     process.exitCode = 1;
     return;
@@ -253,8 +253,8 @@ export function runDeltaCli(program: Command, opts: DeltaOptions): void {
           )
         );
       } else {
-        console.error(`Error: ${result.refusal.message}`);
-        if (result.refusal.remediation) console.error(`  ${result.refusal.remediation}`);
+        printRefusal(`Error: ${result.refusal.message}`);
+        if (result.refusal.remediation) printRefusal(`  ${result.refusal.remediation}`);
       }
       process.exitCode = 1;
       return;
@@ -268,4 +268,10 @@ export function runDeltaCli(program: Command, opts: DeltaOptions): void {
   } finally {
     db.close();
   }
+}
+
+/** The `lux delta` command's printer for a refusal, which ends the command with a nonzero exit. */
+function printRefusal(line: string): void {
+  // eslint-disable-next-line no-restricted-syntax -- the delta command's refusal printer.
+  console.error(line);
 }

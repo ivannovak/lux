@@ -156,6 +156,7 @@ export function emitUsageEvent(db: LuxDatabase, input: EmitUsageEventInput): Usa
     });
     return event;
   } catch {
+    // lux-intentional-swallow: usage telemetry must never fail or degrade the command it observes.
     return null;
   }
 }

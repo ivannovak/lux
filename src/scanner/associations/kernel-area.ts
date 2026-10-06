@@ -97,6 +97,7 @@ function kernelMessage(
       try {
         at = ` @ ${getHeadCommit(worktree).slice(0, 7)}`;
       } catch {
+        // lux-intentional-swallow: only decorates a message with the kernel's commit; it is omitted when unknown.
         at = '';
       }
       return `Cross-area overlay: the kernel you vendor (${worktree}${at}) has no Lux index — run \`lux index rebuild\` there first.`;
