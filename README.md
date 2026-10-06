@@ -285,6 +285,35 @@ What the rebuild guarantees itself:
   declarations drop out of the census, which can turn another file's id from qualified to bare or
   back. Such a run always lists the failed file in `lspEnrichmentFailures`, which is why stable
   ids, like every other determinism guarantee here, hold only for a run whose list is empty.
+- **One fact declared in several files follows a stated rule, never processing order.**
+  - *HTTP routes.* A route (method and path) that two files declare is stored once per file, under
+    the same file-qualified form: `surface:http:GET:/#file:routes/web.php` and
+    `surface:http:GET:/#file:workbench/routes/web.php`, each with its own handler, route name and
+    edges; no node keeps `surface:http:GET:/`. Laravel itself keeps whichever was registered last,
+    an order set by provider boot and stated in no route file, and the two files are often not in
+    one application at all (a package's routes and its Testbench skeleton's). A route one file
+    declares is unchanged. `lux index status --json` lists these under `surfaceIdCollisions`.
+    One declaration is asked for as `GET / @ routes/web.php` (or by its id, or its route name):
+    `overlay feature-path ask "GET /"` lists the declarations in that form, and `lux delta` emits
+    its spec targets in it, so `overlay spec-evidence ask --kind route` resolves each one.
+    `overlay ownership --kernel` compares kernel and client by method and path, so a route either
+    side declares in several files is still one row.
+  - *Events.* One boundary per event class. Laravel adds every provider's listeners to the
+    dispatcher, so the contract lists every registering file (`registeredIn`) and the union of
+    their listeners; `file_path` is the first registering file by path.
+  - *Artisan commands.* A class declaring the name outranks the scheduler's reference to it. Two
+    files declaring one name are each stored file-qualified
+    (`opb:command:report:send#file:<path>`); the scheduler's reference stays on the bare name.
+  - *Jobs.* One boundary per job class. A scheduler declaration outranks a dispatch-site
+    inference. The `HANDLED_BY` edge from a job to its class is shared by every site that reaches
+    the job, so it states no transport; each site's transport is on its own `DISPATCHES` (or the
+    scheduler's `TRIGGERS`) edge.
+
+  A detector or extractor that still hands over one id for two declarations is reported in a
+  warning naming the id and the files, and the declaration in the first file by path is stored,
+  with that declaration's edges only.
+  `Surface count mismatch` therefore compares distinct declared ids with stored rows, and no
+  longer fires for a route two files declare.
 
 ## Agent integration
 

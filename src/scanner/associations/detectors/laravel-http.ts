@@ -13,6 +13,17 @@
 //   - Route::group(['prefix' => 'admin'], function () { ... })
 //   - Arbitrarily nested groups, composing canonical external paths
 //
+// A route two files declare (same method and canonical path):
+//   Laravel keeps one route per method and URI in an application, the one registered last, and
+//   registration order is decided by provider boot order, which no route file states. Two files
+//   that declare one route are also often not in one application at all: a package's
+//   `routes/web.php` and its Testbench skeleton's `workbench/routes/web.php` both declare `GET /`,
+//   and only the first exists in an application that installs the package. So neither declaration
+//   is dropped and none is picked: each becomes its own surface under a file-qualified id
+//   (identity/file-qualified-id.ts), `surface:http:GET:/#file:routes/web.php`, carrying that
+//   file's handler, route name and edges. A route one file declares keeps `surface:http:GET:/`.
+//   Duplicates inside one file are arbitrated by consolidateLogicalSurfaces.
+//
 // Does NOT:
 //   - infer controllers through naming conventions
 //   - resolve consumer-side chains
@@ -26,6 +37,7 @@ import type {
 } from '../types.js';
 import { httpSurfaceNodeId, fileNodeId, phpSymbolNodeId } from '../types.js';
 import type { CapabilitySurfaceDetector, DetectedSurfaceBatch } from './types.js';
+import { fileQualifiedId, idsDeclaredByManyFiles } from '../../identity/file-qualified-id.js';
 
 // ---------------------------------------------------------------------------
 // Regex patterns — route declarations (applied to already-scoped content)
@@ -120,19 +132,38 @@ export class LaravelHttpSurfaceDetector implements CapabilitySurfaceDetector {
     const routeEntries = context.entries.filter((e) => isEligibleRouteSource(e));
     const routeRegistrations = collectRouteFileRegistrations(context);
 
+    // Parse every route file before any id is built: whether a route's id is file-qualified
+    // depends on every file that declares it.
+    const declaredRoutes: Array<{ filePath: string; routes: ParsedRoute[] }> = [];
     for (const entry of routeEntries) {
       const content = (entry.metadata?.content as string | undefined) ?? '';
       if (!content) continue;
+      declaredRoutes.push({
+        filePath: entry.filePath,
+        routes: parseRouteDeclarations(
+          content,
+          entry.filePath,
+          routeRegistrations.get(entry.filePath)
+        ),
+      });
+    }
+    const sharedIds = idsDeclaredByManyFiles(
+      declaredRoutes.flatMap(({ filePath, routes }) =>
+        routes.map((route) => ({
+          id: httpSurfaceNodeId(route.method, route.path),
+          relPath: filePath,
+        }))
+      )
+    );
 
+    for (const entry of declaredRoutes) {
       const fileId = fileNodeId(entry.filePath);
-      const detectedRoutes = parseRouteDeclarations(
-        content,
-        entry.filePath,
-        routeRegistrations.get(entry.filePath)
-      );
 
-      for (const route of detectedRoutes) {
-        const surfaceId = httpSurfaceNodeId(route.method, route.path);
+      for (const route of entry.routes) {
+        const bareSurfaceId = httpSurfaceNodeId(route.method, route.path);
+        const surfaceId = sharedIds.has(bareSurfaceId)
+          ? fileQualifiedId(bareSurfaceId, entry.filePath)
+          : bareSurfaceId;
         const handle = `${route.method.toUpperCase()} ${route.path}`;
 
         const surfaceNode: CapabilitySurfaceNode = {

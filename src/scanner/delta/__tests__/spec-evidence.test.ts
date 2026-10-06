@@ -29,6 +29,24 @@ describe('delta invalidated spec-evidence (spec 13 Part B, Phase 2b)', () => {
     expect(out).toEqual([{ kind: 'route', target: 'GET /users/{id}' }]);
   });
 
+  it('names each declaration of a route several files declare by handle and file', () => {
+    const surface = (file: string): EntrySurfaceImpact => ({
+      kind: 'http',
+      id: `surface:http:GET:/#file:${file}`,
+      resolvedVia: 'structural-walk',
+      hops: 1,
+      weakestConfidence: 'proven',
+    });
+    const out = resolveInvalidatedSpecTargets(touchSet(), [
+      surface('routes/web.php'),
+      surface('workbench/routes/web.php'),
+    ]);
+    expect(out).toEqual([
+      { kind: 'route', target: 'GET / @ routes/web.php' },
+      { kind: 'route', target: 'GET / @ workbench/routes/web.php' },
+    ]);
+  });
+
   it('maps a touched job boundary to a job target (SC-6, declared-boundary path)', () => {
     const touch = touchSet({
       operationalBoundaries: [

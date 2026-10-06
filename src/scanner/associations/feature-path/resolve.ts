@@ -10,6 +10,7 @@
 import type { LuxDatabase } from '../../../db/index.js';
 import type { StructuralNode } from '../../../db/types.js';
 import type { FeaturePathResolution, FeaturePathTarget, ResolutionMatchType } from './contract.js';
+import { declarationHandle } from '../../identity/file-qualified-id.js';
 
 const MAX_CANDIDATES = 5;
 
@@ -50,7 +51,10 @@ function semanticForms(surface: StructuralNode): string[] {
   if (surface.symbol_name) forms.add(normalize(surface.symbol_name));
   if (meta.routeName) forms.add(normalize(meta.routeName));
   if (meta.method && meta.path) {
-    forms.add(normalize(`${meta.method} ${meta.path}`));
+    const handle = `${meta.method} ${meta.path}`;
+    forms.add(normalize(handle));
+    // One declaration of a route several files declare: `GET / @ routes/web.php`.
+    forms.add(normalize(declarationHandle(surface.id, handle)));
   }
   if (meta.path) forms.add(normalize(meta.path));
 
@@ -59,7 +63,10 @@ function semanticForms(surface: StructuralNode): string[] {
 
 function toTarget(surface: StructuralNode): FeaturePathTarget {
   const meta = parseSurfaceMeta(surface);
-  const label = surface.symbol_name ?? `${meta.method ?? ''} ${meta.path ?? ''}`.trim();
+  const handle = surface.symbol_name ?? `${meta.method ?? ''} ${meta.path ?? ''}`.trim();
+  // A route several files declare is labelled with its file, so candidates can be told apart
+  // and the label asked for as written.
+  const label = handle ? declarationHandle(surface.id, handle) : '';
 
   const target: FeaturePathTarget = {
     kind: 'route-surface',

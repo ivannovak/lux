@@ -22,7 +22,9 @@ import type {
   FeaturePathDownstreamStep,
   FeaturePathOwnership,
   FeaturePathResolution,
+  FeaturePathTarget,
 } from './contract.js';
+import { isFileQualifiedId } from '../../identity/file-qualified-id.js';
 
 const DIRECT_EVIDENCE_HEADER = 'Direct evidence';
 const CONTEXT_HEADER = 'Context';
@@ -99,11 +101,24 @@ function renderResolutionSection(resolution: FeaturePathResolution): string[] {
   if (resolution.candidates.length > 0) {
     lines.push(
       `Candidates:${resolution.candidates
-        .map((candidate) => ` ${candidate.label ?? candidate.id}`)
+        .map((candidate) => ` ${candidateText(candidate)}`)
         .join(',')}`
     );
+    // Declarations of one route in several files share a handle; each is asked for by its label.
+    const shared = resolution.candidates.find((candidate) => isFileQualifiedId(candidate.id));
+    if (resolution.status === 'ambiguous' && shared) {
+      lines.push(`Ask for one candidate as written, e.g. "${shared.label ?? shared.id}".`);
+    }
   }
   return lines;
+}
+
+/** A candidate as listed; a declaration of a shared route also shows its route name. */
+function candidateText(candidate: FeaturePathTarget): string {
+  const label = candidate.label ?? candidate.id;
+  return isFileQualifiedId(candidate.id) && candidate.routeName
+    ? `${label} (${candidate.routeName})`
+    : label;
 }
 
 function renderOwnershipSection(ownership: FeaturePathOwnership): string[] {

@@ -27,6 +27,10 @@ describe('idPortability', () => {
     expect(idPortability('symbol:php:handle')).toBe('repo-local');
   });
 
+  it('is repo-local for an HTTP surface two files declare: the id names one declaration', () => {
+    expect(idPortability('surface:http:GET:/#file:routes/web.php')).toBe('repo-local');
+  });
+
   it('is portable-kernel-only for an HTTP surface', () => {
     expect(idPortability('surface:http:GET:/offer/{offerId}')).toBe('portable-kernel-only');
   });

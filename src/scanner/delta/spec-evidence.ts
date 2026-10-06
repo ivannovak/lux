@@ -1,4 +1,5 @@
 import type { DeltaTouchSet, EntrySurfaceImpact, SpecTarget } from './types.js';
+import { bareId, declarationHandle } from '../identity/file-qualified-id.js';
 
 /**
  * The `route | handler | job | listener | command` targets whose evidence citations or
@@ -28,10 +29,15 @@ export function resolveInvalidatedSpecTargets(
   return [...out.values()];
 }
 
-/** `surface:http:GET:/path` → `GET /path`; other ids pass through. */
+/**
+ * `surface:http:GET:/path` → `GET /path`; other ids pass through. One declaration of a route
+ * several files declare (`…#file:<path>`) is `GET /path @ <path>`: the form `overlay
+ * spec-evidence ask --kind route` resolves to that declaration, where the bare handle would be
+ * ambiguous.
+ */
 function httpSurfaceLabel(id: string): string {
-  const m = /^surface:http:([A-Z]+):(.+)$/.exec(id);
-  return m ? `${m[1]} ${m[2]}` : id;
+  const m = /^surface:http:([A-Z]+):(.+)$/.exec(bareId(id));
+  return m ? declarationHandle(id, `${m[1]} ${m[2]}`) : id;
 }
 
 function opKindToSpecKind(kind: string): SpecTarget['kind'] {

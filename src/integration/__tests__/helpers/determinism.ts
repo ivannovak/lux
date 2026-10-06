@@ -98,7 +98,10 @@ function consumer(module: string, name: string, uses: Array<[string, string]>): 
  *  - module dependencies that all carry one reference, so every ordering of them is a tie;
  *  - cross-module edges whose boundary weights are non-terminating binary fractions, so their sum
  *    depends on summation order;
- *  - more source files per module pair than the sample size, so sample selection has a choice.
+ *  - more source files per module pair than the sample size, so sample selection has a choice;
+ *  - facts declared in more than one file (issue #13): `GET /` in two route files, one event
+ *    registered by two providers, one command name declared by two classes, a scheduled command
+ *    and a job that two sites dispatch over different transports.
  */
 export function writeDeterminismFixture(root: string): void {
   write(
@@ -188,6 +191,8 @@ export function writeDeterminismFixture(root: string): void {
       '\n'
   );
 
+  writeSharedDeclarations(root);
+
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: 'fixture',
@@ -200,6 +205,73 @@ export function writeDeterminismFixture(root: string): void {
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root, env });
   execFileSync('git', ['add', '-A'], { cwd: root, env });
   execFileSync('git', ['commit', '-q', '-m', 'fixture'], { cwd: root, env });
+}
+
+/** One fact, declared in two files each: a route, an event's listeners, a command name, a job. */
+function writeSharedDeclarations(root: string): void {
+  write(
+    root,
+    'routes/web.php',
+    `<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n` +
+      `use App\\Module\\Alpha\\Http\\Controllers\\BetaConsumer1Controller as Homepage;\n\n` +
+      `Route::get('/', Homepage::class)->name('homepage');\n`
+  );
+  write(
+    root,
+    'workbench/routes/web.php',
+    `<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n\n` +
+      `Route::get('/', function () {\n    return 'welcome';\n});\n`
+  );
+  write(
+    root,
+    'src/Events/ReportRequested.php',
+    `<?php\n\nnamespace App\\Events;\n\nclass ReportRequested\n{\n    public function __construct(public int $reportId)\n    {\n    }\n}\n`
+  );
+  write(
+    root,
+    'src/Jobs/Prune.php',
+    `<?php\n\nnamespace App\\Jobs;\n\nclass Prune\n{\n    public function handle(): void\n    {\n    }\n}\n`
+  );
+  for (const [module, dispatch] of [
+    ['Alpha', 'dispatch'],
+    ['Beta', 'dispatchSync'],
+  ]) {
+    write(
+      root,
+      `src/Module/${module}/ServiceProvider.php`,
+      `<?php\n\nnamespace App\\Module\\${module};\n\nuse App\\Events\\ReportRequested;\n` +
+        `use App\\Module\\${module}\\Listeners\\${module}Listener;\n` +
+        `use Illuminate\\Support\\Facades\\Event;\n\nclass ServiceProvider\n{\n` +
+        `    public function boot(): void\n    {\n` +
+        `        Event::listen(ReportRequested::class, ${module}Listener::class);\n    }\n}\n`
+    );
+    write(
+      root,
+      `src/Module/${module}/Listeners/${module}Listener.php`,
+      `<?php\n\nnamespace App\\Module\\${module}\\Listeners;\n\nuse App\\Jobs\\Prune;\n\n` +
+        `class ${module}Listener\n{\n    public function handle(): void\n    {\n` +
+        `        Prune::${dispatch}();\n    }\n}\n`
+    );
+    write(
+      root,
+      `src/Module/${module}/Console/SendReport.php`,
+      `<?php\n\nnamespace App\\Module\\${module}\\Console;\n\nuse Illuminate\\Console\\Command;\n\n` +
+        `class SendReport extends Command\n{\n    protected $signature = 'report:send {--${module.toLowerCase()}}';\n}\n`
+    );
+  }
+  write(
+    root,
+    'src/Module/Gamma/Console/WarmCache.php',
+    `<?php\n\nnamespace App\\Module\\Gamma\\Console;\n\nuse Illuminate\\Console\\Command;\n\n` +
+      `class WarmCache extends Command\n{\n    protected $signature = 'cache:warm';\n}\n`
+  );
+  write(
+    root,
+    'src/Console/Kernel.php',
+    `<?php\n\nnamespace App\\Console;\n\nclass Kernel\n{\n    protected function schedule($schedule): void\n    {\n` +
+      `        $schedule->command('report:send')->daily();\n` +
+      `        $schedule->command('cache:warm')->hourly();\n    }\n}\n`
+  );
 }
 
 export interface CliRun {

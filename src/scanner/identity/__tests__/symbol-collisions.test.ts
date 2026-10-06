@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bareSymbolId, isFileQualifiedSymbolId, SymbolIdCollisions } from '../symbol-collisions.js';
+import { bareSymbolId, SymbolIdCollisions } from '../symbol-collisions.js';
+import { isFileQualifiedId } from '../file-qualified-id.js';
 import { idPortability } from '../../associations/federation.js';
 
 describe('SymbolIdCollisions', () => {
@@ -45,7 +46,7 @@ describe('SymbolIdCollisions', () => {
 
   it('marks qualified ids repo-local for federation, even for a namespaced name', () => {
     const qualified = 'symbol:php:App\\Shared\\Duplicate#file:src/Gamma/Duplicate.php';
-    expect(isFileQualifiedSymbolId(qualified)).toBe(true);
+    expect(isFileQualifiedId(qualified)).toBe(true);
     expect(idPortability(qualified)).toBe('repo-local');
     expect(idPortability('symbol:php:App\\Shared\\Duplicate')).toBe('portable');
   });

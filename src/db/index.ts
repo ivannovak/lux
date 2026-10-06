@@ -676,24 +676,32 @@ export class LuxDatabase {
       // the chosen handler deterministic). client_handler is a deterministic correlated subquery
       // (ORDER BY … LIMIT 1) rather than a LEFT JOIN, so a client with >1 handler for a route
       // cannot fan the kernel row out or pick a handler non-deterministically.
+      // A route is its method and path on both sides: an id either index file-qualified because
+      // several of its files declare the route (`…#file:<path>`) is read without the qualifier,
+      // so the two indexes join on the route and not on how many files declare it.
+      const route = (column: string): string =>
+        `CASE WHEN instr(${column}, '#file:') > 0
+              THEN substr(${column}, 1, instr(${column}, '#file:') - 1)
+              ELSE ${column} END`;
       const kernelRows = this.db.all(
         `SELECT ke.route,
                 ke.kernel_handler,
                 cn.id AS client_node,
                 (SELECT ce.target_node_id FROM main.structural_edges ce
-                  WHERE ce.source_node_id = ke.route AND ce.edge_type = 'handled_by'
+                  WHERE ${route('ce.source_node_id')} = ke.route AND ce.edge_type = 'handled_by'
+                    AND ce.source_node_id LIKE 'surface:http:%'
                   ORDER BY ce.target_node_id LIMIT 1) AS client_handler
-           FROM (SELECT source_node_id AS route, MIN(target_node_id) AS kernel_handler
+           FROM (SELECT ${route('source_node_id')} AS route, MIN(target_node_id) AS kernel_handler
                    FROM kernel.structural_edges
                   WHERE edge_type = 'handled_by' AND source_node_id LIKE 'surface:http:%'
-                  GROUP BY source_node_id) ke
+                  GROUP BY 1) ke
            LEFT JOIN main.structural_nodes cn ON cn.id = ke.kernel_handler`
       ) as CrossAreaKernelRow[];
       const clientRoutes = this.db.all(
-        `SELECT source_node_id AS route, MIN(target_node_id) AS handler
+        `SELECT ${route('source_node_id')} AS route, MIN(target_node_id) AS handler
            FROM main.structural_edges
           WHERE edge_type = 'handled_by' AND source_node_id LIKE 'surface:http:%'
-          GROUP BY source_node_id`
+          GROUP BY 1`
       ) as CrossAreaClientRoute[];
       return { kernelRows, clientRoutes };
     });
@@ -1375,13 +1383,14 @@ export class LuxDatabase {
   }
 
   /**
-   * Ids more than one file declares (stored file-qualified as `<id>#file:<path>`), and the edges
-   * that still point at such an id's bare form. Those edges name an ambiguous target and resolve to
-   * no node (identity/symbol-collisions.ts).
+   * Symbol ids more than one file declares (stored file-qualified as `<id>#file:<path>`), and the
+   * edges that still point at such an id's bare form. Those edges name an ambiguous target and
+   * resolve to no node (identity/symbol-collisions.ts).
    */
   getSymbolIdCollisionCounts(): { collidingIds: number; edgesToAmbiguousIds: number } {
     const ambiguous = `SELECT DISTINCT substr(id, 1, instr(id, '#file:') - 1) AS bare
-      FROM structural_nodes WHERE origin = 'local' AND instr(id, '#file:') > 0`;
+      FROM structural_nodes
+      WHERE origin = 'local' AND node_type = 'symbol' AND instr(id, '#file:') > 0`;
     const row = this.db.get(
       `SELECT (SELECT COUNT(*) FROM (${ambiguous})) AS ids,
               (SELECT COUNT(*) FROM structural_edges WHERE target_node_id IN (${ambiguous})) AS edges`
@@ -1418,6 +1427,23 @@ export class LuxDatabase {
   /**
    * Return all capability-surface nodes, most recently updated first.
    */
+  /**
+   * Capability-surface ids more than one file declares, in their bare form, each with the files
+   * that declare it. Each declaration is stored under `<id>#file:<path>`
+   * (identity/file-qualified-id.ts).
+   */
+  getSharedSurfaceIds(): Array<{ id: string; files: string[] }> {
+    const rows = this.db.all(
+      `SELECT substr(id, 1, instr(id, '#file:') - 1) AS bare, file_path
+         FROM structural_nodes
+        WHERE node_type = 'capability-surface' AND instr(id, '#file:') > 0
+        ORDER BY bare, file_path`
+    ) as Array<{ bare: string; file_path: string }>;
+    const shared = new Map<string, string[]>();
+    for (const row of rows) shared.set(row.bare, [...(shared.get(row.bare) ?? []), row.file_path]);
+    return [...shared].map(([id, files]) => ({ id, files }));
+  }
+
   getCapabilitySurfaces(): StructuralNode[] {
     return this.getQueries().getCapabilitySurfaces.all() as StructuralNode[];
   }

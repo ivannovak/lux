@@ -7,7 +7,7 @@
 // under one FQCN. Written into one `structural_nodes` row, such a pair keeps whichever file was
 // processed last, so the index depended on processing order.
 //
-// The rule, decided before any node is written:
+// The rule (identity/file-qualified-id.ts), decided before any node is written:
 //   - an id declared by exactly one file keeps its form unchanged;
 //   - an id declared by two or more files is file-qualified for every one of them — none keeps
 //     the bare id — as `<bare id>#file:<repo-relative path>`, e.g.
@@ -18,15 +18,15 @@
 
 import type { AstLang, Extraction } from '../ast/extract.js';
 import { astSymbolIdentity } from '../ast/symbols.js';
-
-/** Joins a colliding symbol id to the repo-relative path of the file that declares it. */
-const FILE_QUALIFIER = '#file:';
+import {
+  bareId,
+  fileQualifiedId,
+  idsDeclaredByManyFiles,
+  type IdDeclaration,
+} from './file-qualified-id.js';
 
 /** One file's claim on a symbol id. */
-export interface SymbolDeclaration {
-  id: string;
-  relPath: string;
-}
+export type SymbolDeclaration = IdDeclaration;
 
 /** The set of symbol ids declared by more than one file in one index. */
 export class SymbolIdCollisions {
@@ -48,20 +48,13 @@ export class SymbolIdCollisions {
 
   /** Collect the ids that more than one distinct file declares. */
   static fromDeclarations(declarations: Iterable<SymbolDeclaration>): SymbolIdCollisions {
-    const firstFile = new Map<string, string>();
-    const colliding = new Set<string>();
-    for (const { id, relPath } of declarations) {
-      const bare = bareSymbolId(id);
-      const seen = firstFile.get(bare);
-      if (seen === undefined) firstFile.set(bare, relPath);
-      else if (seen !== relPath) colliding.add(bare);
-    }
+    const colliding = new Set(idsDeclaredByManyFiles(declarations).keys());
     return colliding.size === 0 ? SymbolIdCollisions.NONE : new SymbolIdCollisions(colliding);
   }
 
   /** The id a symbol declared in `relPath` is stored under. */
   qualify(id: string, relPath: string): string {
-    return this.colliding.has(id) ? `${id}${FILE_QUALIFIER}${relPath}` : id;
+    return this.colliding.has(id) ? fileQualifiedId(id, relPath) : id;
   }
 
   has(id: string): boolean {
@@ -75,13 +68,7 @@ export class SymbolIdCollisions {
 
 /** The id without its file qualifier (unchanged when it has none). */
 export function bareSymbolId(id: string): string {
-  const at = id.indexOf(FILE_QUALIFIER);
-  return at === -1 ? id : id.slice(0, at);
-}
-
-/** True for an id this module qualified: it names one file's declaration, never a shared one. */
-export function isFileQualifiedSymbolId(id: string): boolean {
-  return id.includes(FILE_QUALIFIER);
+  return bareId(id);
 }
 
 /** The bare ids every AST definition in one file declares (the AST materializer's ids). */
