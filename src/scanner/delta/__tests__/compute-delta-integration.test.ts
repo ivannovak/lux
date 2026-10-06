@@ -45,7 +45,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('#5 --check gate through computeDelta (client-gap-created glue, run.ts:102-126)', () => {
-  it('fires client-gap-created (exit 1) when the diff deletes a client-override handler', () => {
+  it('fires client-gap-created (exit 1) when the diff deletes a client-override handler', async () => {
     // kernel worktree: composer.json (Acme\Core) + git HEAD + a populated .lux with a route whose
     // handler is the client's App\C2 (→ classified client-override).
     const kernelDir = join(root, 'core');
@@ -106,7 +106,7 @@ describe('#5 --check gate through computeDelta (client-gap-created glue, run.ts:
       updated_at: 1,
     });
 
-    const result = computeDelta(
+    const result = await computeDelta(
       cdb,
       client,
       opts({ check: true, failOn: ['client-gap-created'], committedOnly: true })
@@ -127,7 +127,7 @@ describe('#5 --check gate through computeDelta (client-gap-created glue, run.ts:
 });
 
 describe('#6 module-dependents rollup through computeDelta (SC-1)', () => {
-  it('rolls up dependents DESC by reference_count and excludes (unscoped) and unchanged targets', () => {
+  it('rolls up dependents DESC by reference_count and excludes (unscoped) and unchanged targets', async () => {
     const repo = join(root, 'mods');
     initRepo(repo);
     // packages/{modA,modB} → detectModuleBoundaries = ['packages/{name}'].
@@ -174,7 +174,7 @@ describe('#6 module-dependents rollup through computeDelta (SC-1)', () => {
       sample_files: null,
     });
 
-    const result = computeDelta(db, repo, opts({ committedOnly: true }));
+    const result = await computeDelta(db, repo, opts({ committedOnly: true }));
     db.close();
 
     expect('report' in result).toBe(true);
@@ -206,7 +206,7 @@ describe('#7 baselineDb branch through computeDelta (Phase 4)', () => {
     return { corpus, primaryDb };
   }
 
-  it('populates report.baselineDiff (surfaces ± and cross-module edges +) from a sibling baseline', () => {
+  it('populates report.baselineDiff (surfaces ± and cross-module edges +) from a sibling baseline', async () => {
     const { corpus, primaryDb } = makeCorpus();
     // HEAD (primary) state.
     primaryDb.upsertStructuralNode({
@@ -248,7 +248,7 @@ describe('#7 baselineDb branch through computeDelta (Phase 4)', () => {
     });
     bdb.close();
 
-    const result = computeDelta(
+    const result = await computeDelta(
       primaryDb,
       corpus,
       opts({ baselineDb: baselinePath, committedOnly: true })
@@ -266,14 +266,16 @@ describe('#7 baselineDb branch through computeDelta (Phase 4)', () => {
     ]);
   });
 
-  it('takes the baseline-unavailable warning path (no throw, no baselineDiff) for a missing baseline', () => {
+  it('takes the baseline-unavailable warning path (no throw, no baselineDiff) for a missing baseline', async () => {
     const { corpus, primaryDb } = makeCorpus();
     const missing = join(root, 'nope', 'lux.db');
 
-    let result!: ReturnType<typeof computeDelta>;
-    expect(() => {
-      result = computeDelta(primaryDb, corpus, opts({ baselineDb: missing, committedOnly: true }));
-    }).not.toThrow();
+    // Resolves rather than rejecting: a missing baseline is a warning, not an error.
+    const result = await computeDelta(
+      primaryDb,
+      corpus,
+      opts({ baselineDb: missing, committedOnly: true })
+    );
     primaryDb.close();
 
     expect('report' in result).toBe(true);

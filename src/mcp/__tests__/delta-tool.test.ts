@@ -74,8 +74,8 @@ describe('lux_delta MCP tool — computeDelta contract (spec 16 / Decision 17)',
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('returns a schemaVersion:1 delta envelope for a benign (default) base', () => {
-    const result = computeDelta(db, corpus, baseOptions());
+  it('returns a schemaVersion:1 delta envelope for a benign (default) base', async () => {
+    const result = await computeDelta(db, corpus, baseOptions());
     expect('report' in result).toBe(true);
     if ('report' in result) {
       expect(result.report.schemaVersion).toBe(1);
@@ -86,12 +86,12 @@ describe('lux_delta MCP tool — computeDelta contract (spec 16 / Decision 17)',
     }
   });
 
-  it('refuses an injection-shaped --base without spawning a shell (Decision 17, --check mode)', () => {
+  it('refuses an injection-shaped --base without spawning a shell (Decision 17, --check mode)', async () => {
     const probe = join(root, 'INJECTION_PROBE');
     expect(existsSync(probe)).toBe(false);
 
     // --check turns baseline-unavailable into a hard refusal (analysis mode degrades it).
-    const result = computeDelta(
+    const result = await computeDelta(
       db,
       corpus,
       baseOptions({ base: `--output=${probe}`, check: true })
@@ -103,9 +103,9 @@ describe('lux_delta MCP tool — computeDelta contract (spec 16 / Decision 17)',
     expect(existsSync(probe)).toBe(false);
   });
 
-  it('degrades an injection --base to an empty report in analysis mode (still no shell)', () => {
+  it('degrades an injection --base to an empty report in analysis mode (still no shell)', async () => {
     const probe = join(root, 'INJECTION_PROBE_2');
-    const result = computeDelta(db, corpus, baseOptions({ base: `--output=${probe}` }));
+    const result = await computeDelta(db, corpus, baseOptions({ base: `--output=${probe}` }));
     // Analysis mode (no --check): baseline-unavailable degrades to a warned empty report.
     expect('report' in result).toBe(true);
     if ('report' in result) {
@@ -115,12 +115,12 @@ describe('lux_delta MCP tool — computeDelta contract (spec 16 / Decision 17)',
     expect(existsSync(probe)).toBe(false);
   });
 
-  it('mirrors the MCP payload wrapping: report vs {error: refusal}', () => {
-    const ok = computeDelta(db, corpus, baseOptions());
+  it('mirrors the MCP payload wrapping: report vs {error: refusal}', async () => {
+    const ok = await computeDelta(db, corpus, baseOptions());
     const okPayload = 'refusal' in ok ? { error: ok.refusal } : ok.report;
     expect('error' in okPayload).toBe(false);
 
-    const bad = computeDelta(db, corpus, baseOptions({ base: '$(rm -rf /)', check: true }));
+    const bad = await computeDelta(db, corpus, baseOptions({ base: '$(rm -rf /)', check: true }));
     const badPayload = 'refusal' in bad ? { error: bad.refusal } : bad.report;
     expect('error' in badPayload).toBe(true);
   });
@@ -242,7 +242,7 @@ function makeReachableFixture(root: string): { corpus: string; dbPath: string } 
   // edge: found at the default floor, dropped at a stricter valid floor (proven), and dropped if the
   // class is treated as unknown.
   db.upsertStructuralNode({
-    id: 'symbol:Service',
+    id: 'symbol:php:Service',
     node_type: 'symbol',
     file_path: 'Service.php',
     updated_at: 1,
@@ -255,7 +255,7 @@ function makeReachableFixture(root: string): { corpus: string; dbPath: string } 
   db.upsertStructuralEdge({
     id: 'edge:svc',
     source_node_id: 'surface:http:GET:/svc',
-    target_node_id: 'symbol:Service',
+    target_node_id: 'symbol:php:Service',
     edge_type: 'handled_by',
     confidence: 0.8,
     confidence_class: 'framework-inferred',

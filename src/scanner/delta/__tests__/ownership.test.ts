@@ -21,6 +21,9 @@ function touchSet(symbolIds: string[]): DeltaTouchSet {
     evidenceEdgeCount: 0,
     operationalBoundaries: [],
     orphanedNodeCount: 0,
+    symbolChanges: [],
+    precision: { fileLevelOnly: [], renamedOnly: [], cosmeticOnly: [], changedOutsideSymbols: [] },
+    walkSeeds: symbolIds,
   };
 }
 

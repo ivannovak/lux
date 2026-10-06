@@ -510,7 +510,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // --base is validated inside computeDelta (resolveDeltaBase → isSafeGitRef) BEFORE any git
         // call (Decision 17). MCP exposes this verb to prompt-injectable agents, so validation +
         // argv-form git (no shell) is mandatory here, not optional hardening.
-        const result = computeDelta(db, corpusPath, {
+        const result = await computeDelta(db, corpusPath, {
           base,
           committedOnly: args?.committed_only === true,
           depth: typeof args?.depth === 'number' ? args.depth : 6,

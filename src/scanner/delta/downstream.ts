@@ -1,7 +1,7 @@
 import { CONFIDENCE_RANK } from '../associations/trace.js';
 import type { LuxDatabase } from '../../db/index.js';
 import type { ConfidenceClass, EdgeType } from '../../db/types.js';
-import type { AsyncBoundary, DeltaTouchSet, EntrySurfaceImpact } from './types.js';
+import type { AsyncBoundary, EntrySurfaceImpact } from './types.js';
 
 /** Reverse edge set for HTTP-surface reachability (Decision 4). Direction-specific — NOT
  *  trace's forward default. `declares_surface` is redundant-but-harmless (kept; see 12-SPEC). */
@@ -35,9 +35,13 @@ export interface DownstreamResult {
   visitedSymbols: string[];
 }
 
+/**
+ * Reverse walk from `seeds` (the changed symbols; delta/changed-symbols.ts) to the entry surfaces
+ * that reach them.
+ */
 export function walkDownstream(
   db: LuxDatabase,
-  touch: DeltaTouchSet,
+  seeds: readonly string[],
   budget: DownstreamBudget
 ): DownstreamResult {
   const floor = CONFIDENCE_RANK[budget.minConfidence];
@@ -47,7 +51,6 @@ export function walkDownstream(
     (c) => CONFIDENCE_RANK[c] >= floor
   );
   const reverseEdgeTypes = [...REVERSE_EDGE_TYPES];
-  const seeds = touch.symbolIds;
 
   // bestPathMin[node] = the strongest (max) over reaching paths of the weakest edge rank on that
   // path. A seed's path is unconstrained (proven). Lets us report the honest weakest-confidence

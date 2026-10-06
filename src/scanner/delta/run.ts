@@ -11,6 +11,7 @@ import { READ_TELEMETRY, withReadTelemetry } from '../../utils/read-telemetry.js
 import { isRefusal, mapIndexOpenRefusal, resolveDeltaBase } from './preflight.js';
 import { isIndexablePath, resolveDeltaChangeSet } from './change-set.js';
 import { resolveTouchSet } from './touch.js';
+import { resolveChangedSymbols } from './changed-symbols.js';
 import { walkDownstream } from './downstream.js';
 import { resolveOwnershipIntersection } from './ownership.js';
 import { resolveInvalidatedSpecTargets } from './spec-evidence.js';
@@ -20,12 +21,12 @@ import { evaluateGates, resolveGateCategories } from './gate.js';
 import { assembleDeltaReport, renderDeltaText, type AssembleInput } from './report.js';
 import type { DeltaOptions, DeltaRefusal, DeltaReportV1 } from './types.js';
 
-/** Pure orchestrator — no I/O, no exit, no close. Shared by the CLI and MCP surfaces. */
-export function computeDelta(
+/** The orchestrator — no exit, no close. Shared by the CLI and MCP surfaces. */
+export async function computeDelta(
   db: LuxDatabase,
   corpusPath: string,
   opts: DeltaOptions
-): { report: DeltaReportV1 } | { refusal: DeltaRefusal } {
+): Promise<{ report: DeltaReportV1 } | { refusal: DeltaRefusal }> {
   const base = resolveDeltaBase(corpusPath, db, opts.base);
   if (isRefusal(base)) {
     // Analysis mode degrades not-a-git-repo / baseline-unavailable to a warning + empty report
@@ -43,8 +44,14 @@ export function computeDelta(
     base,
     committedOnly: opts.committedOnly ?? false,
   });
-  const touch = resolveTouchSet(db, changeSet);
-  const walk = walkDownstream(db, touch, {
+  const changed = await resolveChangedSymbols(
+    db,
+    corpusPath,
+    changeSet,
+    opts.committedOnly ?? false
+  );
+  const touch = resolveTouchSet(db, changeSet, changed);
+  const walk = walkDownstream(db, touch.walkSeeds, {
     depth: opts.depth,
     maxNodes: opts.maxNodes,
     maxFanout: opts.maxFanout,
@@ -186,6 +193,14 @@ function emptyReport(db: LuxDatabase, opts: DeltaOptions, refusal: DeltaRefusal)
       evidenceEdgeCount: 0,
       operationalBoundaries: [],
       orphanedNodeCount: 0,
+      symbolChanges: [],
+      precision: {
+        fileLevelOnly: [],
+        renamedOnly: [],
+        cosmeticOnly: [],
+        changedOutsideSymbols: [],
+      },
+      walkSeeds: [],
     },
     downstream: { entrySurfaces: [], asyncBoundaries: [], truncated: false, visitedSymbols: [] },
     truncated: false,
@@ -208,7 +223,7 @@ function emptyReport(db: LuxDatabase, opts: DeltaOptions, refusal: DeltaRefusal)
 }
 
 /** CLI entry point. Opens the existing index strictly read-only and never records usage. */
-export function runDeltaCli(program: Command, opts: DeltaOptions): void {
+export async function runDeltaCli(program: Command, opts: DeltaOptions): Promise<void> {
   const runtime = resolveRuntimePaths({
     corpus: program.opts().corpus as string | undefined,
     db: program.opts().db as string | undefined,
@@ -238,7 +253,7 @@ export function runDeltaCli(program: Command, opts: DeltaOptions): void {
 
   const db = opened.db;
   try {
-    const result = computeDelta(db, runtime.corpusPath, opts);
+    const result = await computeDelta(db, runtime.corpusPath, opts);
     if ('refusal' in result) {
       if (opts.json) {
         console.log(

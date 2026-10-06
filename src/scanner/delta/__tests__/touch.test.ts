@@ -24,6 +24,12 @@ function node(over: Partial<StructuralNode> & Pick<StructuralNode, 'id'>): Struc
   return { node_type: 'file', updated_at: now(), ...over };
 }
 
+const NO_CHANGES = {
+  changes: [],
+  precision: { fileLevelOnly: [], renamedOnly: [], cosmeticOnly: [], changedOutsideSymbols: [] },
+  seeds: [],
+};
+
 describe('delta touch resolution (spec 11 Part B)', () => {
   let db: LuxDatabase;
   beforeEach(() => {
@@ -90,7 +96,7 @@ describe('delta touch resolution (spec 11 Part B)', () => {
 
   it('resolves file + symbol nodes and populates symbolIds', () => {
     seed();
-    const touch = resolveTouchSet(db, changeSet());
+    const touch = resolveTouchSet(db, changeSet(), NO_CHANGES);
     expect(touch.nodes.map((n) => n.id).sort()).toEqual([
       'file:src/A.php',
       'surface:http:GET:/a',
@@ -102,7 +108,7 @@ describe('delta touch resolution (spec 11 Part B)', () => {
 
   it("annotates a deleted file's node as orphaned", () => {
     seed();
-    const touch = resolveTouchSet(db, changeSet());
+    const touch = resolveTouchSet(db, changeSet(), NO_CHANGES);
     const gone = touch.nodes.find((n) => n.id === 'symbol:Deleted::gone');
     expect(gone?.nodeState).toBe('orphaned');
     const present = touch.nodes.find((n) => n.id === 'symbol:A::foo');
@@ -112,19 +118,23 @@ describe('delta touch resolution (spec 11 Part B)', () => {
 
   it('collects declared surfaces and counts invalidated evidence edges', () => {
     seed();
-    const touch = resolveTouchSet(db, changeSet());
+    const touch = resolveTouchSet(db, changeSet(), NO_CHANGES);
     expect(touch.surfacesDeclared.map((n) => n.id)).toContain('surface:http:GET:/a');
     expect(touch.evidenceEdgeCount).toBe(1);
   });
 
   it('returns empty structures for an empty change-set', () => {
-    const touch = resolveTouchSet(db, {
-      base: { ref: 'base', sha: null, source: 'flag' },
-      head: { sha: null, workingTreeIncluded: true },
-      files: [],
-      indexPaths: [],
-      warnings: [],
-    });
+    const touch = resolveTouchSet(
+      db,
+      {
+        base: { ref: 'base', sha: null, source: 'flag' },
+        head: { sha: null, workingTreeIncluded: true },
+        files: [],
+        indexPaths: [],
+        warnings: [],
+      },
+      NO_CHANGES
+    );
     expect(touch.nodes).toHaveLength(0);
     expect(touch.symbolIds).toHaveLength(0);
     expect(touch.evidenceEdgeCount).toBe(0);

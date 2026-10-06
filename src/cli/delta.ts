@@ -33,7 +33,7 @@ export function addDeltaCommand(program: Command): void {
     )
     .option('--json', 'Emit the stable machine envelope')
     .action(
-      (options: {
+      async (options: {
         base?: string;
         committedOnly?: boolean;
         depth: string;
@@ -48,7 +48,7 @@ export function addDeltaCommand(program: Command): void {
         const minConfidence: ConfidenceClass = CONFIDENCE_CLASSES.includes(options.minConfidence)
           ? (options.minConfidence as ConfidenceClass)
           : 'framework-inferred';
-        runDeltaCli(program, {
+        await runDeltaCli(program, {
           base: options.base,
           committedOnly: options.committedOnly === true,
           depth: Number.parseInt(options.depth, 10) || 6,

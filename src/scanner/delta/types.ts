@@ -69,14 +69,40 @@ export interface TouchedNode {
   nodeState: 'present' | 'orphaned';
 }
 
+/** How one symbol changed (delta/changed-symbols.ts states what each means). */
+export interface SymbolChange {
+  /** The symbol's node id, in the form the index stores it. */
+  id: string;
+  change: 'modified' | 'added' | 'removed' | 'moved' | 'file-level';
+  /** The changed file that declares it (its current path). */
+  path: string;
+}
+
+/** Changed files whose effect on `changedSymbolIds` needs saying; paths are current paths. */
+export interface TouchPrecision {
+  /** Could not be parsed into symbols: all of the file's indexed symbols are listed, as `file-level`. */
+  fileLevelOnly: string[];
+  /** Renamed with identical content: no symbol changed. */
+  renamedOnly: string[];
+  /** Only comments, blank lines or indentation changed: no symbol changed. */
+  cosmeticOnly: string[];
+  /** Code changed outside every symbol (imports, file-level statements, route declarations). */
+  changedOutsideSymbols: string[];
+}
+
 export interface DeltaTouchSet {
   nodes: TouchedNode[];
-  /** Touched symbol node ids — the reverse-walk seed and operational-join key. */
+  /** Symbol node ids declared in a changed file — the file-level set and operational-join key. */
   symbolIds: string[];
   surfacesDeclared: TouchedNode[];
   evidenceEdgeCount: number;
   operationalBoundaries: OperationalBoundary[];
   orphanedNodeCount: number;
+  /** The symbols the change modified, added, removed or moved. */
+  symbolChanges: SymbolChange[];
+  precision: TouchPrecision;
+  /** Where the reverse walk starts (delta/changed-symbols.ts). */
+  walkSeeds: string[];
 }
 
 // ── Downstream (Phase 2a/2b) ───────────────────────────────────────────────
@@ -182,17 +208,31 @@ export interface DeltaReportV1 {
     evidenceEdges: number;
     orphanedNodes: number;
     /**
-     * Every touched symbol node id.
+     * Every symbol node id declared in a changed file, whether or not the change altered it.
+     * `symbols` above is its length. For the symbols the change altered, read
+     * `changedSymbolIds`.
      *
-     * This is the field a consumer intersects its own symbol set against.
      * `symbolSample` below is a fixed-size preview for humans reading the
-     * envelope and cannot be used for that: it is capped, and nothing marks it
+     * envelope and cannot be used for a set operation: it is capped, and nothing marks it
      * as truncated, so a partial intersection is indistinguishable from a
      * complete one.
      */
     symbolIds: string[];
     /** First ten of `symbolIds`, for display. Never a basis for a set operation. */
     symbolSample: string[];
+    /** Length of `changedSymbolIds`. */
+    changedSymbols: number;
+    /**
+     * The symbols the change modified, added, removed or moved: the diff's changed lines fall
+     * in the symbol's own declaration or body, and its code differs. This is the field a
+     * consumer intersects its own symbol set against to ask "did this change touch my symbol".
+     * It also holds every indexed symbol of a file named in `precision.fileLevelOnly`, where
+     * none could be ruled out. The downstream walk starts from these.
+     */
+    changedSymbolIds: string[];
+    /** `changedSymbolIds` with how each changed and in which file. */
+    symbolChanges: SymbolChange[];
+    precision: TouchPrecision;
   };
   downstream: {
     entrySurfaces: EntrySurfaceImpact[];

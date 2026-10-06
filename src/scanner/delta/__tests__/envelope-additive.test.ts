@@ -48,8 +48,8 @@ afterEach(() => {
 });
 
 describe('delta envelope — crossRepoImpact additive (SC-9)', () => {
-  it('no --against: schemaVersion:1 and NO crossRepoImpact key in the serialized envelope', () => {
-    const result = computeDelta(db, corpus, opts({ committedOnly: true }));
+  it('no --against: schemaVersion:1 and NO crossRepoImpact key in the serialized envelope', async () => {
+    const result = await computeDelta(db, corpus, opts({ committedOnly: true }));
     expect('report' in result).toBe(true);
     if (!('report' in result)) return;
     const json = JSON.stringify(result.report, null, 2); // exactly what `--json` prints
@@ -58,9 +58,13 @@ describe('delta envelope — crossRepoImpact additive (SC-9)', () => {
     expect(JSON.parse(json)).not.toHaveProperty('crossRepoImpact');
   });
 
-  it('--against: crossRepoImpact appears, schemaVersion stays 1 (no bump)', () => {
+  it('--against: crossRepoImpact appears, schemaVersion stays 1 (no bump)', async () => {
     writeFileSync(join(corpus, 'lux.yaml'), 'siblings: {}\n'); // ghost is unregistered → attached:false
-    const result = computeDelta(db, corpus, opts({ committedOnly: true, against: ['ghost'] }));
+    const result = await computeDelta(
+      db,
+      corpus,
+      opts({ committedOnly: true, against: ['ghost'] })
+    );
     expect('report' in result).toBe(true);
     if (!('report' in result)) return;
     const json = JSON.stringify(result.report, null, 2);
@@ -72,12 +76,12 @@ describe('delta envelope — crossRepoImpact additive (SC-9)', () => {
     });
   });
 
-  it('the no-against envelope is unchanged by registering (but not querying) siblings', () => {
+  it('the no-against envelope is unchanged by registering (but not querying) siblings', async () => {
     // Registering a sibling changes NO behavior by itself — federation is opt-in per query.
     const sibDb = join(root, 'sib', '.lux', 'lux.db');
     new LuxDatabase(sibDb).close();
     writeFileSync(join(corpus, 'lux.yaml'), `siblings:\n  sib:\n    db: ${sibDb}\n`);
-    const result = computeDelta(db, corpus, opts({ committedOnly: true })); // no --against
+    const result = await computeDelta(db, corpus, opts({ committedOnly: true })); // no --against
     expect('report' in result).toBe(true);
     if (!('report' in result)) return;
     expect(JSON.stringify(result.report)).not.toContain('crossRepoImpact');

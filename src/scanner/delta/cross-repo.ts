@@ -32,7 +32,9 @@ export function computeCrossRepoImpact(
   // Portable seed set (Decision 2/9): namespace-qualified FQCNs always; http surfaces are
   // portable-kernel-only (kept here, filtered per-sibling by role below); bare-name PHP +
   // path-relative are repo-local and never seed a cross-repo walk.
-  const portableSeeds = touch.symbolIds.filter((id) => idPortability(id) !== 'repo-local');
+  // Seeded like the primary walk, from the changed symbols (file nodes among the seeds are
+  // repo-local and drop out here).
+  const portableSeeds = touch.walkSeeds.filter((id) => idPortability(id) !== 'repo-local');
 
   const siblings: CrossRepoSiblingImpact[] = [];
   const refusals: SiblingRefusal[] = [];
@@ -83,15 +85,7 @@ export function computeCrossRepoImpact(
         });
         continue;
       }
-      const syntheticTouch: DeltaTouchSet = {
-        nodes: [],
-        symbolIds: matched,
-        surfacesDeclared: [],
-        evidenceEdgeCount: 0,
-        operationalBoundaries: [],
-        orphanedNodeCount: 0,
-      };
-      const walk = walkDownstream(sibDb, syntheticTouch, budget);
+      const walk = walkDownstream(sibDb, matched, budget);
       siblings.push({
         name: s.name,
         attached: true,

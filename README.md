@@ -65,6 +65,23 @@ and invalidated spec-evidence targets. Read-only with respect to structural/over
 ref is validated (argv-form git, no shell) before any git call. `--json` emits the stable
 `schemaVersion:1` envelope (exposed identically as the `lux_delta` MCP tool).
 
+Two symbol sets are reported, and they answer different questions:
+
+- `touched.changedSymbolIds` — the symbols the change altered. Each changed file is read at the
+  base and at the head, and a symbol is listed when its own code differs: `modified`, `added`,
+  `removed` or `moved` (`touched.symbolChanges` says which, and in which file). A symbol's own
+  code is its declaration and body without nested symbols, so editing a method does not list its
+  class, and editing a property does. Comment, docblock, blank-line and indentation changes alter
+  no symbol. This is the set to intersect with your own symbols, and where the downstream walk
+  starts (together with the class around a changed method).
+- `touched.symbolIds` — every symbol declared in a changed file, changed or not. Unchanged in
+  meaning from earlier releases; `touched.symbols` is its length.
+
+`touched.precision` names the changed files that need a word: `changedOutsideSymbols` (imports,
+file-level statements, route declarations), `cosmeticOnly`, `renamedOnly` (a pure rename changes
+no symbol), and `fileLevelOnly` (no grammar for the file, e.g. `.vue` and `.blade.php`: all of its
+indexed symbols are listed, as `file-level`, because none can be ruled out).
+
 `--check` turns it into a CI gate: exit nonzero on a gate violation or degraded overlay, exit 0
 otherwise. Gate categories come from `--fail-on <comma-list>`, else `lux.yaml delta.gates`, else the
 default `overlay-not-complete`. Unknown categories hard-error; a configured-but-unevaluable gate

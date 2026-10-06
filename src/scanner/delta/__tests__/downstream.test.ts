@@ -11,7 +11,6 @@ import type {
   StructuralNodeType,
 } from '../../../db/types.js';
 import { walkDownstream, type DownstreamBudget } from '../downstream.js';
-import type { DeltaTouchSet } from '../types.js';
 
 const testDir = mkdtempSync(join(tmpdir(), 'lux-delta-downstream-'));
 
@@ -30,15 +29,8 @@ function budget(over: Partial<DownstreamBudget> = {}): DownstreamBudget {
   return { depth: 6, maxNodes: 2000, maxFanout: 64, minConfidence: 'heuristic', ...over };
 }
 
-function touchSet(symbolIds: string[]): DeltaTouchSet {
-  return {
-    nodes: [],
-    symbolIds,
-    surfacesDeclared: [],
-    evidenceEdgeCount: 0,
-    operationalBoundaries: [],
-    orphanedNodeCount: 0,
-  };
+function seedsOf(symbolIds: string[]): string[] {
+  return symbolIds;
 }
 
 describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () => {
@@ -88,7 +80,7 @@ describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () =>
       'framework-inferred'
     );
 
-    const r = walkDownstream(db, touchSet(['symbol:Service']), budget());
+    const r = walkDownstream(db, seedsOf(['symbol:Service']), budget());
 
     expect(r.entrySurfaces).toHaveLength(1);
     const s = r.entrySurfaces[0];
@@ -108,7 +100,7 @@ describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () =>
     e('edge:a', 'symbol:CallerA', 'symbol:Hub', 'calls', 'proven');
     e('edge:b', 'symbol:CallerB', 'symbol:Hub', 'calls', 'proven');
 
-    const r = walkDownstream(db, touchSet(['symbol:Hub']), budget({ maxFanout: 1 }));
+    const r = walkDownstream(db, seedsOf(['symbol:Hub']), budget({ maxFanout: 1 }));
     expect(r.truncated).toBe(true);
   });
 
@@ -119,7 +111,7 @@ describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () =>
     e('edge:calls', 'symbol:Controller', 'symbol:Service', 'calls', 'proven');
     e('edge:handled', 'surface:http:GET:/x', 'symbol:Controller', 'handled_by', 'proven');
 
-    const r = walkDownstream(db, touchSet(['symbol:Service']), budget({ depth: 1 }));
+    const r = walkDownstream(db, seedsOf(['symbol:Service']), budget({ depth: 1 }));
     expect(r.truncated).toBe(true);
     expect(r.entrySurfaces).toEqual([]); // surface sits at hop 2, past the depth-1 budget
   });
@@ -131,7 +123,7 @@ describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () =>
 
     const r = walkDownstream(
       db,
-      touchSet(['symbol:Controller']),
+      seedsOf(['symbol:Controller']),
       budget({ minConfidence: 'framework-inferred' })
     );
     expect(r.entrySurfaces).toEqual([]); // heuristic edge is below the floor and never followed
@@ -142,7 +134,7 @@ describe('delta downstream — reverse-BFS HTTP walk (spec 12, Phase 2a)', () =>
     n('symbol:Bar');
     e('edge:calls', 'symbol:Bar', 'symbol:Foo', 'calls', 'proven');
 
-    const r = walkDownstream(db, touchSet(['symbol:Foo']), budget());
+    const r = walkDownstream(db, seedsOf(['symbol:Foo']), budget());
     expect(r.entrySurfaces).toEqual([]);
     expect(r.asyncBoundaries).toEqual([]);
     expect(r.visitedSymbols).toContain('symbol:Foo');
@@ -182,7 +174,7 @@ describe('delta downstream — operational join + async boundary (spec 12, Phase
     ob('op:job:1', 'job', 'SendEmailJob');
     oh('oh:1', 'op:job:1', 'symbol:Job');
 
-    const r = walkDownstream(db, touchSet(['symbol:Job']), budget());
+    const r = walkDownstream(db, seedsOf(['symbol:Job']), budget());
     expect(r.entrySurfaces).toEqual([
       { kind: 'job', id: 'op:job:1', resolvedVia: 'operational-join', weakestConfidence: null },
     ]);
@@ -193,7 +185,7 @@ describe('delta downstream — operational join + async boundary (spec 12, Phase
     ob('op:cmd:1', 'command', 'DeployCommand');
     oh('oh:1', 'op:cmd:1', 'symbol:Cmd');
 
-    const r = walkDownstream(db, touchSet(['symbol:Cmd']), budget());
+    const r = walkDownstream(db, seedsOf(['symbol:Cmd']), budget());
     expect(r.entrySurfaces).toEqual([
       {
         kind: 'command',
@@ -209,7 +201,7 @@ describe('delta downstream — operational join + async boundary (spec 12, Phase
     ob('op:http:1', 'http', 'WebhookRoute');
     oh('oh:1', 'op:http:1', 'symbol:Web');
 
-    const r = walkDownstream(db, touchSet(['symbol:Web']), budget());
+    const r = walkDownstream(db, seedsOf(['symbol:Web']), budget());
     expect(r.entrySurfaces).toEqual([
       { kind: 'http', id: 'op:http:1', resolvedVia: 'operational-join', weakestConfidence: null },
     ]);
