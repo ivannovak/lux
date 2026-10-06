@@ -73,6 +73,21 @@ export interface LuxDatabaseOptions {
    *  the constructor SKIPS the directory-creating mkdir and the `journal_mode = delete` write, and
    *  the adapter skips the pid owner-marker + WAL-header flip. Pair with `autoMigrate=false`. */
   readOnly?: boolean;
+  /** Another repository's index (openSiblingReadOnly): no reclaim and no pruning of its owner
+   *  registry there. Reading it still takes and releases the lock, which creates and removes the
+   *  lock directory and this process's token inside it. */
+  foreignIndex?: boolean;
+}
+
+/**
+ * Clear `${dbPath}.lock` when its owner is provably dead, reporting it as a notice. An open of this
+ * repository's own index runs this before its first SQLite handle: an orphaned lock otherwise
+ * wedges that handle in SQLITE_BUSY for the full busy timeout.
+ */
+export function reclaimStaleIndexLock(dbPath: string): void {
+  if (LuxSqlite.reclaimStaleLock(dbPath)) {
+    dbNotice('notice', 'cleared a stale database lock left by a previously interrupted run.');
+  }
 }
 
 export class LuxDatabase {
@@ -83,7 +98,7 @@ export class LuxDatabase {
   constructor(dbPath: string, autoMigrate = true, options: LuxDatabaseOptions = {}) {
     const readOnly = options.readOnly ?? false;
 
-    // Read-only opens (openSiblingReadOnly) must never write to someone else's index. Skip the
+    // Read-only opens (openSiblingReadOnly) must not build or repair someone else's index. Skip the
     // directory-creating mkdir (never build a tree under a sibling worktree) — the two writable
     // paths keep it. The adapter (below) already skips the pid owner-marker + WAL-header flip for
     // readonly opens (sqlite-adapter.ts:254,261).
@@ -91,7 +106,8 @@ export class LuxDatabase {
       mkdirSync(dirname(dbPath), { recursive: true });
     }
 
-    // Reclaim a provably-ownerless VFS lock on EVERY open, not just `index rebuild`.
+    // Reclaim a VFS lock whose owner is provably dead on every open of this repository's own index,
+    // not just `index rebuild`.
     //
     // node-sqlite3-wasm implements SQLite locking as a `${path}.lock` DIRECTORY, which the kernel does
     // not drop when a process dies. reclaimStaleLock() has existed for exactly this since the WASM
@@ -105,12 +121,12 @@ export class LuxDatabase {
     //
     // Safe on a read path, which is why the original restriction was over-cautious: the lock is a VFS
     // artifact, not a consistency marker — SQLite replays or rolls back its journal on reopen (see the
-    // journal_mode note below: "a plain process crash still rolls back cleanly on reopen"). And
-    // reclaimStaleLock refuses to act while ANY owner marker names a live pid or another host, so it
-    // cannot race a live writer. Reported as a notice rather than cleared in silence.
-    if (LuxSqlite.reclaimStaleLock(dbPath)) {
-      dbNotice('notice', 'cleared a stale database lock left by a previously interrupted run.');
-    }
+    // journal_mode note below: "a plain process crash still rolls back cleanly on reopen"). A lock is
+    // cleared only when the owner named inside it is provably dead; a lock that names no owner, or
+    // whose owner is alive or cannot be checked, is left alone (lock-ownership.ts has the full rule
+    // and what it does not cover). Reported as a notice rather than cleared in silence.
+    // openIndex() runs the same reclaim before its schema probe; by then this call finds no lock.
+    if (options.foreignIndex !== true) reclaimStaleIndexLock(dbPath);
 
     this.db = new LuxSqlite(dbPath, readOnly ? { readonly: true, fileMustExist: true } : {});
 
@@ -162,7 +178,10 @@ export class LuxDatabase {
     if (!existsSync(dbPath)) {
       throw new Error(`openSiblingReadOnly: no index at ${dbPath}`);
     }
-    const db = new LuxDatabase(dbPath, /* autoMigrate */ false, { readOnly: true });
+    const db = new LuxDatabase(dbPath, /* autoMigrate */ false, {
+      readOnly: true,
+      foreignIndex: true,
+    });
     const actual = db.getAppliedSchemaVersion();
     if (actual !== expectedSchemaVersion) {
       db.close();

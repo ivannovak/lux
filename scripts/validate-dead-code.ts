@@ -60,6 +60,14 @@ const ENTRY_ADJACENT = new Set([
  */
 const DYNAMIC_IMPORT_MODULES = new Set(['scanner/embeddings/wasm-local-embedder.ts']);
 
+/**
+ * Third-party code copied into src/. Its exports are the upstream package's API, not Lux's, and
+ * are reached as members of an `export =` namespace (`sqlite.Database`), which the static import
+ * graph does not follow. src/db/vendor/node-sqlite3-wasm/README.md says what is vendored and why.
+ * Relative to src/.
+ */
+const VENDORED_DIR = 'db/vendor/';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -93,6 +101,10 @@ function isEntryAdjacent(filePath: string): boolean {
 function isDynamicImportModule(filePath: string): boolean {
   const rel = relative(SRC, filePath).replace(/\\/g, '/');
   return DYNAMIC_IMPORT_MODULES.has(rel);
+}
+
+function isVendored(filePath: string): boolean {
+  return relative(SRC, filePath).replace(/\\/g, '/').startsWith(VENDORED_DIR);
 }
 
 function getExportKind(declarations: ExportedDeclarations[]): string {
@@ -307,6 +319,9 @@ function main(): void {
 
     // Skip modules loaded only via dynamic import() — invisible to the static import graph
     if (isDynamicImportModule(filePath)) continue;
+
+    // Skip vendored third-party code
+    if (isVendored(filePath)) continue;
 
     filesAnalyzed++;
 

@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setDbNoticeHandler } from '../notices.js';
 import { LuxSqlite } from '../sqlite-adapter.js';
 
 /** A PID that is guaranteed dead: spawn a node that exits immediately, then reuse its PID. */
@@ -115,34 +116,77 @@ describe('LuxSqlite adapter', () => {
     expect(() => db.close()).not.toThrow();
   });
 
+  // The acceptance cases of the stale-lock issue: with `process.kill` stubbed, only ESRCH reclaims.
+  // lock-ownership.test.ts covers the rest of the rule (tokens, races, locks that name no owner).
   describe('stale-lock recovery (reclaimStaleLock)', () => {
+    const pid = 424242; // the stubbed kill answers for it
+    const token = `${pid}-0123456789ab@${encodeURIComponent(hostname())}`;
     let dir: string;
     let dbPath: string;
+    let notices: string[];
     beforeEach(() => {
       dir = mkdtempSync(join(tmpdir(), 'lux-lock-'));
       dbPath = join(dir, 'x.db');
+      notices = [];
+      setDbNoticeHandler((kind, message) => {
+        notices.push(`${kind}: ${message}`);
+      });
     });
-    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+    afterEach(() => {
+      setDbNoticeHandler(() => {});
+      vi.restoreAllMocks();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    /** A lock whose owner token names `pid`, plus that owner's marker in the registry. */
+    function lockOwnedBy(ownerToken: string, ownerPid: number): void {
+      mkdirSync(`${dbPath}.lock/${ownerToken}`, { recursive: true });
+      mkdirSync(`${dbPath}.owners`);
+      writeFileSync(`${dbPath}.owners/${ownerPid}`, hostname());
+    }
+
+    function killThrows(code: string | undefined): void {
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw Object.assign(new Error(`kill failed: ${code ?? 'no code'}`), { code });
+      });
+    }
 
     it('returns false when there is no lock', () => {
       expect(LuxSqlite.reclaimStaleLock(dbPath)).toBe(false);
     });
 
     it('clears a stale lock left by a dead owner', () => {
-      // simulate a crashed writer: the VFS lock dir + an owner marker for a dead PID
-      mkdirSync(`${dbPath}.lock`);
-      mkdirSync(`${dbPath}.owners`);
-      writeFileSync(`${dbPath}.owners/${deadPid()}`, hostname());
+      const dead = deadPid();
+      lockOwnedBy(`${dead}-0123456789ab@${encodeURIComponent(hostname())}`, dead);
       expect(LuxSqlite.reclaimStaleLock(dbPath)).toBe(true);
       expect(existsSync(`${dbPath}.lock`)).toBe(false);
     });
 
     it('does NOT clear a lock still held by a live owner', () => {
-      mkdirSync(`${dbPath}.lock`);
-      mkdirSync(`${dbPath}.owners`);
-      writeFileSync(`${dbPath}.owners/${process.pid}`, hostname()); // this process = alive
+      lockOwnedBy(`${process.pid}-0123456789ab@${encodeURIComponent(hostname())}`, process.pid);
       expect(LuxSqlite.reclaimStaleLock(dbPath)).toBe(false);
       expect(existsSync(`${dbPath}.lock`)).toBe(true);
+    });
+
+    it('reclaims when kill(pid, 0) reports ESRCH, and prunes the dead owner’s registry marker', () => {
+      lockOwnedBy(token, pid);
+      killThrows('ESRCH');
+      expect(LuxSqlite.reclaimStaleLock(dbPath)).toBe(true);
+      expect(existsSync(`${dbPath}.lock`)).toBe(false);
+      expect(existsSync(`${dbPath}.owners/${pid}`)).toBe(false);
+    });
+
+    it.each([
+      ['EPERM — the owner is alive under another user', 'EPERM', /pid 424242.*EPERM/],
+      ['an unknown code', 'EWHATEVER', /pid 424242.*EWHATEVER/],
+      ['no code at all', undefined, /pid 424242 cannot be proven dead/],
+    ])('refuses when kill(pid, 0) fails with %s', (_name, code, message) => {
+      lockOwnedBy(token, pid);
+      killThrows(code);
+      expect(LuxSqlite.reclaimStaleLock(dbPath)).toBe(false);
+      expect(existsSync(`${dbPath}.lock/${token}`)).toBe(true);
+      expect(existsSync(`${dbPath}.owners/${pid}`)).toBe(true);
+      expect(notices.join('\n')).toMatch(message);
     });
   });
 });

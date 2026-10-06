@@ -25,9 +25,13 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 /** A PID that is not running. 2^22 is above the default macOS/Linux pid_max. */
 const deadPid = (): number => 4194303;
 
-/** Leave behind exactly what a killed writer leaves: the VFS lock dir + an owner marker. */
+/** Leave behind exactly what a killed writer leaves: the VFS lock dir holding its owner token, and
+ *  its marker in the owner registry. */
 function orphanLock(dbPath: string, pid: number): void {
   mkdirSync(`${dbPath}.lock`, { recursive: true });
+  mkdirSync(`${dbPath}.lock/${pid}-0123456789ab@${encodeURIComponent(hostname())}`, {
+    recursive: true,
+  });
   mkdirSync(`${dbPath}.owners`, { recursive: true });
   writeFileSync(`${dbPath}.owners/${pid}`, hostname());
 }
