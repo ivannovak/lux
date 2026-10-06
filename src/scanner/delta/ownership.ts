@@ -50,6 +50,7 @@ export function resolveOwnershipIntersection(
         transitions,
       };
     } catch (error) {
+      // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
       // Configured but unresolvable (unindexed/missing kernel, schema mismatch): never classify
       // against stale/absent kernel data — surface it. --check fails loud (gate section).
       return {

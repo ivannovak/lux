@@ -50,6 +50,7 @@ import { extractSource, getGrammars, langForFile } from '../ast/extract.js';
 import { buildAstSymbolNodes } from '../ast/symbols.js';
 import { buildEntry } from '../incremental.js';
 import { detectModuleBoundaries, resolveModule } from '../imports/module-boundary.js';
+import { failureSummary, WarningLog, type Reporter, type WarnFn } from '../reporter.js';
 
 export interface ChangedFile {
   relPath: string;
@@ -78,6 +79,12 @@ export interface ScopedRefreshResult {
   };
   residualStaleEdges: number; // residual not-fresh edges (stale + dirty-dependent) — drives trust settlement
   currentCommit?: string;
+  /** Problems the refresh absorbed and carried on past (a failed tier, a detector that threw). */
+  warnings: string[];
+  /** The component that raised each warning, by message. */
+  warningComponents: Record<string, string>;
+  /** Components this refresh ran (`detector:<name>`, `ast-file:<path>`, …), warned or not. */
+  componentsRun: string[];
 }
 
 /**
@@ -92,7 +99,8 @@ export interface ScopedRefreshResult {
 export async function computeReverseImportClosure(
   db: LuxDatabase,
   rootPath: string,
-  changed: ChangedFile[]
+  changed: ChangedFile[],
+  warn?: WarnFn
 ): Promise<string[]> {
   const patterns = detectModuleBoundaries(rootPath);
   const grownModules = new Set<string>();
@@ -110,7 +118,12 @@ export async function computeReverseImportClosure(
     try {
       const extraction = extractSource(grammars, entry.content, f.relPath, lang).extraction;
       newIds = buildAstSymbolNodes(f.relPath, extraction, lang, 0).map((n) => n.id);
-    } catch {
+    } catch (error) {
+      warn?.(
+        `AST extraction failed for ${f.relPath} while checking it for added symbols; its importers ` +
+          `were not added to the refresh — ${error instanceof Error ? error.message : String(error)}`,
+        `ast-file:${f.relPath}`
+      );
       continue;
     }
     // Growth gate (Decision 14): a symbol was ADDED (an id absent from the persisted set). This is
@@ -159,13 +172,15 @@ export async function refreshOverlayScoped(
   config: LuxLspConfig,
   options: ScopedRefreshOptions = {}
 ): Promise<ScopedRefreshResult> {
-  const report = options.onProgress ?? (() => {});
+  const log = new WarningLog(options.onProgress);
+  const reporter = log.reporter;
+  const report = reporter.progress;
   const now = Math.floor(Date.now() / 1000);
-  const currentCommit = isGitRepository(rootPath) ? safeHead(rootPath) : undefined;
+  const currentCommit = isGitRepository(rootPath) ? safeHead(rootPath, reporter.warn) : undefined;
 
   // 0. Repair set R = F ∪ reverse-import-closure(F) (Decision 14).
   const changedPaths = changed.map((c) => c.relPath);
-  const closure = await computeReverseImportClosure(db, rootPath, changed);
+  const closure = await computeReverseImportClosure(db, rootPath, changed, reporter.warn);
   let R = [...new Set([...changedPaths, ...closure])];
   const persistedSourcePaths = db
     .getLocalStructuralNodesByType('file')
@@ -225,19 +240,26 @@ export async function refreshOverlayScoped(
   });
 
   // 2. Async pre-compute (reads only) — extraction + LSP so tier fate is known before the clear.
-  const scanR: ScanResult = { knowledge: buildScanFor(rootPath, rematPaths) };
+  const scanR: ScanResult = { knowledge: buildScanFor(rootPath, rematPaths, reporter) };
   let sharedExtractions: SharedExtractions | undefined;
   let programAnalysis: ProgramAnalysisV1 | undefined;
   let astOk = true;
   try {
-    const analysis = await analyzeProgram(scanR, rootPath, report);
+    const analysis = await analyzeProgram(scanR, rootPath, reporter.warn);
     sharedExtractions = analysis.shared.extractions;
     programAnalysis = analysis;
-  } catch {
+    reporter.ran('ast');
+    // Every R file was re-extracted; one that failed again has re-raised its own warning.
+    for (const path of rematPaths) reporter.ran(`ast-file:${path}`);
+  } catch (error) {
     astOk = false;
+    reporter.warn(
+      `AST extraction failed — ${error instanceof Error ? error.message : String(error)}`,
+      'ast'
+    );
   }
 
-  const vendorPackPath = resolveVendorPackPathForRefresh(rootPath); // null ⇒ facade skipped
+  const vendorPackPath = resolveVendorPackPathForRefresh(rootPath, reporter.warn); // null ⇒ facade skipped
   const { enrichments, lspTier, typedReceiverEdges } = await runLspTier(
     rootPath,
     config,
@@ -246,7 +268,7 @@ export async function refreshOverlayScoped(
     vendorPackPath,
     options.lspBudgetMs,
     now,
-    report,
+    reporter,
     db
   );
   const facadeEdges =
@@ -279,7 +301,7 @@ export async function refreshOverlayScoped(
   // 4. REMATERIALIZE all of R's nodes BEFORE the single resolver pass (Decision 13 soundness).
   materializeNodes(db, scanR, enrichments, rootPath);
   if (config.ast?.enabled ?? true) {
-    await materializeAstSymbols(db, scanR, rootPath, now, sharedExtractions, report);
+    await materializeAstSymbols(db, scanR, rootPath, now, sharedExtractions, reporter.warn);
   }
   if (programAnalysis?.vueFacts.length) {
     db.transaction(() => {
@@ -337,13 +359,13 @@ export async function refreshOverlayScoped(
   ];
   const engine = new AssociationEngine(db, resolvers, {
     includeHeuristics: false,
-    onProgress: report,
+    reporter,
   });
   await engine.rebuild(context);
 
   // 6. Detectors + operational over R (source_commit=HEAD on the static-persist detector tier, SC-8).
-  await runDetectors(db, context, undefined, report, currentCommit);
-  await runOperationalExtractors(db, context, createDefaultOperationalExtractors(), report);
+  await runDetectors(db, context, undefined, reporter, currentCommit);
+  await runOperationalExtractors(db, context, createDefaultOperationalExtractors(), reporter);
 
   // 7. Persist the pre-computed LSP + facade edges with explicit source_commit=HEAD (SC-8).
   if (typedReceiverEdges.length)
@@ -400,6 +422,9 @@ export async function refreshOverlayScoped(
     tiers: { ast: astOk ? 'ran' : 'failed', lsp: lspTier, facade: facadeTier },
     residualStaleEdges,
     currentCommit,
+    warnings: log.messages,
+    warningComponents: log.components,
+    componentsRun: [...log.ran],
   };
 }
 
@@ -430,19 +455,24 @@ function isReactCandidateChange(
   );
 }
 
-function safeHead(rootPath: string): string | undefined {
+function safeHead(rootPath: string, warn: WarnFn): string | undefined {
   try {
     return getHeadCommit(rootPath);
   } catch {
+    warn('could not read git state — freshness tracking will use "unknown".');
     return undefined;
   }
 }
 
 /** Build a partial ScanResult for R's rematerialize paths, reusing the incremental entry builder. */
-function buildScanFor(rootPath: string, relPaths: string[]): ScannedKnowledge[] {
+function buildScanFor(
+  rootPath: string,
+  relPaths: string[],
+  reporter: Reporter
+): ScannedKnowledge[] {
   const out: ScannedKnowledge[] = [];
   for (const rel of relPaths) {
-    const entry = buildEntry(rootPath, rel);
+    const entry = buildEntry(rootPath, rel, reporter);
     if (entry && entry.type === 'source-code') out.push(entry);
   }
   return out;
@@ -510,7 +540,7 @@ async function runLspTier(
   vendorPackPath: string | null,
   lspBudgetMs: number | undefined,
   now: number,
-  report: (m: string) => void,
+  reporter: Reporter,
   db: LuxDatabase
 ): Promise<{
   enrichments: EnrichmentMap;
@@ -519,7 +549,7 @@ async function runLspTier(
 }> {
   const enrichments: EnrichmentMap = new Map();
   if (!config.lsp.enabled) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
-  const registry = buildRegistry(config.lsp.enrichers);
+  const registry = buildRegistry(config.lsp.enrichers, reporter.warn);
   if (registry.size === 0) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
 
   const budgetMs = lspBudgetMs ?? 30000;
@@ -532,12 +562,17 @@ async function runLspTier(
       try {
         await e.initialize(workspaceRoot);
         active++;
-      } catch {
-        /* per-enricher isolation */
+        reporter.ran(`enricher:${e.languageId}`);
+      } catch (error) {
+        reporter.warn(
+          `Failed to initialize ${e.languageId} enricher: ${error instanceof Error ? error.message : String(error)}`,
+          `enricher:${e.languageId}`
+        );
       }
     }
     if (active === 0) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
 
+    const enrichFailures: Array<{ item: string; error: string }> = [];
     for (const k of scanR.knowledge) {
       if (Date.now() > deadline) throw new Error('lsp-budget');
       if (k.type !== 'source-code' || !k.content) continue;
@@ -547,10 +582,14 @@ async function runLspTier(
       try {
         const r = await enricher.enrich(k.filePath);
         if (r) enrichments.set(k.filePath, r);
-      } catch {
-        /* isolated */
+      } catch (error) {
+        enrichFailures.push({
+          item: k.filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
+    if (enrichFailures.length > 0) reporter.warn(failureSummary('LSP enrichment', enrichFailures));
 
     if (Date.now() > deadline) throw new Error('lsp-budget');
     const reg = registry;
@@ -568,17 +607,23 @@ async function runLspTier(
         resolveExternalTarget,
       }
     );
+    reporter.ran('lsp-tier');
     return { enrichments, lspTier: 'ran', typedReceiverEdges: edges };
   } catch {
-    report('LSP tier exceeded budget or failed — skipping; :lsp edges of R left stale.');
+    reporter.warn(
+      'LSP tier exceeded budget or failed — skipping; :lsp edges of R left stale.',
+      'lsp-tier'
+    );
     return { enrichments, lspTier: 'skipped-budget', typedReceiverEdges: [] };
   } finally {
     // Shut down enrichers (mirrors generalScan step 9) so a scoped refresh never leaks a language
     // server process — the spec's tier is budget-bounded but must not outlive the call.
     try {
       await registry.shutdownAll();
-    } catch {
-      /* ignore shutdown errors */
+    } catch (error) {
+      reporter.warn(
+        `enricher shutdown errors: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 }

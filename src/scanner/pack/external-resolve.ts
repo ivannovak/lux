@@ -49,6 +49,7 @@ async function extractVendorDefs(
       };
     });
   } catch {
+    // lux-intentional-swallow: an unresolvable vendor target is left unresolved, as a miss.
     return null;
   }
 }

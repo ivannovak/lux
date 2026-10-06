@@ -52,6 +52,7 @@ export type {
   AnchorEmbeddingCoverage,
   UnembeddedAnchorNode,
 } from './types.js';
+import { dbNotice } from './notices.js';
 
 /** A kernel HTTP `handled_by` route joined against the client's nodes/routes (cross-area, #62). */
 export interface CrossAreaKernelRow {
@@ -106,9 +107,9 @@ export class LuxDatabase {
     // artifact, not a consistency marker — SQLite replays or rolls back its journal on reopen (see the
     // journal_mode note below: "a plain process crash still rolls back cleanly on reopen"). And
     // reclaimStaleLock refuses to act while ANY owner marker names a live pid or another host, so it
-    // cannot race a live writer. Reported on stderr rather than cleared in silence.
+    // cannot race a live writer. Reported as a notice rather than cleared in silence.
     if (LuxSqlite.reclaimStaleLock(dbPath)) {
-      console.error('Note: cleared a stale database lock left by a previously interrupted run.');
+      dbNotice('notice', 'cleared a stale database lock left by a previously interrupted run.');
     }
 
     this.db = new LuxSqlite(dbPath, readOnly ? { readonly: true, fileMustExist: true } : {});
@@ -595,6 +596,7 @@ export class LuxDatabase {
       try {
         this.db.run('DETACH DATABASE pack');
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         // best-effort: a failed merge can leave the transaction open (DETACH-in-transaction
         // is illegal), so don't let DETACH mask the original error — the pack detaches when
         // the handle closes anyway.
@@ -628,11 +630,13 @@ export class LuxDatabase {
       try {
         this.db.run('PRAGMA query_only = OFF');
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         // best-effort
       }
       try {
         this.db.run('DETACH DATABASE kernel');
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         // best-effort: a failed fn can leave state that makes DETACH throw; don't mask the real error.
       }
     }
@@ -704,11 +708,13 @@ export class LuxDatabase {
       try {
         this.db.run('PRAGMA query_only = OFF');
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         /* best-effort */
       }
       try {
         this.db.run(`DETACH DATABASE ${alias}`);
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         /* best-effort */
       }
     }

@@ -21,6 +21,7 @@ import {
   type Extraction,
 } from './extract.js';
 import { extractionToSourceFacts } from './source-facts.js';
+import type { WarnFn } from '../reporter.js';
 
 /** Extraction results for a rebuild, keyed by path relative to the scanned root. */
 export type SharedExtractions = Map<string, Extraction>;
@@ -42,7 +43,7 @@ export interface SharedExtractionBuildV1 {
 export async function buildSharedExtractionAnalysis(
   scan: ScanResult,
   rootPath: string,
-  onWarn?: (message: string) => void
+  onWarn?: WarnFn
 ): Promise<SharedExtractionBuildV1> {
   const grammars = await getGrammars();
   const result: SharedExtractionBuildV1 = {
@@ -85,7 +86,10 @@ export async function buildSharedExtractionAnalysis(
           location: { filePath: relPath, line: 1, column: 0 },
         };
         result.diagnostics.push(diagnostic);
-        onWarn?.(`AST extraction ${diagnostic.code} for ${relPath}: ${diagnostic.message}`);
+        onWarn?.(
+          `AST extraction ${diagnostic.code} for ${relPath}: ${diagnostic.message}`,
+          `ast-file:${relPath}`
+        );
         continue;
       }
       const facts = {
@@ -133,7 +137,8 @@ export async function buildSharedExtractionAnalysis(
       result.diagnostics.push(...facts.diagnostics);
     } catch (error) {
       onWarn?.(
-        `AST extraction failed for ${relPath}: ${error instanceof Error ? error.message : String(error)}`
+        `AST extraction failed for ${relPath}: ${error instanceof Error ? error.message : String(error)}`,
+        `ast-file:${relPath}`
       );
     }
   }
@@ -144,7 +149,7 @@ export async function buildSharedExtractionAnalysis(
 export async function buildSharedExtractions(
   scan: ScanResult,
   rootPath: string,
-  onWarn?: (message: string) => void
+  onWarn?: WarnFn
 ): Promise<SharedExtractions> {
   return (await buildSharedExtractionAnalysis(scan, rootPath, onWarn)).extractions;
 }

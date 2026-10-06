@@ -249,6 +249,25 @@ describe('AssociationEngine', () => {
       expect(result.edgesStored).toBe(1);
       expect(messages.some((m) => m.includes('resolver exploded'))).toBe(true);
     });
+
+    it('reports a resolver that throws as a warning, not as progress', async () => {
+      const throwing: AssociationResolver = {
+        name: 'thrower',
+        supports: () => true,
+        resolve: () => Promise.reject(new Error('resolver exploded')),
+      };
+      const progress: string[] = [];
+      const warnings: string[] = [];
+      const engine = new AssociationEngine(db, [throwing], {
+        onProgress: (m) => progress.push(m),
+        onWarning: (m) => warnings.push(m),
+      });
+
+      await engine.rebuild(makeContext());
+
+      expect(warnings).toEqual(['resolver thrower threw — resolver exploded']);
+      expect(progress.some((m) => m.includes('resolver exploded'))).toBe(false);
+    });
   });
 });
 

@@ -195,6 +195,7 @@ export async function resolveTypedReceiverEdges(
       try {
         realDir = realpathSync(dir);
       } catch {
+        // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
         realDir = dir;
       }
       realDirCache.set(dir, realDir);
@@ -207,6 +208,7 @@ export async function resolveTypedReceiverEdges(
   try {
     rootPathReal = realpathSync(rootPath);
   } catch {
+    // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
     rootPathReal = rootPath;
   }
 

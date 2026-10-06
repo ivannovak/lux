@@ -112,6 +112,7 @@ export function writeInChunks<T>(
         return true;
       });
     } catch (e) {
+      // lux-intentional-swallow: returned as the result's error, which every caller reports or rethrows.
       return { committed, error: e instanceof Error ? e : new Error(String(e)) };
     }
     committed += written;

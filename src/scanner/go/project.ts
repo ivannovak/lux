@@ -58,6 +58,7 @@ export async function discoverGoProject(input: {
     }).bytes;
     text = new TextDecoder('utf8', { fatal: true }).decode(bytes);
   } catch {
+    // lux-intentional-swallow: no readable go.mod: not a Go module.
     return null;
   }
   const mod = parseGoMod(text, 'go.mod'),

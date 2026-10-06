@@ -340,6 +340,7 @@ function parseSurfaceMeta(surface: StructuralNode): SurfaceMeta {
   try {
     return JSON.parse(surface.metadata ?? '{}') as SurfaceMeta;
   } catch {
+    // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return {};
   }
 }
@@ -392,6 +393,7 @@ export function parseContractMeta(node: StructuralNode): TransportContractMetada
     if (!raw.contractKind) return null;
     return raw as TransportContractMetadata;
   } catch {
+    // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return null;
   }
 }

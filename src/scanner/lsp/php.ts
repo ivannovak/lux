@@ -202,6 +202,7 @@ export class PhpLspEnricher implements LspEnricher {
     try {
       fileContent = readFileSync(filePath, 'utf-8');
     } catch {
+      // lux-intentional-swallow: an unreadable file yields no LSP data; the scan reports unreadable files itself.
       return null;
     }
 
@@ -253,6 +254,7 @@ export class PhpLspEnricher implements LspEnricher {
     try {
       content = readFileSync(filePath, 'utf-8');
     } catch {
+      // lux-intentional-swallow: an unreadable file yields no LSP data; the scan reports unreadable files itself.
       return null;
     }
     const uri = pathToFileURL(filePath).toString();
@@ -276,6 +278,7 @@ export class PhpLspEnricher implements LspEnricher {
       if (!loc) return null;
       return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
     } catch {
+      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
       return null;
     }
   }
@@ -294,6 +297,7 @@ export class PhpLspEnricher implements LspEnricher {
     try {
       content = readFileSync(filePath, 'utf-8');
     } catch {
+      // lux-intentional-swallow: an unreadable file yields no LSP data; the scan reports unreadable files itself.
       return positions.map(() => null);
     }
     const uri = pathToFileURL(filePath).toString();
@@ -335,6 +339,7 @@ export class PhpLspEnricher implements LspEnricher {
       );
       return result ?? [];
     } catch {
+      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
       return [];
     }
   }
@@ -369,6 +374,7 @@ export class PhpLspEnricher implements LspEnricher {
           });
         }
       } catch {
+        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
         // Skip symbols that fail reference lookup
       }
     }
@@ -416,6 +422,7 @@ export class PhpLspEnricher implements LspEnricher {
           subtypes,
         });
       } catch {
+        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
         // Skip symbols that fail type hierarchy resolution
       }
     }
@@ -438,6 +445,7 @@ export class PhpLspEnricher implements LspEnricher {
         kind: st.kind,
       }));
     } catch {
+      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
       return [];
     }
   }
@@ -457,6 +465,7 @@ export class PhpLspEnricher implements LspEnricher {
         kind: st.kind,
       }));
     } catch {
+      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
       return [];
     }
   }

@@ -75,13 +75,16 @@ import {
   activeEmbeddingModel,
   embeddingReadAvailable,
 } from '../scanner/embeddings/active-model.js';
+import { dbNotice, setDbNoticeHandler } from '../db/notices.js';
+import { WarningLog } from '../scanner/reporter.js';
 
 const program = new Command();
 
 interface ProgressReporter {
   start: (label: string) => void;
   log: (message: string) => void;
-  finish: (label: string) => void;
+  /** Final line: `✓ label` on a clean run, `⚠ label with N warning(s)` when the run has warnings. */
+  finish: (label: string, warningCount?: number) => void;
 }
 
 program
@@ -89,7 +92,19 @@ program
   .description('Lux — structural code-analysis and overlay engine for CORPUS-indexed repositories')
   .version(LUX_VERSION)
   .option('--db <path>', 'Database path (defaults to <corpus>/.lux/lux.db)')
-  .option('--corpus <path>', 'Content root directory path (defaults to current working directory)');
+  .option('--corpus <path>', 'Content root directory path (defaults to current working directory)')
+  .option('--verbose', 'Also print routine database steps, such as each migration applied')
+  .hook('preAction', (_program, actionCommand) => {
+    const verbose = program.opts().verbose === true;
+    const quiet = actionCommand.opts().quiet === true;
+    setDbNoticeHandler((kind, message) => {
+      // Nothing under --quiet; routine steps (migrations) only under --verbose.
+      if (quiet) return;
+      if (kind === 'progress' && !verbose) return;
+      // eslint-disable-next-line no-restricted-syntax -- the CLI's printer for database notices.
+      console.error(kind === 'notice' ? `Note: ${message}` : message);
+    });
+  });
 
 // Index commands
 const indexCmd = program.command('index').description('Manage index');
@@ -109,7 +124,7 @@ indexCmd
       '  Default: overlay-complete rebuild with structural overlay and trust summary.\n' +
       '  Use --content-only for a faster fallback that skips overlay materialization.'
   )
-  .option('--quiet', 'Reduce output to phase progress and final status')
+  .option('--quiet', 'Print nothing on a clean run; otherwise only the warnings and one ⚠ line')
   .option(
     '--content-only',
     'Run a content-only rebuild: knowledge index only, no structural overlay.'
@@ -128,30 +143,30 @@ indexCmd
     try {
       // Validate content directory
       if (!existsSync(corpusPath)) {
-        console.error(`Error: Content directory not found: ${corpusPath}`);
-        console.error('  Please ensure the directory exists or set --corpus <path>');
+        printError(`Error: Content directory not found: ${corpusPath}`);
+        printError('  Please ensure the directory exists or set --corpus <path>');
         process.exit(1);
       }
 
       // A prior run killed mid-write (Ctrl-C / OOM) can leave a stale WASM-SQLite lock
       // that wedges every open; a deliberate rebuild reclaims it when no live owner remains.
       if (LuxSqlite.reclaimStaleLock(dbPath) && options.quiet !== true) {
-        console.error('Note: cleared a stale database lock from a previously interrupted run.');
+        dbNotice('notice', 'cleared a stale database lock from a previously interrupted run.');
       }
 
       // Initialize database with error handling
       try {
         db = new LuxDatabase(dbPath);
       } catch (error) {
-        console.error(`Error: Failed to initialize database: ${dbPath}`);
-        console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+        printError(`Error: Failed to initialize database: ${dbPath}`);
+        printError(`  ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
 
       // Verify database schema is up to date
       if (!db.isSchemaUpToDate()) {
-        console.error('Error: Database schema is not up to date');
-        console.error('  Run "lux migrate" to update the schema');
+        printError('Error: Database schema is not up to date');
+        printError('  Run "lux migrate" to update the schema');
         db.close();
         process.exit(1);
       }
@@ -166,19 +181,23 @@ indexCmd
 
       let generalResult;
       let overlayResult: RebuildResult | undefined;
+      let contentOnlyResult: RebuildResult | undefined;
+      // Problems this command hits around the rebuild itself; reported with the rebuild's warnings.
+      const commandWarnings: string[] = [];
       let headCommitForTrustState: string | undefined;
 
       if (options.contentOnly) {
         // Content-only path: scan + enrich, no structural overlay
         try {
-          const { scanResult } = await rebuildContentOnly(corpusPath, {
+          const { result, scanResult } = await rebuildContentOnly(corpusPath, {
             db,
             onProgress: (msg) => progress.log(msg),
           });
+          contentOnlyResult = result;
           generalResult = scanResult;
         } catch (error) {
-          console.error('Error: Failed to scan content directory');
-          console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+          printError('Error: Failed to scan content directory');
+          printError(`  ${error instanceof Error ? error.message : String(error)}`);
           db.close();
           process.exit(1);
         }
@@ -191,8 +210,8 @@ indexCmd
           overlayResult = result;
           generalResult = scanResult;
         } catch (error) {
-          console.error('Error: Failed to run overlay-complete rebuild');
-          console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+          printError('Error: Failed to run overlay-complete rebuild');
+          printError(`  ${error instanceof Error ? error.message : String(error)}`);
           db.close();
           process.exit(1);
         }
@@ -208,7 +227,7 @@ indexCmd
 
       // Validate scan results
       if (!result || typeof result !== 'object') {
-        console.error('Error: Invalid scan result');
+        printError('Error: Invalid scan result');
         db.close();
         process.exit(1);
       }
@@ -243,15 +262,15 @@ indexCmd
         try {
           await ensureModelWeights();
         } catch (error) {
-          console.error(
-            `Note: could not fetch the embedding model ` +
-              `(${error instanceof Error ? error.message : String(error)}); ` +
-              `continuing without anchor embeddings.`
+          // --embeddings asked for embeddings, so a fetch that fails is a warning on this run.
+          commandWarnings.push(
+            `could not fetch the embedding model (${error instanceof Error ? error.message : String(error)}); ` +
+              'continued without anchor embeddings'
           );
         }
       }
 
-      await persistKnowledgeIndex(db, scanner, result, progress, {
+      const indexWarnings = await persistKnowledgeIndex(db, scanner, result, progress, {
         invocationId,
         startedAt,
         corpusPath,
@@ -268,30 +287,6 @@ indexCmd
         embedToCompletion: options.embeddings === true,
       });
 
-      // Write module dependencies
-      if (generalResult.dependencies.length > 0) {
-        try {
-          const database = db; // const so the narrowed (non-undefined) type survives into the closure
-          database.transaction(() => {
-            database.clearModuleDependencies();
-            for (const dep of generalResult.dependencies) {
-              database.insertModuleDependency({
-                source_module: dep.source_module,
-                target_module: dep.target_module,
-                reference_count: dep.reference_count,
-                sample_files: JSON.stringify(dep.sample_files),
-              });
-            }
-          });
-        } catch (error) {
-          if (!options.quiet) {
-            console.warn(
-              `Warning: Failed to write module dependencies: ${error instanceof Error ? error.message : String(error)}`
-            );
-          }
-        }
-      }
-
       // Log event with error handling
       try {
         db.insertEvent({
@@ -302,10 +297,7 @@ indexCmd
             : `Overlay-complete rebuild: ${result.knowledge.length} entries, mode=${overlayResult?.mode ?? 'unknown'}`,
         });
       } catch {
-        // Non-fatal: log but don't fail
-        if (!options.quiet) {
-          console.warn('Warning: Failed to log rebuild event');
-        }
+        commandWarnings.push('Failed to log rebuild event');
       }
 
       emitUsageEvent(db, {
@@ -337,9 +329,7 @@ indexCmd
             console.log(`Stored commit hash: ${headCommit.slice(0, 8)}`);
           }
         } catch {
-          if (!options.quiet) {
-            console.warn('Warning: Failed to store git commit hash');
-          }
+          commandWarnings.push('Failed to store git commit hash');
         }
       }
 
@@ -351,49 +341,36 @@ indexCmd
         persistStructuralConfigFingerprint(corpusPath, db);
       }
 
-      progress.finish('index rebuild complete');
+      const rebuildResult = overlayResult ?? contentOnlyResult;
+      const runWarnings = [
+        ...(rebuildResult?.warnings ?? []),
+        ...indexWarnings,
+        ...commandWarnings,
+      ];
+      const warningCount = finishRebuild(progress, runWarnings);
       if (!options.quiet) {
         if (overlayResult) {
           printRebuildTrustSummary(overlayResult);
-        } else {
-          printRebuildTrustSummary({
-            mode: 'content-only',
-            repoPath: corpusPath,
-            configSource: 'lux.yaml',
-            configLspEnabled: false,
-            surfaceCount: 0,
-            detectorEdgeCount: 0,
-            propagatedEdgeCount: 0,
-            fileNodeCount: 0,
-            symbolNodeCount: 0,
-            controllerBackedCount: 0,
-            closureBackedCount: 0,
-            unknownProviderKindCount: 0,
-            enrichmentStatus: 'inactive',
-            propagationStatus: 'skipped',
-            warnings: [],
-          });
+        } else if (contentOnlyResult) {
+          printRebuildTrustSummary(contentOnlyResult);
         }
-        console.log('\n✓ Index rebuilt successfully');
-      } else {
-        if (overlayResult) {
-          console.log(
-            `✓ Index rebuilt successfully (${overlayResult.mode}, ${overlayResult.surfaceCount} surfaces, ${overlayResult.symbolNodeCount} symbols)`
-          );
-        } else {
-          console.log('✓ Index rebuilt successfully (content-only)');
-        }
+        console.log(
+          warningCount > 0
+            ? `\n⚠ Index rebuilt ${withWarnings(warningCount)}`
+            : '\n✓ Index rebuilt successfully'
+        );
       }
 
       db.close();
     } catch (error) {
       // Catch-all for unexpected errors
-      console.error('Error: Unexpected error during index rebuild');
-      console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+      printError('Error: Unexpected error during index rebuild');
+      printError(`  ${error instanceof Error ? error.message : String(error)}`);
       if (db) {
         try {
           db.close();
         } catch {
+          // lux-intentional-swallow: the command is already failing and exits with that error just below.
           // Ignore close errors
         }
       }
@@ -404,7 +381,7 @@ indexCmd
 indexCmd
   .command('sync')
   .description('Incrementally update index based on git changes')
-  .option('--quiet', 'Suppress output')
+  .option('--quiet', 'Print nothing on a clean run; otherwise only the warnings and one ⚠ line')
   .option('--force', 'Ignore stored commit, do full rebuild')
   .option(
     '--mark-only',
@@ -434,19 +411,19 @@ indexCmd
       try {
         // Validate content directory
         if (!existsSync(corpusPath)) {
-          console.error(`Error: Content directory not found: ${corpusPath}`);
+          printError(`Error: Content directory not found: ${corpusPath}`);
           process.exit(1);
         }
 
         // Check if this is a git repo
         if (!isGitRepository(corpusPath)) {
-          console.error('Error: Content directory is not a git repository');
+          printError('Error: Content directory is not a git repository');
           const nestedRepo = findLikelyNestedGitRoot(corpusPath);
           if (nestedRepo) {
-            console.error(`  Hint: found a nested git repository at ${nestedRepo}`);
-            console.error('  Try rerunning with --corpus pointed at that repo root.');
+            printError(`  Hint: found a nested git repository at ${nestedRepo}`);
+            printError('  Try rerunning with --corpus pointed at that repo root.');
           } else {
-            console.error('  Use "lux index rebuild" for non-git directories');
+            printError('  Use "lux index rebuild" for non-git directories');
           }
           process.exit(1);
         }
@@ -455,14 +432,14 @@ indexCmd
         try {
           db = new LuxDatabase(dbPath);
         } catch (error) {
-          console.error(`Error: Failed to initialize database: ${dbPath}`);
-          console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+          printError(`Error: Failed to initialize database: ${dbPath}`);
+          printError(`  ${error instanceof Error ? error.message : String(error)}`);
           process.exit(1);
         }
 
         if (!db.isSchemaUpToDate()) {
-          console.error('Error: Database schema is not up to date');
-          console.error('  Run "lux migrate" to update the schema');
+          printError('Error: Database schema is not up to date');
+          printError('  Run "lux migrate" to update the schema');
           db.close();
           process.exit(1);
         }
@@ -493,7 +470,7 @@ indexCmd
                 attachEnrichment(entry, scanResult.enrichments)
               ),
             };
-            await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
+            const indexWarnings = await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
               invocationId,
               startedAt,
               corpusPath,
@@ -510,20 +487,21 @@ indexCmd
               lastIndexedCommit: headCommit,
             });
             persistStructuralConfigFingerprint(corpusPath, db);
-            progress.finish('index rebuild complete');
+            const runWarnings = [...result.warnings, ...indexWarnings];
+            const warningCount = finishRebuild(progress, runWarnings);
 
             if (!options.quiet) {
               printRebuildTrustSummary(result);
               console.log(
-                `\n✓ Full rebuild complete (${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`
+                `\n${closingLine(warningCount, 'Full rebuild complete', `(${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`)}`
               );
             }
 
             db.close();
             return;
           } catch (error) {
-            console.error('Error: Failed to run full overlay rebuild');
-            console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+            printError('Error: Failed to run full overlay rebuild');
+            printError(`  ${error instanceof Error ? error.message : String(error)}`);
             db.close();
             process.exit(1);
           }
@@ -531,10 +509,11 @@ indexCmd
 
         // Verify stored commit still exists
         if (!commitExists(corpusPath, lastCommit)) {
+          const priorWarnings = [
+            'Stored commit no longer exists (possible force push); ran a full rebuild instead',
+          ];
           if (!options.quiet) {
-            console.warn(
-              'Warning: Stored commit no longer exists (possible force push), running full rebuild...'
-            );
+            console.log('Stored commit no longer exists, running full rebuild...');
           }
           try {
             const scanner = new GeneralScanner(corpusPath);
@@ -551,7 +530,7 @@ indexCmd
                 attachEnrichment(entry, scanResult.enrichments)
               ),
             };
-            await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
+            const indexWarnings = await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
               invocationId,
               startedAt,
               corpusPath,
@@ -568,20 +547,21 @@ indexCmd
               lastIndexedCommit: headCommit,
             });
             persistStructuralConfigFingerprint(corpusPath, db);
-            progress.finish('index rebuild complete');
+            const runWarnings = [...priorWarnings, ...result.warnings, ...indexWarnings];
+            const warningCount = finishRebuild(progress, runWarnings);
 
             if (!options.quiet) {
               printRebuildTrustSummary(result);
               console.log(
-                `\n✓ Full rebuild complete (${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`
+                `\n${closingLine(warningCount, 'Full rebuild complete', `(${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`)}`
               );
             }
 
             db.close();
             return;
           } catch (error) {
-            console.error('Error: Failed to run full overlay rebuild');
-            console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+            printError('Error: Failed to run full overlay rebuild');
+            printError(`  ${error instanceof Error ? error.message : String(error)}`);
             db.close();
             process.exit(1);
           }
@@ -620,14 +600,16 @@ indexCmd
           // is already complete the queue returns zero rows, so this skips the 34 MB model load (not a
           // free check — the queue read still scans structural_node_texts) and re-parses nothing (the
           // prepared text is already persisted).
-          await runNodeEmbedTail(
-            db,
-            invocationId,
-            startedAt,
-            corpusPath,
-            dbPath,
-            headCommit,
-            options.quiet === true
+          printRunWarnings(
+            await runNodeEmbedTail(
+              db,
+              invocationId,
+              startedAt,
+              corpusPath,
+              dbPath,
+              headCommit,
+              options.quiet === true
+            )
           );
           db.close();
           return;
@@ -642,8 +624,9 @@ indexCmd
         try {
           diff = getGitDiff(corpusPath, lastCommit, headCommit);
         } catch {
+          const priorWarnings = ['git diff failed; ran a full rebuild instead'];
           if (!options.quiet) {
-            console.warn('Warning: git diff failed, running full rebuild...');
+            console.log('git diff failed, running full rebuild...');
           }
           try {
             const scanner = new GeneralScanner(corpusPath);
@@ -660,7 +643,7 @@ indexCmd
                 attachEnrichment(entry, scanResult.enrichments)
               ),
             };
-            await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
+            const indexWarnings = await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
               invocationId,
               startedAt,
               corpusPath,
@@ -674,16 +657,19 @@ indexCmd
               lastIndexedCommit: headCommit,
             });
             persistStructuralConfigFingerprint(corpusPath, db);
-            progress.finish('index rebuild complete');
+            const runWarnings = [...priorWarnings, ...result.warnings, ...indexWarnings];
+            const warningCount = finishRebuild(progress, runWarnings);
             if (!options.quiet) {
               printRebuildTrustSummary(result);
-              console.log(`\n✓ Full rebuild complete (${result.surfaceCount} surfaces)`);
+              console.log(
+                `\n${closingLine(warningCount, 'Full rebuild complete', `(${result.surfaceCount} surfaces)`)}`
+              );
             }
             db.close();
             return;
           } catch (error) {
-            console.error('Error: Failed to run full overlay rebuild');
-            console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+            printError('Error: Failed to run full overlay rebuild');
+            printError(`  ${error instanceof Error ? error.message : String(error)}`);
             db.close();
             process.exit(1);
           }
@@ -719,7 +705,8 @@ indexCmd
                   ? 'added'
                   : 'modified',
             }));
-            const prior = inspectOverlayTrustState(db).state;
+            const inspection = inspectOverlayTrustState(db);
+            const prior = inspection.state;
             const config = loadLspConfig(corpusPath);
             const progress = createProgressReporter(options.quiet === true);
             progress.start('scoped overlay refresh');
@@ -728,7 +715,8 @@ indexCmd
               lspBudgetMs: decision.lspBudgetMs, // Phase 3b: sourced from refresh.lspBudgetMs (spec 15 C/E)
             });
             // Content index still reflects HEAD (the incremental content sync runs for docs).
-            const plan = buildIncrementalPlan(corpusPath, diff);
+            const planLog = new WarningLog();
+            const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
             const contentDb = db; // const so the narrowed (non-undefined) type survives into the closure
             contentDb.transaction(() => {
               for (const p of plan.toDelete) contentDb.deleteKnowledgeEntryByPath(p);
@@ -749,12 +737,15 @@ indexCmd
               result,
               changed.map((file) => file.relPath)
             );
-            if (prior) {
-              persistRefreshTrustState(db, prior, {
-                lastIndexedCommit: headCommit,
-                residualStaleEdges: result.residualStaleEdges,
-              });
-            }
+            const settled = prior
+              ? persistRefreshTrustState(db, prior, {
+                  lastIndexedCommit: headCommit,
+                  residualStaleEdges: result.residualStaleEdges,
+                  warnings: [...result.warnings, ...planLog.messages],
+                  warningComponents: { ...result.warningComponents, ...planLog.components },
+                  componentsRun: [...result.componentsRun, ...planLog.ran],
+                })
+              : null;
             emitUsageEvent(db, {
               source: 'cli',
               surface: 'index-refresh',
@@ -778,13 +769,10 @@ indexCmd
                 tierFacade: result.tiers.facade,
               },
             });
-            progress.finish(
-              `scoped refresh complete (${result.refreshedFiles} file(s), ${result.residualStaleEdges} residual stale)`
-            );
             // Scoped tail: the victim-sibling delete (Part C) dropped changed nodes' stale vectors just
             // above (overlay-refresh.ts), so those same-id nodes re-enter the queue and get re-embedded
-            // here. headCommit is in scope (this branch runs after the outer getHeadCommit).
-            await runNodeEmbedTail(
+            // here, before the closing line so that line can report its failures.
+            const embedWarnings = await runNodeEmbedTail(
               db,
               invocationId,
               startedAt,
@@ -792,6 +780,18 @@ indexCmd
               dbPath,
               headCommit,
               options.quiet === true
+            );
+            // The settled trust state keeps the prior overlay's warnings this refresh did not retire.
+            const freshWarnings = [...result.warnings, ...planLog.messages];
+            const runWarnings = [...(settled?.warnings ?? freshWarnings), ...embedWarnings];
+            const priorWasPersisted = inspection.source === 'persisted';
+            const carried = (settled?.warnings ?? []).filter(
+              (w) => priorWasPersisted && prior?.warnings.includes(w) && !freshWarnings.includes(w)
+            );
+            const warningCount = printRunWarnings(runWarnings, carried);
+            progress.finish(
+              `scoped refresh complete (${result.refreshedFiles} file(s), ${result.residualStaleEdges} residual stale)`,
+              warningCount
             );
             db.close();
             return;
@@ -816,7 +816,7 @@ indexCmd
                 attachEnrichment(entry, scanResult.enrichments)
               ),
             };
-            await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
+            const indexWarnings = await persistKnowledgeIndex(db, scanner, indexedScan, progress, {
               invocationId,
               startedAt,
               corpusPath,
@@ -830,8 +830,7 @@ indexCmd
               lastIndexedCommit: headCommit,
             });
             persistStructuralConfigFingerprint(corpusPath, db);
-            progress.finish('index rebuild complete');
-
+            const runWarnings = [...result.warnings, ...indexWarnings];
             try {
               db.insertEvent({
                 source: 'cli',
@@ -839,8 +838,9 @@ indexCmd
                 summary: `Sync escalated to overlay rebuild: ${overlayRelevantPaths.length} structural source file(s) changed`,
               });
             } catch {
-              // Non-fatal
+              runWarnings.push('Failed to log sync event');
             }
+            const warningCount = finishRebuild(progress, runWarnings);
             emitUsageEvent(db, {
               source: 'cli',
               surface: 'index-sync',
@@ -863,22 +863,23 @@ indexCmd
             if (!options.quiet) {
               printRebuildTrustSummary(result);
               console.log(
-                `\n✓ Sync escalated to full overlay rebuild (${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`
+                `\n${closingLine(warningCount, 'Sync escalated to full overlay rebuild', `(${result.surfaceCount} surfaces, commit ${headCommit.slice(0, 8)})`)}`
               );
             }
 
             db.close();
             return;
           } catch (error) {
-            console.error('Error: Failed to run overlay rebuild during sync');
-            console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+            printError('Error: Failed to run overlay rebuild during sync');
+            printError(`  ${error instanceof Error ? error.message : String(error)}`);
             db.close();
             process.exit(1);
           }
         }
 
         // Build incremental plan
-        const plan = buildIncrementalPlan(corpusPath, diff);
+        const planLog = new WarningLog();
+        const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
 
         if (!options.quiet) {
           console.log(
@@ -900,6 +901,9 @@ indexCmd
           }
         });
 
+        // Problems this sync hits itself; reported with the warnings its trust state carries.
+        const syncCommandWarnings: string[] = [];
+
         // LSP enrichment for changed source files only
         const sourceFilesToEnrich = plan.toIndex
           .filter((entry) => entry.type === 'source-code')
@@ -908,8 +912,9 @@ indexCmd
         if (sourceFilesToEnrich.length > 0) {
           try {
             const { loadLspConfig } = await import('../scanner/config.js');
-            const { EnricherRegistry } = await import('../scanner/lsp/index.js');
-            const { PhpLspEnricher } = await import('../scanner/lsp/php.js');
+            const { buildRegistry } = await import('../scanner/general.js');
+            const { failureSummary } = await import('../scanner/reporter.js');
+
             const config = loadLspConfig(corpusPath);
 
             if (config.lsp.enabled) {
@@ -917,40 +922,21 @@ indexCmd
                 console.log(`Enriching ${sourceFilesToEnrich.length} source files via LSP...`);
               }
 
-              // Build enricher registry from config (same as generalScan but targeted)
-              const registry = new EnricherRegistry();
-              const ENRICHER_FACTORIES: Record<
-                string,
-                (entry: (typeof config.lsp.enrichers)[0]) => InstanceType<typeof PhpLspEnricher>
-              > = {
-                php: (entry) =>
-                  new PhpLspEnricher({
-                    serverCommand: entry.serverCommand,
-                    serverArgs: entry.serverArgs,
-                    maxConcurrency: entry.maxConcurrency,
-                    requestTimeoutMs: entry.requestTimeoutMs,
-                    initTimeoutMs: entry.initTimeoutMs,
-                  }),
-              };
+              // The same enricher registry generalScan builds, applied to the changed files only.
+              const { warnSink } = await import('../scanner/reporter.js');
+              const warn = warnSink((message) => {
+                syncCommandWarnings.push(message);
+              });
+              const registry = buildRegistry(config.lsp.enrichers, warn);
 
-              for (const entry of config.lsp.enrichers) {
-                if (entry.enabled === false) continue;
-                const factory = ENRICHER_FACTORIES[entry.languageId];
-                if (!factory) continue;
-                try {
-                  registry.register(factory(entry));
-                } catch {
-                  /* skip */
-                }
-              }
-
-              // Initialize enrichers
               const workspaceRoot = config.lsp.workspaceRoot ?? corpusPath;
               for (const enricher of registry.getAll()) {
                 try {
                   await enricher.initialize(workspaceRoot);
-                } catch {
-                  /* skip */
+                } catch (error) {
+                  warn(
+                    `Failed to initialize ${enricher.languageId} enricher: ${error instanceof Error ? error.message : String(error)}`
+                  );
                 }
               }
 
@@ -960,6 +946,7 @@ indexCmd
                 string,
                 import('../scanner/lsp/index.js').EnrichmentResult
               >();
+              const enrichFailures: Array<{ item: string; error: string }> = [];
 
               for (const filePath of sourceFilesToEnrich) {
                 const ext = path.extname(filePath);
@@ -968,16 +955,21 @@ indexCmd
                 try {
                   const result = await enricher.enrich(filePath);
                   if (result) enrichmentMap.set(filePath, result);
-                } catch {
-                  /* skip individual file errors */
+                } catch (error) {
+                  enrichFailures.push({
+                    item: filePath,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
                 }
               }
+              if (enrichFailures.length > 0) warn(failureSummary('LSP enrichment', enrichFailures));
 
-              // Shut down enrichers
               try {
                 await registry.shutdownAll();
-              } catch {
-                /* ignore */
+              } catch (error) {
+                warn(
+                  `enricher shutdown errors: ${error instanceof Error ? error.message : String(error)}`
+                );
               }
 
               // Apply enrichments to changed files
@@ -993,9 +985,7 @@ indexCmd
               }
             }
           } catch {
-            if (!options.quiet) {
-              console.warn('Warning: LSP enrichment failed, continuing without enrichment');
-            }
+            syncCommandWarnings.push('LSP enrichment failed; continued without enrichment');
           }
         }
 
@@ -1024,6 +1014,11 @@ indexCmd
           { overlayRelevantPaths, headCommit, markOnly: options.markOnly === true }
         );
 
+        // The trust state's warnings before this sync; any still there afterwards are carried.
+        // Only a persisted state was written by an earlier run; a state inferred from the DB's shape
+        // describes the index as it is now, so its warnings are current, not carried.
+        const before = inspectOverlayTrustState(db);
+        const warningsBefore = before.source === 'persisted' ? (before.state?.warnings ?? []) : [];
         const syncTrustState = markOverlayTrustAfterSync(db, {
           lastIndexedCommit: headCommit,
           overlayRelevantPaths,
@@ -1032,6 +1027,9 @@ indexCmd
           deletedCount: diff.deleted.length,
           indexedCount: plan.toIndex.length,
           deletedEntryCount: plan.toDelete.length,
+          warnings: planLog.messages,
+          warningComponents: planLog.components,
+          componentsRun: [...planLog.ran],
         });
 
         // Log event
@@ -1042,7 +1040,7 @@ indexCmd
             summary: `Synced index: +${plan.toIndex.length} indexed, -${plan.toDelete.length} deleted`,
           });
         } catch {
-          // Non-fatal
+          syncCommandWarnings.push('Failed to log sync event');
         }
         const markOnlyRun = options.markOnly === true && overlayRelevantPaths.length > 0;
         emitUsageEvent(db, {
@@ -1070,6 +1068,21 @@ indexCmd
           },
         });
 
+        // Incremental tail: after the content sync settles the pointer, embed any anchor nodes the
+        // materialization added/changed this sync (plus any resume backlog). It runs before the closing
+        // line so that line can report its failures.
+        const embedWarnings = await runNodeEmbedTail(
+          db,
+          invocationId,
+          startedAt,
+          corpusPath,
+          dbPath,
+          headCommit,
+          options.quiet === true
+        );
+
+        const syncSummary = `+${plan.toIndex.length} indexed, -${plan.toDelete.length} deleted (commit ${headCommit.slice(0, 8)})`;
+        const syncWarnings = [...syncTrustState.warnings, ...syncCommandWarnings, ...embedWarnings];
         if (!options.quiet) {
           if (markOnlyRun) {
             console.log(
@@ -1081,33 +1094,31 @@ indexCmd
           console.log(
             `Overlay trust after sync: ${syncTrustLevel} (persisted mode: ${syncTrustState.mode}, ${syncTrustState.fileNodeCount} files, ${syncTrustState.symbolNodeCount} symbols)`
           );
-          for (const warning of syncTrustState.warnings) {
-            console.warn(`Warning: ${warning}`);
-          }
+        }
+        // A clean --quiet sync stays silent; one carrying warnings reports them like any other run.
+        if (!options.quiet || syncWarnings.length > 0) {
+          const carried = syncTrustState.warnings.filter(
+            (w) =>
+              warningsBefore.includes(w) &&
+              !syncCommandWarnings.includes(w) &&
+              !planLog.messages.includes(w)
+          );
+          const warningCount = printRunWarnings(syncWarnings, carried);
           console.log(
-            `✓ Synced: +${plan.toIndex.length} indexed, -${plan.toDelete.length} deleted (commit ${headCommit.slice(0, 8)})`
+            warningCount > 0
+              ? `⚠ Synced ${withWarnings(warningCount)}: ${syncSummary}`
+              : `✓ Synced: ${syncSummary}`
           );
         }
-
-        // Incremental tail: after the content sync settles the pointer, embed any anchor nodes the
-        // materialization added/changed this sync (plus any resume backlog). headCommit is in scope.
-        await runNodeEmbedTail(
-          db,
-          invocationId,
-          startedAt,
-          corpusPath,
-          dbPath,
-          headCommit,
-          options.quiet === true
-        );
         db.close();
       } catch (error) {
-        console.error('Error: Unexpected error during index sync');
-        console.error(`  ${error instanceof Error ? error.message : String(error)}`);
+        printError('Error: Unexpected error during index sync');
+        printError(`  ${error instanceof Error ? error.message : String(error)}`);
         if (db) {
           try {
             db.close();
           } catch {
+            // lux-intentional-swallow: the command is already failing and exits with that error just below.
             /* ignore */
           }
         }
@@ -1165,9 +1176,7 @@ indexCmd
         console.log(`  Trust recorded: ${overlay.recordedAt}`);
       }
       if (diagnostics.warnings.length > 0) {
-        for (const warning of diagnostics.warnings) {
-          console.warn(`Warning: ${warning}`);
-        }
+        printRunWarnings(diagnostics.warnings);
       }
     }
     console.log();
@@ -1332,6 +1341,7 @@ function reportEmbedOutcome(
     attributes: {
       embedded,
       budgetHit,
+      failed: result.failure !== undefined,
       coveragePct,
       anchorViableNodes: coverage.anchorViableNodes,
     },
@@ -1358,18 +1368,20 @@ const EMBED_DRAIN_BUDGET_MS = 365 * 24 * 60 * 60 * 1000;
  * content-hash queue naturally excludes what is already embedded, so a killed drain resumes exactly
  * where it left off on the next index run — this loop only lifts the 30s cap, it does not change the
  * queue's resume contract. The `embedded === 0` break also guards against a non-progressing pass (a
- * persistent embedder failure degrades internally to `budgetHit` with 0 embedded), so the loop can
+ * persistent embedder failure stops each pass with 0 embedded and a reported `failure`), so the loop can
  * never spin. The single shared `embedder` is reused across every pass — the model loads once.
  */
 async function drainNodeEmbedQueue(
   db: LuxDatabase,
   embedder: Embedder,
-  quiet: boolean
+  quiet: boolean,
+  onWarning: (message: string) => void
 ): Promise<NodeEmbedPassResult> {
   for (;;) {
     const result = await runNodeEmbedPass(db, embedder, {
       budgetMs: EMBED_DRAIN_BUDGET_MS,
       onProgress: quiet ? undefined : (msg) => console.log(`  ${msg}`),
+      onWarning,
     });
     if (!quiet) {
       const { embeddedNodes, anchorViableNodes } = result.coverage;
@@ -1377,7 +1389,9 @@ async function drainNodeEmbedQueue(
         anchorViableNodes > 0 ? Math.round((embeddedNodes / anchorViableNodes) * 100) : 100;
       console.log(`Embedding anchor nodes: ${embeddedNodes}/${anchorViableNodes} (${pct}%)`);
     }
+    // A failed pass ends the drain: retrying the same embedder would only repeat the failure.
     if (
+      result.failure !== undefined ||
       result.embedded === 0 ||
       result.coverage.embeddedNodes >= result.coverage.anchorViableNodes
     ) {
@@ -1416,7 +1430,7 @@ async function runNodeEmbedTail(
   // A1: when true (the `lux index rebuild --embeddings` opt-in), drain the queue to full coverage
   // instead of running one budgeted pass. Trailing optional so the sync tail call sites are untouched.
   embedToCompletion = false
-): Promise<void> {
+): Promise<string[]> {
   const ctx: EmbedTailContext = {
     db,
     invocationId,
@@ -1436,10 +1450,16 @@ async function runNodeEmbedTail(
   // contractually "never throws" (it must not fail the caller's rebuild/sync — the no-change resume seam
   // reaches it as the ONLY config parse), so degrade to undefined config (→ local model) rather than
   // crash, matching the read path's wrap-and-degrade. The config-WRITE paths still surface it loudly.
+  // Warnings from this tail: an unreadable config, an embedder that cannot be built, a pass that an
+  // internal failure stopped. Reaching the embed budget is not one.
+  const warnings: string[] = [];
   let embeddingConfig: EmbeddingConfig | undefined;
   try {
     embeddingConfig = loadLspConfig(corpusPath).embedding;
-  } catch {
+  } catch (error) {
+    warnings.push(
+      `lux.yaml could not be read for its embedding settings, so the local model was used — ${error instanceof Error ? error.message : String(error)}`
+    );
     embeddingConfig = undefined;
   }
   const activeModel = activeEmbeddingModel(embeddingConfig);
@@ -1457,7 +1477,7 @@ async function runNodeEmbedTail(
       budgetHit: false,
       coverage: db.getAnchorEmbeddingCoverage(activeModel),
     });
-    return;
+    return warnings;
   }
 
   // (2) Cached-only — there IS work to do, but the index path must not fetch bge weights. Embed only if
@@ -1478,23 +1498,24 @@ async function runNodeEmbedTail(
       },
       { emitConsole: false }
     );
-    return;
+    return warnings;
   }
 
   // A read is available (bge weights cached, or a token is set) → load the embedder (may still fail on
   // a corrupt-weights crash, or an API request failure) and run the pass. Any failure degrades to a
   // concise skip line. The pass itself keys on embedder.model, which equals activeModel by construction.
+  const onWarning = (message: string): void => {
+    warnings.push(message);
+  };
+
   let embedder: Embedder;
   try {
     embedder = await getSharedEmbedder(embeddingConfig);
   } catch (error) {
-    if (!quiet) {
-      console.log(
-        `Anchor embeddings: embedder unavailable, skipping embed pass: ` +
-          `${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-    return;
+    warnings.push(
+      `anchor embedder unavailable, skipped the embed pass: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return warnings;
   }
 
   let result: NodeEmbedPassResult;
@@ -1503,25 +1524,24 @@ async function runNodeEmbedTail(
     // default tail runs ONE budgeted pass so a routine rebuild/sync never blocks on a long embed. The
     // shared embedder is loaded exactly once above and reused across every drained pass.
     result = embedToCompletion
-      ? await drainNodeEmbedQueue(db, embedder, quiet)
+      ? await drainNodeEmbedQueue(db, embedder, quiet, onWarning)
       : await runNodeEmbedPass(db, embedder, {
           onProgress: quiet ? undefined : (msg) => console.log(`  ${msg}`),
+          onWarning,
         });
   } catch (error) {
     // runNodeEmbedPass already degrades internally (it never throws on a budget hit or an embed-time
     // failure — see node-embed-pass.ts). This catch is the second, outermost layer, so that even a
     // wholly unexpected failure (e.g. getAnchorEmbeddingCoverage itself throwing on an already-broken
     // DB) still cannot fail the caller's rebuild/sync.
-    if (!quiet) {
-      console.log(
-        `Anchor embeddings: embed pass failed, skipping: ` +
-          `${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-    return;
+    warnings.push(
+      `anchor embed pass failed, skipped: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return warnings;
   }
 
   reportEmbedOutcome(ctx, result);
+  return warnings;
 }
 
 program.parse();
@@ -1547,20 +1567,20 @@ async function persistKnowledgeIndex(
      *  full-rebuild fallback that funnels through here leaves it undefined ⇒ the default budgeted tail. */
     embedToCompletion?: boolean;
   }
-): Promise<void> {
+): Promise<string[]> {
   progress.log('Indexing...');
 
   try {
     await scanner.index(db, result);
   } catch (error) {
-    console.error('Error: Failed to index content');
+    printError('Error: Failed to index content');
     if (error instanceof Error) {
-      console.error(`  ${error.message}`);
+      printError(`  ${error.message}`);
       if (error.message.includes('UNIQUE constraint')) {
-        console.error('  This suggests duplicate entries in your content directory');
+        printError('  This suggests duplicate entries in your content directory');
       }
     } else {
-      console.error(`  ${String(error)}`);
+      printError(`  ${String(error)}`);
     }
     db.close();
     process.exit(1);
@@ -1572,7 +1592,7 @@ async function persistKnowledgeIndex(
   // only runs on success. Never throws past this point (`runNodeEmbedTail` degrades internally, Part
   // B.1). A full rebuild re-embeds the whole plane because the overlay-clear (Part C) drops all three
   // anchor tables first, so every node re-enters the queue via the IS NULL arm.
-  await runNodeEmbedTail(
+  return runNodeEmbedTail(
     db,
     embedTail.invocationId,
     embedTail.startedAt,
@@ -1592,22 +1612,81 @@ function createProgressReporter(quiet: boolean): ProgressReporter {
   const prefix = quiet ? '' : '  ';
 
   return {
+    // Under --quiet a clean run prints nothing at all; a run with warnings prints them (elsewhere)
+    // and this one ⚠ line.
     start(label: string) {
+      if (quiet) return;
       console.log(`${prefix}▶ ${label}`);
       lastPhaseAt = Date.now();
     },
     log(message: string) {
+      if (quiet) return;
       const now = Date.now();
       console.log(
         `${prefix}[+${formatElapsed(now - lastPhaseAt)} | total ${formatElapsed(now - startedAt)}] ${message}`
       );
       lastPhaseAt = now;
     },
-    finish(label: string) {
-      const totalMs = Date.now() - startedAt;
-      console.log(`${prefix}✓ ${label} in ${formatElapsed(totalMs)}`);
+    finish(label: string, warningCount = 0) {
+      if (quiet && warningCount === 0) return;
+      const elapsed = formatElapsed(Date.now() - startedAt);
+      console.log(
+        warningCount > 0
+          ? `${prefix}⚠ ${label} ${withWarnings(warningCount)} in ${elapsed}`
+          : `${prefix}✓ ${label} in ${elapsed}`
+      );
     },
   };
+}
+
+/** The CLI's printer for errors that end a command. */
+function printError(line: string): void {
+  // eslint-disable-next-line no-restricted-syntax -- the CLI's error printer.
+  console.error(line);
+}
+
+function withWarnings(count: number): string {
+  return `with ${count} warning(s)`;
+}
+
+/** `✓ summary detail` on a clean run, `⚠ summary with N warning(s) detail` when it has warnings. */
+function closingLine(warningCount: number, summary: string, detail: string): string {
+  return warningCount > 0
+    ? `⚠ ${summary} ${withWarnings(warningCount)} ${detail}`
+    : `✓ ${summary} ${detail}`;
+}
+
+/**
+ * Close a rebuild's progress output: print its warnings, then the ✓/⚠ progress line. Returns the
+ * number of warnings printed, which the caller's closing line reports.
+ */
+function finishRebuild(
+  progress: ProgressReporter,
+  warnings: string[],
+  carried: readonly string[] = []
+): number {
+  const count = printRunWarnings(warnings, carried);
+  progress.finish('index rebuild complete', count);
+  return count;
+}
+
+/**
+ * The one place a run's warnings are printed: once each, de-duplicated, as `Warning: <message>` on
+ * stderr in every mode (the post-commit hook matches that form). A warning an earlier run raised,
+ * and this run did not raise again, is labelled as carried. Returns the number printed.
+ */
+function printRunWarnings(warnings: readonly string[], carried: readonly string[] = []): number {
+  const unique = [...new Set(warnings)];
+  const carriedOnly = new Set(carried);
+  for (const warning of unique) {
+    // eslint-disable-next-line no-restricted-syntax -- the run-warnings printer.
+    console.warn(
+      carriedOnly.has(warning)
+        ? `Warning: carried from an earlier run: ${warning}`
+        : `Warning: ${warning}`
+    );
+  }
+  return unique.length;
 }
 
 function printRebuildTrustSummary(r: RebuildResult): void {
@@ -1639,9 +1718,5 @@ function printRebuildTrustSummary(r: RebuildResult): void {
     console.log(
       'This is the fallback path. Run plain "lux index rebuild" for the canonical overlay-complete rebuild.'
     );
-  }
-
-  for (const warning of r.warnings) {
-    console.warn(`Warning: ${warning}`);
   }
 }

@@ -71,6 +71,7 @@ async function execute(wire: WorkerWireRequestV1): Promise<AdapterWorkerResponse
     };
     return { schemaVersion: 1, ok: true, output };
   } catch (error) {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return refusal(
       'parse-error',
       error instanceof Error ? error.message : 'Vue compiler-SFC worker failed.'

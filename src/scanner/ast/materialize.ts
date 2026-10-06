@@ -18,6 +18,7 @@ import {
 import type { SharedExtractions } from './extraction-cache.js';
 import { buildAstSymbolNodes } from './symbols.js';
 import { buildAnchorTexts, type PreparedNodeText } from '../anchors/prepare-node-text.js';
+import type { WarnFn } from '../reporter.js';
 
 /**
  * Extract and persist AST symbol nodes for all source-code files in a scan.
@@ -37,7 +38,7 @@ export async function materializeAstSymbols(
   rootPath: string,
   now: number,
   extractions?: SharedExtractions,
-  onWarn?: (message: string) => void
+  onWarn?: WarnFn
 ): Promise<number> {
   // Only parse on demand when no shared cache was supplied.
   const grammars = extractions ? null : await getGrammars();
@@ -61,7 +62,8 @@ export async function materializeAstSymbols(
         extraction = extractSource(grammars!, entry.content, relPath, lang).extraction;
       } catch (error) {
         onWarn?.(
-          `AST symbol extraction failed for ${relPath}: ${error instanceof Error ? error.message : String(error)}`
+          `AST symbol extraction failed for ${relPath}: ${error instanceof Error ? error.message : String(error)}`,
+          `ast-file:${relPath}`
         );
         continue;
       }

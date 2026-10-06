@@ -103,6 +103,7 @@ export function computeCrossRepoImpact(
         budget: { depth: budget.depth, maxNodes: budget.maxNodes, truncated: walk.truncated },
       });
     } catch (error) {
+      // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
       const refusal = siblingFaultRefusal(s.name, error);
       siblings.push({ name: s.name, attached: false, refusal: refusal.message });
       refusals.push(refusal);

@@ -7,6 +7,7 @@
 import { ROWS_PER_COMMIT, writeAllInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralEdge, EdgeEvidence } from '../../db/types.js';
 import type { AssociationContext, AssociationResolver, StructuralRelationEdge } from './types.js';
+import { reporterFrom, type Reporter } from '../reporter.js';
 
 // ---------------------------------------------------------------------------
 // AssociationEngine
@@ -22,6 +23,10 @@ export interface AssociationEngineOptions {
   includeHeuristics?: boolean;
   /** Progress callback. */
   onProgress?: (message: string) => void;
+  /** Warning callback (a resolver that threw). Without it, warnings reach `onProgress`. */
+  onWarning?: (message: string) => void;
+  /** A ready-made Reporter, used instead of onProgress/onWarning (keeps warning components). */
+  reporter?: Reporter;
 }
 
 /**
@@ -36,7 +41,10 @@ export interface AssociationEngineOptions {
 export class AssociationEngine {
   private readonly resolvers: AssociationResolver[];
   private readonly db: LuxDatabase;
-  private readonly options: Required<AssociationEngineOptions>;
+  private readonly options: Required<
+    Omit<AssociationEngineOptions, 'onProgress' | 'onWarning' | 'reporter'>
+  >;
+  private readonly reporter: Reporter;
 
   constructor(
     db: LuxDatabase,
@@ -47,8 +55,8 @@ export class AssociationEngine {
     this.resolvers = resolvers;
     this.options = {
       includeHeuristics: options.includeHeuristics ?? false,
-      onProgress: options.onProgress ?? (() => {}),
     };
+    this.reporter = options.reporter ?? reporterFrom(options.onProgress, options.onWarning);
   }
 
   // -------------------------------------------------------------------------
@@ -65,7 +73,7 @@ export class AssociationEngine {
    * 4. Persist edges and evidence.
    */
   async rebuild(context: AssociationContext): Promise<AssociationEngineResult> {
-    const report = this.options.onProgress;
+    const report = this.reporter.progress;
     const allEdges: StructuralRelationEdge[] = [];
 
     // 1. Run enabled resolvers
@@ -76,15 +84,17 @@ export class AssociationEngine {
       }
 
       report(`Running resolver: ${resolver.name}...`);
+      this.reporter.ran(`resolver:${resolver.name}`);
       try {
         const edges = await resolver.resolve(context);
         report(`  → ${edges.length} edges produced.`);
         allEdges.push(...edges);
       } catch (error) {
-        report(
-          `  → Error in resolver ${resolver.name}: ${
+        this.reporter.warn(
+          `resolver ${resolver.name} threw — ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
+          `resolver:${resolver.name}`
         );
       }
     }

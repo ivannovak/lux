@@ -259,15 +259,16 @@ describe('generalScan — enricher that fails to initialize', () => {
       })
     );
 
-    const progress: string[] = [];
     const result = await generalScan(repo, {
       config: { lsp: { enabled: true, enrichers: [] }, deps: { enabled: false } },
       enricherRegistry: registry,
-      onProgress: (m) => progress.push(m),
     });
 
     expect(result.stats.activeEnrichers).toBe(0);
-    expect(progress.some((m) => m.startsWith('Failed to initialize vue enricher:'))).toBe(true);
+    // The failure is one of the scan's warnings, which the caller reports and folds into trust.
+    expect(result.warnings.some((m) => m.startsWith('Failed to initialize vue enricher:'))).toBe(
+      true
+    );
 
     const child = spawned[0];
     expect(await exitsWithin(child, 5_000)).toBe(true);

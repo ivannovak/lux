@@ -85,6 +85,7 @@ export function addSearchCommand(program: Command) {
                 handles.push({ name: r.sibling.name, db: handle });
                 effectiveResolutions.push(r);
               } catch (error) {
+                // lux-intentional-swallow: reported to the user as a sibling refusal just below.
                 const refusal = siblingFaultRefusal(r.sibling.name, error);
                 effectiveResolutions.push({ name: r.sibling.name, refusal });
                 console.error(`  ⚠ sibling '${r.sibling.name}': ${refusal.message}`);

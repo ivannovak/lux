@@ -203,6 +203,7 @@ export function loadCoverageProducerRuns(db: LuxDatabase): ProducerRunSignals | 
     }
     return result;
   } catch {
+    // lux-intentional-swallow: parses metadata Lux itself wrote; an unparsable value reads as none.
     return null;
   }
 }

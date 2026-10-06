@@ -26,7 +26,6 @@ import type {
 } from '../types.js';
 import { httpSurfaceNodeId, fileNodeId, phpSymbolNodeId } from '../types.js';
 import type { CapabilitySurfaceDetector, DetectedSurfaceBatch } from './types.js';
-import { emptyBatch } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Regex patterns — route declarations (applied to already-scoped content)
@@ -107,12 +106,10 @@ export class LaravelHttpSurfaceDetector implements CapabilitySurfaceDetector {
     return context.entries.some((e) => isEligibleRouteSource(e));
   }
 
+  // A failure rejects rather than returning an empty batch: runDetectors reports a detector that
+  // threw as a warning, while an empty batch would read as "this repository has no routes".
   detect(context: AssociationContext): Promise<DetectedSurfaceBatch> {
-    try {
-      return Promise.resolve(this.detectSync(context));
-    } catch {
-      return Promise.resolve(emptyBatch());
-    }
+    return new Promise((resolve) => resolve(this.detectSync(context)));
   }
 
   private detectSync(context: AssociationContext): DetectedSurfaceBatch {

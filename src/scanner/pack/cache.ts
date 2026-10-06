@@ -71,6 +71,7 @@ function readFrameworkLabel(rawLock: Buffer): string | undefined {
     const fw = lock.packages?.find((p) => p.name === 'laravel/framework');
     return fw ? `${fw.name}@${fw.version}` : undefined;
   } catch {
+    // lux-intentional-swallow: the framework label is cosmetic; it is omitted when the lock cannot be read.
     return undefined;
   }
 }
@@ -127,6 +128,7 @@ export function lookupPack(
       reader.close();
       hit = m.formatVersion === PACK_FORMAT_VERSION && m.key === key.digest;
     } catch {
+      // lux-intentional-swallow: a corrupt or partial pack is a cache miss; the builder overwrites it.
       hit = false; // corrupt/partial file → treat as miss; the builder overwrites it
     }
   }

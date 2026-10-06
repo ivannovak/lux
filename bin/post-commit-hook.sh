@@ -184,6 +184,16 @@ fi
 
 # Handle different failure scenarios
 if [ $sync_exit -eq 0 ]; then
+    # A sync that succeeded with warnings prints `Warning:` lines and a ⚠ closing line even under
+    # --quiet; relay them rather than reporting a clean sync.
+    warning_count=$(grep -c '^Warning: ' "$sync_output" || true)
+    if [ "$warning_count" -gt 0 ] || grep -q '^⚠ ' "$sync_output"; then
+        log "INFO" "Index synced with $warning_count warning(s)"
+        emit_hook_event "success" "sync_warnings" 0 "index sync completed with $warning_count warning(s)"
+        grep -E '^(Warning: |⚠ )' "$sync_output" >&2
+        echo "⚠ Lux index synced with $warning_count warning(s) ($changed_count file(s) updated)" >&2
+        exit 0
+    fi
     log "INFO" "Index synced successfully"
     emit_hook_event "success" "sync_success" 0 "index sync completed"
     echo "✓ Lux index synced ($changed_count file(s) updated)" >&2

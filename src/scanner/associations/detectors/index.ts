@@ -10,6 +10,7 @@ import type { AssociationContext, CapabilitySurfaceNode } from '../types.js';
 import { AssociationEngine } from '../engine.js';
 import type { CapabilitySurfaceDetector, DetectedSurfaceBatch } from './types.js';
 import { LaravelHttpSurfaceDetector } from './laravel-http.js';
+import { silentReporter, type Reporter } from '../../reporter.js';
 
 // ---------------------------------------------------------------------------
 // Runner result
@@ -49,7 +50,7 @@ export async function runDetectors(
   db: LuxDatabase,
   context: AssociationContext,
   detectors?: CapabilitySurfaceDetector[],
-  report: (msg: string) => void = () => {},
+  reporter: Reporter = silentReporter,
   sourceCommit?: string
 ): Promise<DetectorRunResult> {
   const pack = detectors ?? createDefaultDetectors();
@@ -58,15 +59,15 @@ export async function runDetectors(
 
   for (const detector of pack) {
     if (!detector.supports(context)) continue;
+    reporter.ran(`detector:${detector.name}`);
 
     let batch: DetectedSurfaceBatch;
     try {
       batch = await detector.detect(context);
     } catch (err) {
-      report(
-        `Warning: detector "${detector.name}" threw — ${
-          err instanceof Error ? err.message : String(err)
-        }`
+      reporter.warn(
+        `detector "${detector.name}" threw — ${err instanceof Error ? err.message : String(err)}`,
+        `detector:${detector.name}`
       );
       continue;
     }
@@ -88,7 +89,7 @@ export async function runDetectors(
     }
 
     if (batch.surfaces.length > 0 || batch.edges.length > 0) {
-      report(
+      reporter.progress(
         `Detector "${detector.name}": ${batch.surfaces.length} surface(s), ${batch.edges.length} edge(s).`
       );
     }

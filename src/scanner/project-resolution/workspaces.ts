@@ -345,6 +345,7 @@ async function validateRoot(
           try {
             return await realpath(boundary);
           } catch {
+            // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
             return null;
           }
         })
@@ -408,6 +409,7 @@ async function isCanonicalWithin(canonicalRoot: string, path: string): Promise<b
   try {
     return isWithin(canonicalRoot, await realpath(path));
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }
@@ -435,6 +437,7 @@ async function pathExists(path: string): Promise<boolean> {
     await access(path);
     return true;
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }

@@ -26,6 +26,7 @@ export function diffBaseline(
   try {
     raw = db.baselineStructuralDiff(baselineDbPath);
   } catch (error) {
+    // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
     return {
       reason: 'baseline-unavailable',
       message: `baseline attach/diff failed: ${error instanceof Error ? error.message : String(error)}`,

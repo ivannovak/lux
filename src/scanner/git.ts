@@ -84,6 +84,7 @@ export function commitExists(rootPath: string, commitHash: string): boolean {
     execSync(`git cat-file -t ${commitHash}`, { cwd: rootPath, encoding: 'utf-8', stdio: 'pipe' });
     return true;
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }
@@ -179,6 +180,7 @@ export function commitExistsSafe(rootPath: string, ref: string): boolean {
     execFileSync('git', ['cat-file', '-t', ref], { cwd: rootPath, stdio: 'pipe' });
     return true;
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return false;
   }
 }
@@ -189,6 +191,7 @@ export function revParseSafe(rootPath: string, ref: string): string | null {
   try {
     return execFileSync('git', ['rev-parse', ref], { cwd: rootPath, encoding: 'utf-8' }).trim();
   } catch {
+    // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
     return null;
   }
 }
@@ -220,6 +223,7 @@ export function getDirtyFileEntries(rootPath: string): DirtyEntry[] {
       encoding: 'utf-8',
     }).replace(/\n+$/, '');
   } catch {
+    // lux-intentional-swallow: not a git checkout: no dirty files to report.
     return [];
   }
   if (!output) return [];

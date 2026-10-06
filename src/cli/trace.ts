@@ -136,6 +136,7 @@ export function addTraceCommand(program: Command): void {
                   handles.push({ name: r.sibling.name, role: r.sibling.role, db: handle });
                   effectiveResolutions.push(r);
                 } catch (error) {
+                  // lux-intentional-swallow: reported to the user as a sibling refusal just below.
                   const refusal = siblingFaultRefusal(r.sibling.name, error);
                   effectiveResolutions.push({ name: r.sibling.name, refusal });
                   console.error(`  ⚠ sibling '${r.sibling.name}': ${refusal.message}`);

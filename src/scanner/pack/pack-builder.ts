@@ -123,6 +123,7 @@ export async function buildVendorPack(
     try {
       content = readFileSync(absPath, 'utf-8');
     } catch (err) {
+      // lux-intentional-swallow: pack build: the skipped vendor file is listed in the build's own output.
       report(`  skip ${relPath}: ${errMsg(err)}`);
       continue;
     }
@@ -130,6 +131,7 @@ export async function buildVendorPack(
     try {
       extraction = extractSource(grammars, content, relPath, lang).extraction;
     } catch (err) {
+      // lux-intentional-swallow: pack build: the skipped vendor file is listed in the build's own output.
       report(`  skip ${relPath}: ${errMsg(err)}`); // isolate a pathological file
       continue;
     }
@@ -191,6 +193,7 @@ export async function buildVendorPack(
       try {
         await registry.shutdownAll();
       } catch {
+        // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
         /* shutdown errors are non-fatal for a completed build */
       }
     }

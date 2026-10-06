@@ -52,6 +52,7 @@ export function openFederationHandles(
       handles.push({ name: r.sibling.name, role: r.sibling.role, db: handle });
       effectiveResolutions.push(r);
     } catch (error) {
+      // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
       effectiveResolutions.push({
         name: r.sibling.name,
         refusal: siblingFaultRefusal(r.sibling.name, error),

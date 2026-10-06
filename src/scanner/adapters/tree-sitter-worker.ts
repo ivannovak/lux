@@ -133,6 +133,7 @@ async function parse(wire: WorkerWireRequestV1): Promise<AdapterWorkerResponseV1
     };
     return { schemaVersion: 1, ok: true, output };
   } catch {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return responseError('worker-error', 'Parser worker failed.');
   } finally {
     tree?.delete();

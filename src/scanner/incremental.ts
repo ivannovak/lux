@@ -1,6 +1,7 @@
 import { join, extname, basename } from 'path';
 import { readFileSync } from 'fs';
-import matter from 'gray-matter';
+import { parseMarkdownSource, unreadableWarning } from './markdown.js';
+import type { Reporter } from './reporter.js';
 import type { ScannedKnowledge, Frontmatter } from './types.js';
 import type { GitDiffResult } from './git.js';
 import {
@@ -126,28 +127,36 @@ function isIndexableFile(relativePath: string): boolean {
  * Exported (T3a.1) so the scoped overlay-refresh engine and its reverse-import closure
  * (spec 13 Parts E/F) reuse the exact per-file entry builder rather than re-reading files.
  */
-export function buildEntry(rootPath: string, relativePath: string): ScannedKnowledge | null {
+export function buildEntry(
+  rootPath: string,
+  relativePath: string,
+  reporter?: Reporter
+): ScannedKnowledge | null {
+  const warn = reporter?.warn;
+  // Reading (and, for markdown, parsing) this file again retires a carried warning about it.
+  reporter?.ran(`file:${relativePath}`);
   const filePath = join(rootPath, relativePath);
   const ext = extname(relativePath);
 
   if (ext === '.md') {
     // Markdown file — parse frontmatter
+    let raw: string;
     try {
-      const raw = readFileSync(filePath, 'utf-8');
-      const parsed = matter(raw);
-      const frontmatter = parsed.data as Frontmatter;
-
-      return {
-        type: inferMarkdownType(relativePath, frontmatter),
-        title: frontmatter?.title ?? frontmatter?.name ?? extractTitleFromFilename(relativePath),
-        filePath,
-        tags: frontmatter?.tags,
-        frontmatter,
-        content: parsed.content,
-      };
-    } catch {
-      return null; // Skip unreadable files
+      raw = readFileSync(filePath, 'utf-8');
+    } catch (error) {
+      warn?.(unreadableWarning(relativePath, error), `file:${relativePath}`);
+      return null;
     }
+    reporter?.ran(`frontmatter:${relativePath}`);
+    const { frontmatter, content } = parseMarkdownSource(raw, relativePath, warn);
+    return {
+      type: inferMarkdownType(relativePath, frontmatter),
+      title: frontmatter?.title ?? frontmatter?.name ?? extractTitleFromFilename(relativePath),
+      filePath,
+      tags: frontmatter?.tags,
+      frontmatter,
+      content,
+    };
   } else {
     // Source code file
     const language = relativePath.endsWith('.blade.php') ? 'blade' : detectLanguage(ext);
@@ -155,8 +164,9 @@ export function buildEntry(rootPath: string, relativePath: string): ScannedKnowl
     let content: string;
     try {
       content = readFileSync(filePath, 'utf-8');
-    } catch {
-      return null; // Skip unreadable files
+    } catch (error) {
+      warn?.(unreadableWarning(relativePath, error), `file:${relativePath}`);
+      return null;
     }
 
     return {
@@ -207,7 +217,11 @@ function extractTitleFromFilename(filename: string): string {
  * Modified files appear in both toDelete (remove old) and toIndex (add new)
  * to keep FTS5 consistent.
  */
-export function buildIncrementalPlan(rootPath: string, diff: GitDiffResult): IncrementalPlan {
+export function buildIncrementalPlan(
+  rootPath: string,
+  diff: GitDiffResult,
+  reporter?: Reporter
+): IncrementalPlan {
   const toDelete: string[] = [];
   const toIndex: ScannedKnowledge[] = [];
   let excluded = 0;
@@ -228,7 +242,7 @@ export function buildIncrementalPlan(rootPath: string, diff: GitDiffResult): Inc
       continue;
     }
     toDelete.push(join(rootPath, file));
-    const entry = buildEntry(rootPath, file);
+    const entry = buildEntry(rootPath, file, reporter);
     if (entry) {
       toIndex.push(entry);
     }
@@ -240,7 +254,7 @@ export function buildIncrementalPlan(rootPath: string, diff: GitDiffResult): Inc
       excluded++;
       continue;
     }
-    const entry = buildEntry(rootPath, file);
+    const entry = buildEntry(rootPath, file, reporter);
     if (entry) {
       toIndex.push(entry);
     }

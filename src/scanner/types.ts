@@ -23,4 +23,6 @@ export interface ScannedKnowledge {
 
 export interface ScanResult {
   knowledge: ScannedKnowledge[];
+  /** Files the scan read but could not index as they are (unreadable, malformed frontmatter). */
+  warnings?: Array<{ message: string; component?: string }>;
 }

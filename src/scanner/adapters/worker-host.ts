@@ -169,6 +169,7 @@ async function readConfinedSource(
       await handle.close();
     }
   } catch {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return diagnostic('path-escape', WORKER_DIAGNOSTICS.invalidPath);
   }
 }
@@ -220,6 +221,7 @@ function decodeWorkerMessage(value: unknown, maxResultBytes: number): AdapterWor
     if (!isWorkerResponse(decoded)) throw new Error('invalid worker response');
     return decoded;
   } catch {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError);
   }
 }
@@ -320,6 +322,7 @@ function executePersistent(
   try {
     worker = acquirePersistentWorker(url);
   } catch {
+    // lux-intentional-swallow: `undefined` makes the caller re-run the request in a fresh worker.
     return Promise.resolve(undefined);
   }
   worker.ref();
@@ -388,6 +391,7 @@ async function executeWorker(
   try {
     worker = createWorker(url, workerOptions(url, wire));
   } catch {
+    // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return diagnostic('worker-error', WORKER_DIAGNOSTICS.workerError);
   }
 

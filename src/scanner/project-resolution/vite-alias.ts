@@ -150,6 +150,7 @@ function decodeQuoted(source: string, start: number): { value?: string; end: num
         }
         return { value, end: index + 1 };
       } catch {
+        // lux-intentional-swallow: an escape that does not decode leaves the literal unparsed, as a miss.
         return { end: index + 1 };
       }
     }

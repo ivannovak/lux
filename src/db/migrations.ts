@@ -3,6 +3,7 @@ import { writeInChunks } from './chunked-writes.js';
 import { readFileSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { dbNotice } from './notices.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -144,9 +145,9 @@ export class MigrationRunner {
       inTransaction: () => this.db.inTransaction(),
     };
     const result = writeInChunks(target, pending, pending.length, (migration) => {
-      console.error(`Applying migration ${migration.version}: ${migration.name}`);
+      dbNotice('progress', `Applying migration ${migration.version}: ${migration.name}`);
       this.applyMigration(migration);
-      console.error(`✓ Migration ${migration.version} applied successfully`);
+      dbNotice('progress', `Migration ${migration.version} applied`);
     });
     if (result.error) throw result.error;
 

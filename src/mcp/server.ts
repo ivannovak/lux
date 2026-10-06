@@ -51,6 +51,10 @@ import {
   workspaceUnavailablePayload,
   type WorkspaceLease,
 } from './workspace-runtime.js';
+import { installMcpDbNoticeHandler } from './db-notices.js';
+
+// Before anything opens a database, so its notices reach stderr.
+installMcpDbNoticeHandler();
 
 /** Confidence classes delta/trace understand. Mirrors the CLI guard (`src/cli/delta.ts`): an
  *  out-of-enum `min_confidence` (e.g. "high") must NOT reach the reverse-walk as an unknown class —
@@ -282,6 +286,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [{ type: 'text', text: content }],
           };
         } catch (error) {
+          // lux-intentional-swallow: returned to the MCP client as an error result.
           return {
             content: [{ type: 'text', text: `Error reading file: ${String(error)}` }],
             isError: true,
@@ -300,20 +305,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         await scanner.index(db, indexedScan);
-        if (scanResult.dependencies.length > 0) {
-          db.transaction(() => {
-            db.clearModuleDependencies();
-            for (const dep of scanResult.dependencies) {
-              db.insertModuleDependency({
-                source_module: dep.source_module,
-                target_module: dep.target_module,
-                reference_count: dep.reference_count,
-                sample_files: JSON.stringify(dep.sample_files),
-              });
-            }
-          });
-        }
-
         const headCommit = isGitRepository(corpusPath) ? getHeadCommit(corpusPath) : null;
         if (headCommit) db.setIndexMetadata('last_indexed_commit', headCommit);
         persistCoverageProducerRuns(db, scanResult);
@@ -644,6 +635,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
     }
   } catch (error) {
+    // lux-intentional-swallow: returned to the MCP client as an error result.
     if (error instanceof WorkspaceUnavailableError) {
       return {
         content: [

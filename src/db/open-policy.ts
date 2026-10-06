@@ -40,11 +40,13 @@ function inspectExistingSchema(dbPath: string): SchemaInspection {
     };
     return { status: 'present', version: row.version ?? 0 };
   } catch (error) {
+    // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
     return { status: 'unreadable', message: errorMessage(error) };
   } finally {
     try {
       db?.close();
     } catch {
+      // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
       // The open/query error is the useful refusal; malformed databases may also reject close.
     }
   }
@@ -113,9 +115,11 @@ export function openIndex(dbPath: string, mode: IndexOpenMode): IndexOpenResult 
     if (!autoMigrate && mode === 'read-existing') db.initReadQueries();
     return { ok: true, db, schemaVersion: db.getAppliedSchemaVersion() };
   } catch (error) {
+    // lux-intentional-swallow: returned to the caller as a refusal, which reports it.
     try {
       db?.close();
     } catch {
+      // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
       // Preserve the original open/migration failure.
     }
     return unreadable(dbPath, error);

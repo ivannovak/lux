@@ -59,16 +59,8 @@ export interface CapabilitySurfaceDetector {
 
   /**
    * Detect capability surfaces and produce normalized output.
-   * Must not throw — return an empty DetectedSurfaceBatch on error.
+   * On failure, reject: runDetectors reports a detector that threw as a warning and moves on to
+   * the next one. An empty batch means "no surfaces here", so it must not stand in for an error.
    */
   detect(context: AssociationContext): Promise<DetectedSurfaceBatch>;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers for building DetectedSurfaceBatch results
-// ---------------------------------------------------------------------------
-
-/** Create an empty DetectedSurfaceBatch (safe no-op result). */
-export function emptyBatch(): DetectedSurfaceBatch {
-  return { surfaces: [], edges: [] };
 }

@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, realpathSync } from 'fs';
 import { join, resolve } from 'path';
+import type { WarnFn } from '../reporter.js';
 
 /**
  * First-party package promotion (E1). A repo may declare `firstParty.packages`
@@ -29,7 +30,11 @@ function globToRegExp(glob: string): RegExp {
  * is absent or unparseable, so the caller falls back to single-root scanning.
  * Roots are de-duplicated (defensive against a glob matching aliased packages).
  */
-export function resolveFirstPartyRoots(corpusPath: string, globs: string[]): FirstPartyRoot[] {
+export function resolveFirstPartyRoots(
+  corpusPath: string,
+  globs: string[],
+  warn?: WarnFn
+): FirstPartyRoot[] {
   if (!globs.length) return [];
   const installedPath = join(corpusPath, 'vendor/composer/installed.json');
   if (!existsSync(installedPath)) return [];
@@ -37,7 +42,11 @@ export function resolveFirstPartyRoots(corpusPath: string, globs: string[]): Fir
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(installedPath, 'utf-8'));
-  } catch {
+  } catch (error) {
+    warn?.(
+      `vendor/composer/installed.json could not be read, so no first-party package was promoted — ` +
+        (error instanceof Error ? error.message : String(error))
+    );
     return [];
   }
   const packages = (parsed as { packages?: unknown }).packages;
@@ -58,7 +67,8 @@ export function resolveFirstPartyRoots(corpusPath: string, globs: string[]): Fir
     try {
       sourceRoot = realpathSync(resolve(composerDir, installPath));
     } catch {
-      continue; // install-path not present on disk
+      warn?.(`first-party package ${name} is configured but not installed at ${installPath}`);
+      continue;
     }
     if (seen.has(sourceRoot)) continue;
     seen.add(sourceRoot);

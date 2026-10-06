@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildRegistry } from '../general.js';
+import { warnSink } from '../reporter.js';
 import { reconcileSurfaceCounts } from '../rebuild-orchestrator.js';
 
 describe('surface total and provider breakdown must describe one set', () => {
@@ -88,7 +89,12 @@ describe('surface total and provider breakdown must describe one set', () => {
 describe('buildRegistry must not silently discard a configured enricher', () => {
   it('reports an entry whose languageId has no factory', () => {
     const seen: string[] = [];
-    const registry = buildRegistry([{ languageId: 'cobol', enabled: true }], (m) => seen.push(m));
+    const registry = buildRegistry(
+      [{ languageId: 'cobol', enabled: true }],
+      warnSink((m) => {
+        seen.push(m);
+      })
+    );
 
     expect(registry.size).toBe(0);
     expect(seen).toHaveLength(1);
@@ -97,7 +103,12 @@ describe('buildRegistry must not silently discard a configured enricher', () => 
 
   it('names the language ids it does support, so the message is actionable', () => {
     const seen: string[] = [];
-    buildRegistry([{ languageId: 'kotlin', enabled: true }], (m) => seen.push(m));
+    buildRegistry(
+      [{ languageId: 'kotlin', enabled: true }],
+      warnSink((m) => {
+        seen.push(m);
+      })
+    );
 
     expect(seen[0]).toContain('php');
     expect(seen[0]).toContain('typescript');
@@ -106,7 +117,12 @@ describe('buildRegistry must not silently discard a configured enricher', () => 
 
   it('says nothing about an entry the operator explicitly disabled', () => {
     const seen: string[] = [];
-    const registry = buildRegistry([{ languageId: 'cobol', enabled: false }], (m) => seen.push(m));
+    const registry = buildRegistry(
+      [{ languageId: 'cobol', enabled: false }],
+      warnSink((m) => {
+        seen.push(m);
+      })
+    );
 
     expect(registry.size).toBe(0);
     expect(seen).toEqual([]);
@@ -120,7 +136,9 @@ describe('buildRegistry must not silently discard a configured enricher', () => 
         { languageId: 'vue', enabled: true },
         { languageId: 'typescript', enabled: true },
       ],
-      (m) => seen.push(m)
+      warnSink((m) => {
+        seen.push(m);
+      })
     );
 
     expect(registry.size).toBe(3);
@@ -134,7 +152,9 @@ describe('buildRegistry must not silently discard a configured enricher', () => 
         { languageId: 'cobol', enabled: true },
         { languageId: 'vue', enabled: true },
       ],
-      (m) => seen.push(m)
+      warnSink((m) => {
+        seen.push(m);
+      })
     );
 
     expect(registry.size).toBe(1);

@@ -172,12 +172,14 @@ export function resolveSibling(
     try {
       headCommit = getHeadCommit(worktree);
     } catch {
+      // lux-intentional-swallow: a sibling with no HEAD is reported without a commit.
       headCommit = undefined;
     }
     if (role === 'kernel') {
       try {
         namespace = resolveAppNamespace(worktree);
       } catch {
+        // lux-intentional-swallow: a kernel without a readable composer.json is reported without a namespace.
         namespace = undefined;
       }
     }

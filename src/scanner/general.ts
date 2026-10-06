@@ -1,7 +1,6 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, basename, extname } from 'path';
 import { glob, globSync } from 'glob';
-import matter from 'gray-matter';
 import type { Frontmatter, ScannedKnowledge, ScanResult } from './types.js';
 import { ROWS_PER_COMMIT, writeInChunks, type LuxDatabase } from '../db/index.js';
 import {
@@ -32,6 +31,8 @@ import { resolveTypedReceiverEdges } from './ast/lsp-resolve.js';
 import { makeExternalTargetResolver } from './pack/external-resolve.js';
 import { resolveFacadeAndHelperEdges } from './pack/facade-resolve.js';
 import { classifyHandlerOwnership, resolveAppNamespace } from './associations/ownership.js';
+import { failureSummary, WarningLog, warnSink, type WarnFn } from './reporter.js';
+import { parseMarkdownSource, unreadableWarning } from './markdown.js';
 
 // ---------------------------------------------------------------------------
 // Source Code Scanning Constants
@@ -198,6 +199,10 @@ export class GeneralScanner {
       throw new Error('Root path must be provided either to constructor or scan()');
     }
     const knowledge: ScannedKnowledge[] = [];
+    const warnings: Array<{ message: string; component?: string }> = [];
+    const warn = warnSink((message, component) => {
+      warnings.push({ message, component });
+    });
 
     // Scan all markdown files recursively from the root, excluding vendored
     // and tooling trees (e.g. node_modules, .git, .claude worktrees) so nested
@@ -206,7 +211,14 @@ export class GeneralScanner {
 
     for (const mdFile of mdFiles) {
       const filePath = join(scanPath, mdFile);
-      const fileData = this.parseMarkdownFile(filePath);
+      let raw: string;
+      try {
+        raw = readFileSync(filePath, 'utf-8');
+      } catch (error) {
+        warn(unreadableWarning(mdFile, error), `file:${mdFile}`);
+        continue;
+      }
+      const fileData = parseMarkdownSource(raw, mdFile, warn);
 
       knowledge.push({
         type: this.inferKnowledgeType(mdFile, fileData.frontmatter),
@@ -235,8 +247,9 @@ export class GeneralScanner {
         let content: string;
         try {
           content = readFileSync(filePath, 'utf-8');
-        } catch {
-          continue; // Skip unreadable files
+        } catch (error) {
+          warn(unreadableWarning(sourceFile, error), `file:${sourceFile}`);
+          continue;
         }
 
         knowledge.push({
@@ -250,7 +263,7 @@ export class GeneralScanner {
       }
     }
 
-    return { knowledge };
+    return { knowledge, warnings };
   }
 
   /**
@@ -299,19 +312,6 @@ export class GeneralScanner {
     }
 
     return tags;
-  }
-
-  private parseMarkdownFile(filePath: string): { frontmatter?: Frontmatter; content: string } {
-    try {
-      const content = readFileSync(filePath, 'utf-8');
-      const parsed = matter(content);
-      return {
-        frontmatter: parsed.data,
-        content: parsed.content,
-      };
-    } catch {
-      return { content: '' };
-    }
   }
 
   private slugToTitle(slug: string): string {
@@ -408,6 +408,7 @@ export class GeneralScanner {
 
       return Promise.resolve(indexedCounts);
     } catch (error) {
+      // lux-intentional-swallow: rejected just below with the partial-index context added.
       // Add context about what was successfully indexed before the error
       const partialMsg = `Partial index created: ${indexedCounts.knowledge} knowledge entries. `;
       if (error instanceof Error) {
@@ -454,6 +455,10 @@ export interface GeneralScanResult {
   overlay?: OverlayRebuildResult;
   /** Why the overlay rebuild failed, when it was enabled and threw (overlay is then absent). */
   overlayError?: string;
+  /** Problems the scan absorbed and carried on past (a failed tier, a detector that threw). */
+  warnings: string[];
+  /** The component (`detector:<name>`, `ast-file:<path>`, …) that raised each warning, by message. */
+  warningComponents: Record<string, string>;
 }
 
 /** Options for the general scan pipeline. */
@@ -564,7 +569,9 @@ export async function generalScan(
   rootPath: string,
   options?: GeneralScanOptions
 ): Promise<GeneralScanResult> {
-  const report = options?.onProgress ?? (() => {});
+  const log = new WarningLog(options?.onProgress);
+  const report = log.reporter.progress;
+  const warn = log.reporter.warn;
   const config = options?.config ?? loadLspConfig(rootPath);
 
   // 1. Run the base scan (generated-artifact exclusion resolved from config — Lever A)
@@ -572,6 +579,7 @@ export async function generalScan(
   const ignore = resolveIgnorePatterns(config.scan);
   const scanner = new GeneralScanner(rootPath, ignore);
   const scan = await scanner.scan();
+  for (const w of scan.warnings ?? []) warn(w.message, w.component);
 
   // 1a. First-party promotion (E1): scan declared first-party package roots and
   //     collect their SOURCE files. These augment the structural OVERLAY only
@@ -583,6 +591,7 @@ export async function generalScan(
   for (const fpRoot of firstPartyRoots) {
     report(`Scanning first-party root: ${fpRoot}`);
     const fpScan = await new GeneralScanner(fpRoot, ignore).scan();
+    for (const w of fpScan.warnings ?? []) warn(w.message, w.component);
     for (const k of fpScan.knowledge) {
       if (k.type === 'source-code') firstPartySource.push(k);
     }
@@ -592,10 +601,10 @@ export async function generalScan(
   // The overlay reuses the same extraction facts; config parsing is data-only and root-confined.
   let projectAnalysis: ProgramAnalysisBuildV1 | undefined;
   try {
-    projectAnalysis = await analyzeProgram(scan, rootPath, report);
+    projectAnalysis = await analyzeProgram(scan, rootPath, warn);
   } catch (error) {
-    report(
-      `Warning: project resolution analysis failed — ${error instanceof Error ? error.message : String(error)}`
+    warn(
+      `project resolution analysis failed — ${error instanceof Error ? error.message : String(error)}`
     );
   }
   const dependencies = parseDependencies(scan, rootPath, config, report, projectAnalysis);
@@ -611,7 +620,7 @@ export async function generalScan(
   } else {
     // 3. Build enricher registry from config (or use an injected one)
     report('Initializing LSP enrichers...');
-    const registry = options?.enricherRegistry ?? buildRegistry(config.lsp.enrichers, report);
+    const registry = options?.enricherRegistry ?? buildRegistry(config.lsp.enrichers, warn);
 
     if (registry.size === 0) {
       report('No LSP enrichers configured.');
@@ -625,10 +634,11 @@ export async function generalScan(
           await enricher.initialize(workspaceRoot);
           activeCount++;
         } catch (error) {
-          report(
+          warn(
             `Failed to initialize ${enricher.languageId} enricher: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
+            `enricher:${enricher.languageId}`
           );
         }
       }
@@ -677,6 +687,14 @@ export async function generalScan(
   }
 
   report(`Enrichment complete: ${enrichments.size} files enriched, ${errors.length} errors.`);
+  if (errors.length > 0) {
+    warn(
+      failureSummary(
+        'LSP enrichment',
+        errors.map((e) => ({ item: e.filePath, error: e.error }))
+      )
+    );
+  }
 
   // 8. Optionally rebuild structural overlay
   let overlay: OverlayRebuildResult | undefined;
@@ -691,7 +709,7 @@ export async function generalScan(
           ? { ...scan, knowledge: [...scan.knowledge, ...firstPartySource] }
           : scan;
       overlay = await rebuildStructuralOverlay(options.db, rootPath, overlayScan, enrichments, {
-        onProgress: report,
+        reporter: log.reporter,
         astEnabled: config.ast?.enabled ?? true,
         // A promoted first-party overlay has a larger source universe than the app-only dependency
         // analysis above; let the overlay build one complete context rather than reusing a partial one.
@@ -705,7 +723,8 @@ export async function generalScan(
       );
     } catch (error) {
       overlayError = error instanceof Error ? error.message : String(error);
-      report(`Warning: overlay rebuild failed — ${overlayError}`);
+      // lux-intentional-swallow: the rebuild's classification reports it as a warning, with the
+      // file and symbol nodes the failed rebuild left on disk.
     }
   }
 
@@ -721,9 +740,7 @@ export async function generalScan(
       const merged = options.db.importVendorPack(options.vendorPackPath);
       report(`Vendor pack merged: ${merged.nodes} node(s), ${merged.edges} edge(s).`);
     } catch (error) {
-      report(
-        `Warning: vendor pack merge failed — ${error instanceof Error ? error.message : String(error)}`
-      );
+      warn(`vendor pack merge failed — ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -770,8 +787,8 @@ export async function generalScan(
       const stored = AssociationEngine.persistEdges(options.db, edges);
       report(`Typed-receiver resolution: ${stored} edge(s) stored.`);
     } catch (error) {
-      report(
-        `Warning: typed-receiver resolution failed — ${error instanceof Error ? error.message : String(error)}`
+      warn(
+        `typed-receiver resolution failed — ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -797,8 +814,8 @@ export async function generalScan(
     } catch (error) {
       // Log the full error (stack, not just .message) so a genuine resolver fault is
       // distinguishable from the benign "0 edges to resolve" success path above.
-      report(
-        `Warning: facade & helper resolution failed — ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
+      warn(
+        `facade & helper resolution failed — ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
       );
     }
   }
@@ -811,15 +828,15 @@ export async function generalScan(
   //     promoted, so the pass is gated on that (also avoids a per-rebuild cost single-repo).
   if (overlay && options?.db && firstPartyRoots.length > 0) {
     try {
-      const summary = classifyHandlerOwnership(options.db, resolveAppNamespace(rootPath));
+      const summary = classifyHandlerOwnership(options.db, resolveAppNamespace(rootPath, warn));
       report(
         `Handler ownership: ${summary.counts['kernel-owned']} kernel-owned, ` +
           `${summary.counts['client-override']} client-override, ` +
           `${summary.counts['client-gap']} client-gap, ${summary.counts.external} external.`
       );
     } catch (error) {
-      report(
-        `Warning: ownership classification failed — ${error instanceof Error ? error.message : String(error)}`
+      warn(
+        `ownership classification failed — ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -830,9 +847,7 @@ export async function generalScan(
     try {
       await activeRegistry.shutdownAll();
     } catch (error) {
-      report(
-        `Warning: enricher shutdown errors: ${error instanceof Error ? error.message : String(error)}`
-      );
+      warn(`enricher shutdown errors: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -847,6 +862,8 @@ export async function generalScan(
     },
     overlay,
     ...(overlayError !== undefined ? { overlayError } : {}),
+    warnings: log.messages,
+    warningComponents: log.components,
   };
 }
 
@@ -857,10 +874,7 @@ export async function generalScan(
  * Exported (T3a.1) so the scoped overlay-refresh engine (spec 13 Part F `runLspTier`)
  * reuses the exact same registry construction rather than forking it.
  */
-export function buildRegistry(
-  entries: LspEnricherEntry[],
-  report?: (message: string) => void
-): EnricherRegistry {
+export function buildRegistry(entries: LspEnricherEntry[], warn?: WarnFn): EnricherRegistry {
   const registry = new EnricherRegistry();
 
   for (const entry of entries) {
@@ -871,7 +885,7 @@ export function buildRegistry(
       // Previously a bare `continue`. A configured enricher then vanished with no
       // error and no warning, and the index simply carried no symbols for that
       // language — a result indistinguishable from a repository that has none.
-      report?.(
+      warn?.(
         `LSP enricher for "${entry.languageId}" was configured but is not supported and has been ` +
           `skipped. Supported language ids: ${Object.keys(ENRICHER_FACTORIES).sort().join(', ')}.`
       );
@@ -881,8 +895,11 @@ export function buildRegistry(
     try {
       const enricher = factory(entry);
       registry.register(enricher);
-    } catch {
-      // Skip duplicate or invalid enrichers
+    } catch (error) {
+      warn?.(
+        `LSP enricher for "${entry.languageId}" could not be created and has been skipped: ` +
+          `${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

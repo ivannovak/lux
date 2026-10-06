@@ -75,6 +75,7 @@ function defaultCommandExists(command: string, env: ProcessEnvironment): boolean
       accessSync(command, constants.X_OK);
       return true;
     } catch {
+      // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
       return false;
     }
   }
@@ -83,6 +84,7 @@ function defaultCommandExists(command: string, env: ProcessEnvironment): boolean
       accessSync(join(directory, command), constants.X_OK);
       return true;
     } catch {
+      // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.
       // Continue checking PATH. No subprocess and no mutation are needed.
     }
   }
@@ -99,6 +101,7 @@ function defaultGitQuery(args: readonly string[], corpusRoot: string): boolean |
     });
     return true;
   } catch (error) {
+    // lux-intentional-swallow: git exits 1 for a clean answer and otherwise the check reports the unknown (null) result.
     const status = (error as { status?: number }).status;
     return status === 1 ? false : null;
   }
@@ -114,6 +117,7 @@ function readConfig(corpusRoot: string): { value?: Record<string, unknown>; erro
     }
     return { error: 'lux.yaml root is not a mapping' };
   } catch (error) {
+    // lux-intentional-swallow: the parse error is returned and doctor reports it as a failed check.
     return { error: error instanceof Error ? error.message : String(error) };
   }
 }
@@ -429,6 +433,7 @@ function rootPermissions(context: DoctorCheckContext): DoctorCheckV1 {
     accessSync(canonical, constants.R_OK | constants.W_OK);
     return check('root.permissions', 'pass', 'Corpus root is readable and writable.');
   } catch {
+    // lux-intentional-swallow: doctor reports this as a failed check.
     return check(
       'root.permissions',
       'fail',

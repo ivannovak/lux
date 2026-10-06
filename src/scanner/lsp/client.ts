@@ -216,6 +216,7 @@ export class LspClient {
     try {
       await this.sendRequest(ShutdownRequest.method, null, this.options.requestTimeoutMs);
     } catch {
+      // lux-intentional-swallow: shutting down a server that may already have exited.
       // Best-effort — server may already be dead
     }
 
@@ -400,6 +401,7 @@ export class LspClient {
         const message = JSON.parse(body) as ResponseMessage;
         this.handleMessage(message);
       } catch {
+        // lux-intentional-swallow: a malformed frame from the server is dropped; its request times out and is handled there.
         // Malformed JSON — skip
       }
     }

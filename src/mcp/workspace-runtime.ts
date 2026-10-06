@@ -285,6 +285,7 @@ export class WorkspaceRuntime {
       if (url.protocol !== 'file:') throw new Error(`unsupported URI scheme ${url.protocol}`);
       corpusPath = fileURLToPath(url);
     } catch (error) {
+      // lux-intentional-swallow: recorded as the workspace's unavailable state, which every tool call reports.
       this.setUnavailable(
         new WorkspaceUnavailableError(
           'root-uri-invalid',
@@ -300,6 +301,7 @@ export class WorkspaceRuntime {
         throw new Error('the workspace root is not a directory');
       }
     } catch (error) {
+      // lux-intentional-swallow: recorded as the workspace's unavailable state, which every tool call reports.
       this.setUnavailable(
         new WorkspaceUnavailableError(
           'root-not-directory',

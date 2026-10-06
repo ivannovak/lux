@@ -131,7 +131,10 @@ describe('index sync CLI', () => {
 
     const rebuild = runCli(repoDir, dbPath, ['index', 'rebuild', '--quiet']);
     expect(rebuild.status).toBe(0);
-    expect(rebuild.stderr).not.toContain('Warning:');
+    // --quiet still reports the rebuild's warnings; this LSP-less fixture produces only this one.
+    expect(rebuild.stderr.match(/^Warning: .*$/gm)).toEqual([
+      expect.stringContaining('Warning: No symbol nodes were materialized'),
+    ]);
   });
 
   afterEach(() => {
@@ -155,7 +158,9 @@ describe('index sync CLI', () => {
       'Overlay trust after sync: stale-overlay (persisted mode: degraded-overlay,'
     );
     expect(result.stderr).toContain('Warning:');
-    expect(result.stdout).toContain('✓ Synced:');
+    // The sync carries the fixture's LSP warning, so it closes on ⚠, not ✓.
+    expect(result.stdout).toMatch(/^⚠ Synced with \d+ warning\(s\): /m);
+    expect(result.stdout).not.toContain('✓ Synced:');
 
     const db = new LuxDatabase(dbPath);
     const trustState = loadOverlayTrustState(db);
@@ -218,7 +223,7 @@ describe('index sync CLI', () => {
     expect(result.stdout).toContain('Sync path: full rebuild (config-changed).');
     expect(result.stdout).toContain('Trust Level: overlay-complete');
     expect(result.stdout).toContain('✓ Sync escalated to full overlay rebuild');
-    expect(result.stdout).not.toContain('✓ Synced:');
+    expect(result.stdout).not.toMatch(/[✓⚠] Synced/);
 
     const db = new LuxDatabase(dbPath);
     const trustState = loadOverlayTrustState(db);
