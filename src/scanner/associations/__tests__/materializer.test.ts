@@ -116,6 +116,109 @@ describe('buildSymbolNodes', () => {
     expect(nodes[0].qualified_name).toBe('App\\Http\\Controllers\\MyClass');
   });
 
+  it('materializes no node for a PHP namespace statement and never doubles the namespace', () => {
+    const filePath = join(ROOT, 'app/Models/Invoice.php');
+    const nodes = buildSymbolNodes(
+      filePath,
+      {
+        ...enrichment(filePath, 'php'),
+        // The list as intelephense reports it: the statement is a sibling of what follows.
+        symbols: [
+          { name: 'App\\Models', kind: 3, kindLabel: 'Namespace', startLine: 2, endLine: 2 },
+          { name: 'Invoice', kind: 5, kindLabel: 'Class', startLine: 4, endLine: 9 },
+        ],
+      },
+      ROOT,
+      '<?php\n\nnamespace App\\Models;\n\nclass Invoice {}\n'
+    );
+
+    expect(nodes.map((node) => [node.id, node.symbol_kind, node.qualified_name])).toEqual([
+      ['symbol:php:App\\Models\\Invoice', 'Class', 'App\\Models\\Invoice'],
+    ]);
+  });
+
+  it('qualifies each PHP declaration by its own namespace, not the first one in the file', () => {
+    const filePath = join(ROOT, 'app/TwoBlocks.php');
+    const source = '<?php\n\nnamespace App\\A;\n\nclass X {}\n\nnamespace App\\B;\n\nclass Y {}\n';
+    const reported = buildSymbolNodes(
+      filePath,
+      {
+        ...enrichment(filePath, 'php'),
+        symbols: [
+          { name: 'App\\A', kind: 3, kindLabel: 'Namespace', startLine: 2, endLine: 2 },
+          { name: 'X', kind: 5, kindLabel: 'Class', startLine: 4, endLine: 4 },
+          { name: 'App\\B', kind: 3, kindLabel: 'Namespace', startLine: 6, endLine: 6 },
+          { name: 'Y', kind: 5, kindLabel: 'Class', startLine: 8, endLine: 8 },
+        ],
+      },
+      ROOT,
+      source
+    );
+    // The same file as the PHP enricher hands it over: namespaces already on the declarations.
+    const enriched = buildSymbolNodes(
+      filePath,
+      {
+        ...enrichment(filePath, 'php'),
+        symbols: [
+          { name: 'X', kind: 5, kindLabel: 'Class', startLine: 4, endLine: 4, namespace: 'App\\A' },
+          { name: 'Y', kind: 5, kindLabel: 'Class', startLine: 8, endLine: 8, namespace: 'App\\B' },
+        ],
+      },
+      ROOT,
+      source
+    );
+
+    const expected = ['symbol:php:App\\A\\X', 'symbol:php:App\\B\\Y'];
+    expect(reported.map((node) => node.id)).toEqual(expected);
+    expect(enriched.map((node) => node.id)).toEqual(expected);
+  });
+
+  it('leaves a PHP declaration of a global block unqualified beside a namespaced one', () => {
+    const filePath = join(ROOT, 'app/Bracketed.php');
+    const nodes = buildSymbolNodes(
+      filePath,
+      {
+        ...enrichment(filePath, 'php'),
+        symbols: [
+          {
+            name: 'Z',
+            kind: 5,
+            kindLabel: 'Class',
+            startLine: 3,
+            endLine: 3,
+            namespace: 'App\\Br',
+          },
+          { name: 'in_global', kind: 12, kindLabel: 'Function', startLine: 7, endLine: 7 },
+        ],
+      },
+      ROOT,
+      '<?php\n\nnamespace App\\Br {\n    class Z {}\n}\n\nnamespace {\n    function in_global() {}\n}\n'
+    );
+
+    expect(nodes.map((node) => [node.id, node.qualified_name])).toEqual([
+      ['symbol:php:App\\Br\\Z', 'App\\Br\\Z'],
+      ['symbol:php:in_global', undefined],
+    ]);
+  });
+
+  it('materializes only the PHP variables of a Blade template', () => {
+    const filePath = join(ROOT, 'resources/views/report.blade.php');
+    const nodes = buildSymbolNodes(
+      filePath,
+      {
+        ...enrichment(filePath, 'php'),
+        symbols: [
+          { name: 'html', kind: 8, kindLabel: 'Field', startLine: 0, endLine: 9 },
+          { name: 'position', kind: 5, kindLabel: 'Class', startLine: 3, endLine: 3 },
+          { name: '$total', kind: 13, kindLabel: 'Variable', startLine: 7, endLine: 7 },
+        ],
+      },
+      ROOT
+    );
+
+    expect(nodes.map((node) => node.id)).toEqual(['symbol:php:$total']);
+  });
+
   it('should produce distinct IDs for different files with same symbol names', () => {
     const p1 = join(ROOT, 'src/a.ts');
     const p2 = join(ROOT, 'src/b.ts');

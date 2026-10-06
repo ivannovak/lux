@@ -27,6 +27,11 @@ export interface EnrichedSymbol {
   endLine: number;
   /** Nested child symbols, if any. */
   children?: EnrichedSymbol[];
+  /**
+   * PHP: the namespace the symbol is declared in; absent in the global namespace. Namespace
+   * statements are not symbols of their own (identity/php-declarations.ts).
+   */
+  namespace?: string;
 }
 
 /** A diagnostic reported by the language server. */

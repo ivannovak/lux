@@ -28,7 +28,9 @@ const SYMBOL_KIND_LABEL: Record<'function' | 'method' | 'class', string> = {
  *
  * - TS/TSX: `symbol:ts:<relPath>#<name>` (methods: `#<Container>.<name>`).
  * - PHP: `symbol:php:<Ns\\name>` (methods: `<Ns\\Class::name>`); un-namespaced
- *   top-level symbols fall back to the short name, matching the LSP path.
+ *   top-level symbols fall back to the short name, matching the LSP path. `namespace` is the
+ *   file's first namespace; a definition declared in another one carries its own
+ *   (AstNode.namespace).
  *
  * With `collisions`, an id that another file also declares is file-qualified
  * (identity/symbol-collisions.ts). Without it the bare id is returned — the form
@@ -42,6 +44,7 @@ export function astSymbolIdentity(
   collisions?: SymbolIdCollisions
 ): { id: string; qualifiedName?: string } {
   if (lang === 'php') {
+    namespace = (def.namespace ?? namespace) || undefined;
     let qualifiedName: string | undefined;
     if (def.type === 'method' && def.container) {
       const classFqn = namespace ? `${namespace}\\${def.container}` : def.container;

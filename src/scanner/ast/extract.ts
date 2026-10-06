@@ -44,6 +44,12 @@ export interface AstNode {
   range: AstRange;
   /** Enclosing type name for methods (the class/trait/interface they belong to). */
   container?: string;
+  /**
+   * PHP: the namespace this definition is declared in, set only when it is not the file's first
+   * namespace (Extraction.namespace): a later `namespace Y;` statement or block, or the global
+   * block `namespace { … }`, which is the empty string.
+   */
+  namespace?: string;
 }
 
 export interface AstEdge {
@@ -785,15 +791,18 @@ function extractPhp(root: TsNode, file: string): Extraction {
   const imports: ImportBinding[] = [];
   const localDefs = new Set<string>();
   let namespace: string | undefined;
+  // Every namespace statement, in source order; the global block `namespace { … }` is ''. Each
+  // claims the definitions up to the next one, whether it is `namespace X;` or a block: PHP
+  // allows no code between two blocks.
+  const namespaces: Array<{ name: string; startByte: number }> = [];
 
   walk(root, (n) => {
     if (n.type === 'namespace_definition') {
-      if (!namespace) {
-        const nameNode =
-          n.childForFieldName('name') ??
-          n.namedChildren.find((c) => c && /namespace_name/.test(c.type));
-        if (nameNode) namespace = nameNode.text;
-      }
+      const nameNode =
+        n.childForFieldName('name') ??
+        n.namedChildren.find((c) => c && /namespace_name/.test(c.type));
+      namespaces.push({ name: nameNode?.text ?? '', startByte: n.startIndex });
+      if (!namespace && nameNode) namespace = nameNode.text;
     } else if (DEF_TYPES.php.function.includes(n.type as never)) {
       const name = nameOf(n);
       if (name) {
@@ -818,6 +827,18 @@ function extractPhp(root: TsNode, file: string): Extraction {
       }
     }
   });
+
+  // A file with one namespace statement needs nothing more: Extraction.namespace covers every
+  // definition. Otherwise each definition outside the first namespace records its own.
+  if (namespaces.length > 1) {
+    for (const def of nodes) {
+      const owner = namespaces
+        .filter((candidate) => candidate.startByte <= def.range.startByte)
+        .at(-1);
+      const declaredIn = owner?.name ?? '';
+      if (declaredIn !== (namespace ?? '')) def.namespace = declaredIn;
+    }
+  }
 
   // `use` imports, including grouped uses.
   walk(root, (n) => {

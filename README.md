@@ -290,6 +290,14 @@ What the rebuild guarantees itself:
   twice-declared FQCN) is ambiguous and resolves to neither declaration; `lux index status --json`
   counts these under `symbolIdCollisions`.
 
+  A PHP namespace is not a symbol node. Every file of a namespace states it again, so it is
+  carried in the id and qualified name of what the file declares
+  (`symbol:php:App\Shared\One`) and nowhere else. Each declaration takes the namespace it is
+  declared in: the `namespace X;` statement it follows, or the `namespace X { … }` block it sits
+  in, with the global block `namespace { … }` unqualified. In a Blade template (`.blade.php`) only
+  the PHP variables are symbols; the HTML elements, CSS selectors and JavaScript functions a
+  language server also reports there are not.
+
   Contract notes. `lux delta --json` (`DeltaReportV1`, still `schemaVersion: 1`) can carry ids of
   the form `<id>#file:<path>` in `touched.symbolIds`; consumers treat ids as opaque, and unique
   ids are unchanged. A qualified id is repo-local, so a FQCN one repository declares twice no

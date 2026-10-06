@@ -17,6 +17,11 @@ import type {
   EnrichedDefinition,
 } from './index.js';
 import { stableLocationUri, symbolPosition, toEnrichedSymbol } from './index.js';
+import {
+  bladeDeclarations,
+  namespaceOpensBlock,
+  phpDeclarations,
+} from '../identity/php-declarations.js';
 
 // ---------------------------------------------------------------------------
 // PHP-specific enrichment types (stored in metadata.lsp)
@@ -285,14 +290,33 @@ export class PhpLspEnricher implements LspEnricher {
 
     // Route open/close through the refcounted lease so bounded-parallel
     // enrichment (Lever B) never double-opens or closes a mid-request document.
-    return this.client.withDocument(uri, 'php', fileContent, () => this.enrichOpen(uri, filePath));
+    return this.client.withDocument(uri, 'php', fileContent, () =>
+      this.enrichOpen(uri, filePath, fileContent)
+    );
   }
 
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
-  async enrichOpen(uri: string, filePath: string): Promise<PhpEnrichmentResult | null> {
-    // 1. Get document symbols
-    const symbols = (await this.getDocumentSymbols(uri, filePath)).map(withStableAnonymousNames);
-    const enrichedSymbols = symbols.map(toEnrichedSymbol);
+  async enrichOpen(
+    uri: string,
+    filePath: string,
+    fileContent?: string
+  ): Promise<PhpEnrichmentResult | null> {
+    // 1. Get document symbols. A namespace statement is not a declaration: each declaration takes
+    //    its namespace, and those of a `namespace X { … }` block are lifted to the top level, so
+    //    references and type hierarchy below are asked for them like any other.
+    //    In a Blade template only the PHP variables are declarations (identity/php-declarations.ts).
+    const reported = bladeDeclarations(
+      filePath,
+      (await this.getDocumentSymbols(uri, filePath)).map(withStableAnonymousNames)
+    );
+    const declarations = phpDeclarations(reported, (namespace) =>
+      namespaceOpensBlock(fileContent, symbolPosition(namespace)?.line ?? 0)
+    );
+    const symbols = declarations.map((declaration) => declaration.symbol);
+    const enrichedSymbols = declarations.map(({ symbol, namespace }) => ({
+      ...toEnrichedSymbol(symbol),
+      ...(namespace ? { namespace } : {}),
+    }));
 
     // 2. Get references for top-level referenceable symbols (REQ-5: KEPT)
     const references = await this.getSymbolReferences(uri, filePath, symbols);
