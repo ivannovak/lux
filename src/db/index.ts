@@ -1176,6 +1176,32 @@ export class LuxDatabase {
     );
   }
 
+  /**
+   * Number of distinct stored edges with evidence from a resolver named in `resolvers` or starting
+   * with `resolverPrefix` — how the overlay counts detector and propagation edges from what is
+   * persisted rather than from a per-run tally.
+   */
+  countEdgesWithEvidenceFrom(selector: { resolvers?: string[]; resolverPrefix?: string }): number {
+    const clauses: string[] = [];
+    const values: Array<string | number> = [];
+    if (selector.resolvers?.length) {
+      clauses.push(`ev.resolver IN (${LuxDatabase.deltaPlaceholders(selector.resolvers.length)})`);
+      values.push(...selector.resolvers);
+    }
+    if (selector.resolverPrefix !== undefined) {
+      clauses.push(`substr(ev.resolver, 1, ?) = ?`);
+      values.push(selector.resolverPrefix.length, selector.resolverPrefix);
+    }
+    if (clauses.length === 0) return 0;
+    const row = this.db.get(
+      `SELECT COUNT(DISTINCT e.id) AS n FROM edge_evidence ev
+         JOIN structural_edges e ON e.id = ev.edge_id
+        WHERE ${clauses.join(' OR ')}`,
+      values
+    ) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
   /** Aggregate structural-edge counts by maintained freshness status. Rides
    *  idx_structural_edges_freshness (008:38). Reports the four first-class buckets
    *  (fresh / dirty-dependent / stale / unknown — the schema-008 default); `other`
@@ -1228,11 +1254,8 @@ export class LuxDatabase {
     return total;
   }
 
-  /** Delete edges whose SOURCE node is in nodeIds (R's outbound edges) + their evidence. With
-   *  `keepLsp`, edges whose id ends ':lsp' (typed-receiver) are preserved so the caller can mark
-   *  them stale when the LSP tier is skipped (Decision 8). */
-  deleteEdgesBySourceNodes(nodeIds: string[], opts?: { keepLsp?: boolean }): number {
-    const guard = opts?.keepLsp ? " AND id NOT LIKE '%:lsp'" : '';
+  /** Delete edges whose SOURCE node is in nodeIds (R's outbound edges) + their evidence. */
+  deleteEdgesBySourceNodes(nodeIds: string[]): number {
     let total = 0;
     for (let i = 0; i < nodeIds.length; i += LuxDatabase.DELTA_IN_CHUNK) {
       const chunk = nodeIds.slice(i, i + LuxDatabase.DELTA_IN_CHUNK);
@@ -1240,11 +1263,11 @@ export class LuxDatabase {
       const ph = LuxDatabase.deltaPlaceholders(chunk.length);
       this.db.run(
         `DELETE FROM edge_evidence WHERE edge_id IN
-           (SELECT id FROM structural_edges WHERE source_node_id IN (${ph})${guard})`,
+           (SELECT id FROM structural_edges WHERE source_node_id IN (${ph}))`,
         chunk
       );
       total += this.db.run(
-        `DELETE FROM structural_edges WHERE source_node_id IN (${ph})${guard}`,
+        `DELETE FROM structural_edges WHERE source_node_id IN (${ph})`,
         chunk
       ).changes;
     }
@@ -1253,9 +1276,8 @@ export class LuxDatabase {
 
   /** Delete edges whose recorded EVIDENCE cites any of relPaths (source-side cross-file edges) +
    *  their evidence. An inbound edge C→A (A∈R, C∉R) cites C, so it is NOT matched — inbound edges
-   *  from outside R are preserved (Decision 5). `keepLsp` as above. */
-  deleteEdgesByEvidencePaths(relPaths: string[], opts?: { keepLsp?: boolean }): number {
-    const guard = opts?.keepLsp ? " AND se.id NOT LIKE '%:lsp'" : '';
+   *  from outside R are preserved (Decision 5). */
+  deleteEdgesByEvidencePaths(relPaths: string[]): number {
     let total = 0;
     for (let i = 0; i < relPaths.length; i += LuxDatabase.DELTA_IN_CHUNK) {
       const chunk = relPaths.slice(i, i + LuxDatabase.DELTA_IN_CHUNK);
@@ -1265,7 +1287,7 @@ export class LuxDatabase {
         this.db.all(
           `SELECT DISTINCT se.id AS id FROM structural_edges se
              JOIN edge_evidence ev ON ev.edge_id = se.id
-            WHERE ev.file_path IN (${ph})${guard}`,
+            WHERE ev.file_path IN (${ph})`,
           chunk
         ) as Array<{ id: string }>
       ).map((r) => r.id);
@@ -1283,29 +1305,6 @@ export class LuxDatabase {
       const ph = LuxDatabase.deltaPlaceholders(chunk.length);
       this.db.run(`DELETE FROM edge_evidence WHERE edge_id IN (${ph})`, chunk);
       total += this.db.run(`DELETE FROM structural_edges WHERE id IN (${ph})`, chunk).changes;
-    }
-    return total;
-  }
-
-  /** Mark stale the ':lsp' (typed-receiver) edges whose source node is in nodeIds — the residual
-   *  when the LSP tier is skipped under budget (Decision 8 / spec 14's LSP-skipped fixture).
-   *
-   *  Promotes both `fresh` and `dirty-dependent`: the scoped refresh's step-1 fence transiently
-   *  marks R's edges `dirty-dependent` before this runs, so a `fresh`-only guard would leave the
-   *  kept :lsp residual `dirty-dependent` and out of `residualStaleEdges` (SC-9). A skipped :lsp
-   *  edge of a changed file is definitively stale until the LSP tier re-verifies it. */
-  markEdgesStaleLspBySourceNodes(nodeIds: string[]): number {
-    let total = 0;
-    for (let i = 0; i < nodeIds.length; i += LuxDatabase.DELTA_IN_CHUNK) {
-      const chunk = nodeIds.slice(i, i + LuxDatabase.DELTA_IN_CHUNK);
-      if (chunk.length === 0) continue;
-      const ph = LuxDatabase.deltaPlaceholders(chunk.length);
-      total += this.db.run(
-        `UPDATE structural_edges SET freshness_status = 'stale', updated_at = unixepoch()
-          WHERE freshness_status IN ('fresh', 'dirty-dependent')
-            AND id LIKE '%:lsp' AND source_node_id IN (${ph})`,
-        chunk
-      ).changes;
     }
     return total;
   }
@@ -1605,7 +1604,18 @@ export class LuxDatabase {
       queries.clearOperationalEdges.run();
       queries.clearOperationalHandlers.run();
       queries.clearOperationalBoundaries.run();
+      // The merged vendor pack's nodes and edges went with the overlay, so its record goes too.
+      queries.deleteIndexMetadata.run('vendor_pack_merged');
     });
+  }
+
+  /** True when the overlay holds any node merged from a vendor pack. */
+  hasVendorPackNodes(): boolean {
+    return (
+      this.db.get(
+        `SELECT 1 AS present FROM structural_nodes WHERE origin = 'vendor-pack' LIMIT 1`
+      ) !== undefined
+    );
   }
 
   clearRebuildTrustState(): void {

@@ -1,4 +1,5 @@
 import type { LuxDatabase } from '../db/index.js';
+import { OVERLAY_STATE_COMPONENT, SURFACE_TALLY_COMPONENT } from './rebuild-orchestrator.js';
 import type { RebuildMode, RebuildResult } from './rebuild-orchestrator.js';
 
 export const OVERLAY_TRUST_STATE_KEY = 'overlay_trust_state';
@@ -62,31 +63,64 @@ export function persistRebuildTrustState(
   });
 }
 
+/** The component of the notice that a trust state was inferred from the database's shape. */
+const TRUST_INFERRED_COMPONENT = 'trust-inferred';
+const NON_DEGRADING: ReadonlySet<string | undefined> = new Set([
+  SURFACE_TALLY_COMPONENT,
+  TRUST_INFERRED_COMPONENT,
+]);
+
+/** The component the residual-stale-edges warning of a scoped refresh is filed under. */
+const REFRESH_RESIDUAL_COMPONENT = 'refresh-residual';
+
 /**
- * Settle trust after a scoped overlay refresh (Decision 12). `meta.residualStaleEdges` counts BOTH
- * `stale` AND `dirty-dependent` (overlay-refresh step 9b drives dirty-dependent to zero on a
- * complete refresh; any leftover of either is an honest settle failure), so a non-zero residual
- * yields degraded-overlay ⇒ stale-overlay via the source-action derivation, as does any warning the
- * refresh raised. A warning carried from the prior state stays, and keeps trust degraded, until a
- * refresh re-runs the component that raised it without raising it again; once nothing that degraded
- * the prior state remains, trust is restored. Records sourceAction 'index-refresh' — provenance, not
- * a new trust level (the five levels are frozen).
+ * Settle trust after a scoped overlay refresh (Decision 12). `meta.classified` is the overlay
+ * classified from the refreshed database (classifyOverlayFromDb): its counters replace the prior
+ * state's, so they describe the index as synced, and its warnings join the run's.
+ *
+ * `meta.residualStaleEdges` counts BOTH `stale` AND `dirty-dependent` edges (overlay-refresh step
+ * 9b drives dirty-dependent to zero on a complete refresh; any leftover of either is an honest
+ * settle failure). A non-zero residual raises its own warning, so no output reads the run as clean.
+ * A warning carried from the prior state stays until a refresh re-runs the component that raised it
+ * without raising it again. Trust is overlay-complete exactly when no warning remains other than
+ * the detector-tally mismatch and the inferred-state notice, which do not degrade; otherwise
+ * degraded-overlay ⇒ stale-overlay via the source-action derivation. Records sourceAction
+ * 'index-refresh' — provenance, not a new trust level (the five levels are frozen).
  */
 export function persistRefreshTrustState(
   db: LuxDatabase,
   prior: RebuildResult,
-  meta: RunWarningMeta & { lastIndexedCommit?: string; residualStaleEdges: number }
+  meta: RunWarningMeta & {
+    lastIndexedCommit?: string;
+    residualStaleEdges: number;
+    classified: RebuildResult;
+  }
 ): PersistedOverlayTrustState {
-  const fresh = meta.warnings ?? [];
-  const { warnings, warningComponents } = settleWarnings(prior, meta);
-
-  let mode: RebuildMode = prior.mode;
-  if (meta.residualStaleEdges > 0 || fresh.length > 0) mode = 'degraded-overlay';
-  else if (prior.mode === 'degraded-overlay' && warnings.length === 0) mode = 'overlay-complete';
+  const residual = meta.residualStaleEdges;
+  const residualWarning =
+    `${residual} edge(s) are stale or dirty-dependent after the scoped refresh: an endpoint ` +
+    'changed and no re-derivation reached them. Run "lux index rebuild" to settle them.';
+  const { warnings, warningComponents } = settleWarnings(prior, {
+    warnings: [
+      ...(meta.warnings ?? []),
+      ...meta.classified.warnings,
+      ...(residual > 0 ? [residualWarning] : []),
+    ],
+    warningComponents: {
+      ...meta.warningComponents,
+      ...meta.classified.warningComponents,
+      ...(residual > 0 ? { [residualWarning]: REFRESH_RESIDUAL_COMPONENT } : {}),
+    },
+    componentsRun: [...(meta.componentsRun ?? []), REFRESH_RESIDUAL_COMPONENT],
+  });
 
   return persistOverlayTrustState(db, {
-    ...prior,
-    mode,
+    ...meta.classified,
+    // The detector-tally mismatch and the inferred-state notice are reported without degrading the
+    // overlay, as a rebuild and a state inferred from a complete overlay report them.
+    mode: warnings.some((warning) => !NON_DEGRADING.has(warningComponents[warning]))
+      ? 'degraded-overlay'
+      : 'overlay-complete',
     warnings,
     warningComponents,
     recordedAt: new Date().toISOString(),
@@ -314,9 +348,9 @@ function deriveOverlayTrustStateFromDb(db: LuxDatabase): PersistedOverlayTrustSt
   }
 
   let mode: RebuildMode;
-  const warnings: string[] = [
-    'Overlay trust state inferred from DB shape because no persisted trust metadata was found.',
-  ];
+  const inferred =
+    'Overlay trust state inferred from DB shape because no persisted trust metadata was found.';
+  const warnings: string[] = [inferred];
 
   if (surfaces.length === 0 && fileNodes.length === 0) {
     mode = 'content-only';
@@ -349,6 +383,14 @@ function deriveOverlayTrustStateFromDb(db: LuxDatabase): PersistedOverlayTrustSt
     propagationStatus:
       surfaces.length === 0 ? 'skipped' : symbolNodes.length === 0 ? 'skipped' : 'empty',
     warnings,
+    // The shape-derived warnings are re-derived by any run that classifies the overlay; the notice
+    // that the state was inferred stands until a full rebuild records one.
+    warningComponents: Object.fromEntries(
+      warnings.map((warning) => [
+        warning,
+        warning === inferred ? TRUST_INFERRED_COMPONENT : OVERLAY_STATE_COMPONENT,
+      ])
+    ),
     recordedAt: '',
     lastIndexedCommit: db.getIndexMetadata('last_indexed_commit'),
     sourceAction: 'derived',

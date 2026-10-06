@@ -4,11 +4,22 @@ import { Command } from 'commander';
 import { existsSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { LSP_TRACE_ENV } from '../scanner/lsp/trace.js';
+import type { ScannedKnowledge } from '../scanner/types.js';
 import { LuxDatabase, toStoredPath } from '../db/index.js';
 import { LuxSqlite } from '../db/sqlite-adapter.js';
 import { GeneralScanner } from '../scanner/index.js';
-import { attachEnrichment } from '../scanner/general.js';
-import { rebuildWithOverlay, rebuildContentOnly } from '../scanner/rebuild-orchestrator.js';
+import { attachEnrichment, computeModuleDependencies } from '../scanner/general.js';
+import {
+  MODULE_DEPENDENCIES_COMPONENT,
+  persistModuleDependencies,
+} from '../scanner/module-dependency-store.js';
+import {
+  classifyOverlayFromDb,
+  OVERLAY_STATE_COMPONENT,
+  rebuildWithOverlay,
+  rebuildContentOnly,
+  SURFACE_TALLY_COMPONENT,
+} from '../scanner/rebuild-orchestrator.js';
 import type { RebuildResult } from '../scanner/rebuild-orchestrator.js';
 import {
   describeOverlayTrustInspection,
@@ -703,13 +714,13 @@ indexCmd
         // before the pointer settles. OQ4-safe: `lux delta` now reads the maintained marks (spec 12).
         if (requiresOverlayRebuild && !options.markOnly) {
           // Phase 3b (T3b.4, spec 15 Part E): scoped refresh is the DEFAULT sync path under budget,
-          // routed by decideScopedEligibility (the whole escalation policy — no-overlay /
-          // pending-migration / first-party / config-changed / over-budget). `--full` forces the
-          // full-rebuild escalation; `--scoped` forces scoped via decideForcedScoped (operator
-          // override: the two HARD preconditions still apply, but the fingerprint/first-party/budget
-          // POLICY is bypassed). This is the ONE precondition implementation — the Phase-3a inline
-          // check is now subsumed by decideForcedScoped.
-          const decision: ScopedDecision = options.full
+          // routed by decideScopedEligibility (soundness conditions, then the changed-count budget).
+          // `--full` forces the full rebuild; `--scoped` forces scoped via decideForcedScoped, which
+          // bypasses only the budget. A scoped refresh that finds it cannot reproduce a full rebuild
+          // (its LSP tier did not finish, a changed file would not parse) escalates to the full path
+          // below, carrying the warnings it raised.
+          const escalationWarnings: string[] = [];
+          let decision: ScopedDecision = options.full
             ? { path: 'full', reason: 'config-changed' } // --full: operator forces full
             : options.scoped
               ? decideForcedScoped(db, corpusPath) // --scoped: force scoped unless a HARD precondition blocks
@@ -732,16 +743,41 @@ indexCmd
             const result = await refreshOverlayScoped(db, corpusPath, changed, config, {
               onProgress: (m) => progress.log(m),
               lspBudgetMs: decision.lspBudgetMs, // Phase 3b: sourced from refresh.lspBudgetMs (spec 15 C/E)
+              requireLsp: prior?.enrichmentStatus === 'active',
             });
-            // Content index still reflects HEAD (the incremental content sync runs for docs).
-            const planLog = new WarningLog();
-            const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
-            const contentDb = db; // const so the narrowed (non-undefined) type survives into the closure
-            contentDb.transaction(() => {
-              for (const p of plan.toDelete) {
-                contentDb.deleteKnowledgeEntryByPath(toStoredPath(corpusPath, p));
-              }
-              for (const entry of plan.toIndex) {
+            if (result.escalation) {
+              progress.log(`Scoped refresh stopped before writing (${result.escalation}).`);
+              escalationWarnings.push(...result.warnings);
+              decision = { path: 'full', reason: result.escalation };
+            } else {
+              // Module dependencies are a repository-wide aggregate: recompute them whole. A failed
+              // write degrades the refresh's trust state, as it does a rebuild's.
+              const dependencyWarning = result.workingTree
+                ? persistModuleDependencies(db, {
+                    dependencies: computeModuleDependencies(
+                      result.workingTree,
+                      corpusPath,
+                      config,
+                      (m) => progress.log(m)
+                    ),
+                  })
+                : null;
+              // Content index still reflects HEAD (the incremental content sync runs for docs). Every
+              // source file the refresh re-enriched gets its entry rewritten with that enrichment, as
+              // a rebuild writes it: an unchanged file's LSP metadata (where its definitions and
+              // references point) moves when the files it refers to do.
+              const planLog = new WarningLog();
+              const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
+              const refreshedPaths = new Set(result.refreshedPaths);
+              const refreshedEntries = (result.workingTree?.scan.knowledge ?? []).filter(
+                (entry) =>
+                  entry.type === 'source-code' &&
+                  refreshedPaths.has(toStoredPath(corpusPath, entry.filePath))
+              );
+              const rewritten = new Set(refreshedEntries.map((entry) => entry.filePath));
+              const contentDb = db; // const so the narrowed (non-undefined) type survives into the closure
+              const insertEntry = (scanned: ScannedKnowledge): void => {
+                const entry = attachEnrichment(scanned, result.enrichments);
                 contentDb.insertKnowledgeEntry({
                   type: entry.type,
                   title: entry.title,
@@ -750,75 +786,108 @@ indexCmd
                   metadata: entry.frontmatter,
                   content: entry.content,
                 });
-              }
-            });
-            db.setIndexMetadata('last_indexed_commit', headCommit); // OQ4-safe (Phase 2 mark-read landed)
-            persistScopedCoverageProducerRuns(
-              db,
-              result,
-              changed.map((file) => file.relPath)
-            );
-            const settled = prior
-              ? persistRefreshTrustState(db, prior, {
-                  lastIndexedCommit: headCommit,
-                  residualStaleEdges: result.residualStaleEdges,
-                  warnings: [...result.warnings, ...planLog.messages],
-                  warningComponents: { ...result.warningComponents, ...planLog.components },
-                  componentsRun: [...result.componentsRun, ...planLog.ran],
-                })
-              : null;
-            emitUsageEvent(db, {
-              source: 'cli',
-              surface: 'index-refresh',
-              action: 'scoped',
-              invocationId,
-              commandOutcome: 'success',
-              retrievalOutcome: 'not_applicable',
-              trustState: safeUsageTrustState(deriveOverlayTrustLevel(db)),
-              durationMs: Date.now() - startedAt,
-              exitCode: 0,
-              corpusPath,
-              dbPath,
-              repoCommit: headCommit,
-              attributes: {
-                refreshedFiles: result.refreshedFiles,
-                changedFiles: result.changedFiles,
-                closureFiles: result.closureFiles,
+              };
+              contentDb.transaction(() => {
+                for (const p of plan.toDelete) {
+                  contentDb.deleteKnowledgeEntryByPath(toStoredPath(corpusPath, p));
+                }
+                for (const planned of plan.toIndex) {
+                  if (!rewritten.has(planned.filePath)) insertEntry(planned);
+                }
+                for (const entry of refreshedEntries) {
+                  contentDb.deleteKnowledgeEntryByPath(toStoredPath(corpusPath, entry.filePath));
+                  insertEntry(entry);
+                }
+              });
+              db.setIndexMetadata('last_indexed_commit', headCommit); // OQ4-safe (Phase 2 mark-read landed)
+              persistScopedCoverageProducerRuns(db, corpusPath, result);
+              const classified = classifyOverlayFromDb(db, {
+                repoPath: corpusPath,
+                configLspEnabled: config.lsp.enabled,
+                enrichmentActive: result.tiers.lsp === 'ran',
+                dirtyFileCount: result.dirtyFileCount,
+                absorbedWarnings: [],
+                surfacesDetected: result.surfacesDetected,
+              });
+              const freshWarnings = [
+                ...result.warnings,
+                ...planLog.messages,
+                ...(dependencyWarning ? [dependencyWarning] : []),
+              ];
+              const settled = persistRefreshTrustState(db, prior ?? classified, {
+                lastIndexedCommit: headCommit,
                 residualStaleEdges: result.residualStaleEdges,
-                tierAst: result.tiers.ast,
-                tierLsp: result.tiers.lsp,
-                tierFacade: result.tiers.facade,
-              },
-            });
-            // Scoped tail: the victim-sibling delete (Part C) dropped changed nodes' stale vectors just
-            // above (overlay-refresh.ts), so those same-id nodes re-enter the queue and get re-embedded
-            // here, before the closing line so that line can report its failures.
-            const embedWarnings = await runNodeEmbedTail(
-              db,
-              invocationId,
-              startedAt,
-              corpusPath,
-              dbPath,
-              headCommit,
-              options.quiet === true
-            );
-            // The settled trust state keeps the prior overlay's warnings this refresh did not retire.
-            const freshWarnings = [...result.warnings, ...planLog.messages];
-            const runWarnings = [...(settled?.warnings ?? freshWarnings), ...embedWarnings];
-            const priorWasPersisted = inspection.source === 'persisted';
-            const carried = (settled?.warnings ?? []).filter(
-              (w) => priorWasPersisted && prior?.warnings.includes(w) && !freshWarnings.includes(w)
-            );
-            const warningCount = printRunWarnings(runWarnings, carried);
-            progress.finish(
-              `scoped refresh complete (${result.refreshedFiles} file(s), ${result.residualStaleEdges} residual stale)`,
-              warningCount
-            );
-            db.close();
-            return;
+                classified,
+                warnings: freshWarnings,
+                warningComponents: {
+                  ...result.warningComponents,
+                  ...planLog.components,
+                  ...(dependencyWarning
+                    ? { [dependencyWarning]: MODULE_DEPENDENCIES_COMPONENT }
+                    : {}),
+                },
+                componentsRun: [
+                  ...result.componentsRun,
+                  ...planLog.ran,
+                  MODULE_DEPENDENCIES_COMPONENT,
+                  OVERLAY_STATE_COMPONENT,
+                  ...(result.surfacesDetected !== undefined ? [SURFACE_TALLY_COMPONENT] : []),
+                ],
+              });
+              emitUsageEvent(db, {
+                source: 'cli',
+                surface: 'index-refresh',
+                action: 'scoped',
+                invocationId,
+                commandOutcome: 'success',
+                retrievalOutcome: 'not_applicable',
+                trustState: safeUsageTrustState(deriveOverlayTrustLevel(db)),
+                durationMs: Date.now() - startedAt,
+                exitCode: 0,
+                corpusPath,
+                dbPath,
+                repoCommit: headCommit,
+                attributes: {
+                  refreshedFiles: result.refreshedFiles,
+                  changedFiles: result.changedFiles,
+                  closureFiles: result.closureFiles,
+                  residualStaleEdges: result.residualStaleEdges,
+                  tierAst: result.tiers.ast,
+                  tierLsp: result.tiers.lsp,
+                  tierFacade: result.tiers.facade,
+                },
+              });
+              // Scoped tail: the victim-sibling delete (Part C) dropped changed nodes' stale vectors just
+              // above (overlay-refresh.ts), so those same-id nodes re-enter the queue and get re-embedded
+              // here, before the closing line so that line can report its failures.
+              const embedWarnings = await runNodeEmbedTail(
+                db,
+                invocationId,
+                startedAt,
+                corpusPath,
+                dbPath,
+                headCommit,
+                options.quiet === true
+              );
+              // The settled trust state keeps the prior overlay's warnings this refresh did not retire,
+              // and adds the ones derived from the refreshed index (its counts, a residual stale edge).
+              const runWarnings = [...settled.warnings, ...embedWarnings];
+              const priorWasPersisted = inspection.source === 'persisted';
+              const raisedNow = new Set([...freshWarnings, ...classified.warnings]);
+              const carried = settled.warnings.filter(
+                (w) => priorWasPersisted && prior?.warnings.includes(w) && !raisedNow.has(w)
+              );
+              const warningCount = printRunWarnings(runWarnings, carried);
+              progress.finish(
+                `scoped refresh complete (${result.refreshedFiles} file(s), ${result.residualStaleEdges} residual stale)`,
+                warningCount
+              );
+              db.close();
+              return;
+            }
           }
 
-          // decision.path === 'full' — full-rebuild escalation (unchanged) + fingerprint baseline.
+          // decision.path === 'full' — full-rebuild escalation + fingerprint baseline.
           if (!options.quiet) {
             console.log(`Sync path: full rebuild (${decision.reason}).`);
           }
@@ -851,7 +920,7 @@ indexCmd
               lastIndexedCommit: headCommit,
             });
             persistStructuralConfigFingerprint(corpusPath, db);
-            const runWarnings = [...result.warnings, ...indexWarnings];
+            const runWarnings = [...escalationWarnings, ...result.warnings, ...indexWarnings];
             try {
               db.insertEvent({
                 source: 'cli',

@@ -6,6 +6,9 @@
 import type { LuxDatabase } from '../db/index.js';
 import type { GeneralScanResult } from './general.js';
 
+/** The component a failed module-dependency write is filed under; every sync that rewrites the table runs it. */
+export const MODULE_DEPENDENCIES_COMPONENT = 'module-dependencies';
+
 /**
  * Replace the module dependencies with the ones a scan computed, returning a warning on failure
  * (null on success) for the caller to fold into its trust classification.

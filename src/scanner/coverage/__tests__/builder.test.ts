@@ -151,7 +151,7 @@ describe('production coverage builder', () => {
     });
   });
 
-  it('scoped evidence updates only languages actually refreshed', () => {
+  it('scoped evidence is recomputed from the working tree; an un-refreshed Vue signal stands', () => {
     db.setIndexMetadata(
       'coverage_producer_runs_v1',
       JSON.stringify({
@@ -161,21 +161,38 @@ describe('production coverage builder', () => {
         'structural-overlay': { status: 'success', failures: 0, completedCandidates: 22 },
       })
     );
+    const source = (filePath: string, language: string) => ({
+      type: 'source-code',
+      title: filePath,
+      filePath: `/repo/${filePath}`,
+      frontmatter: { language },
+      content: '',
+    });
 
-    persistScopedCoverageProducerRuns(
-      db,
-      {
-        tiers: { ast: 'failed', lsp: 'unavailable' },
-        refreshedFiles: 1,
+    persistScopedCoverageProducerRuns(db, '/repo', {
+      tiers: { ast: 'ran', lsp: 'ran' },
+      refreshedPaths: ['src/changed.ts'],
+      lspEnrichmentFailures: [],
+      enrichments: new Map(),
+      workingTree: {
+        scan: {
+          knowledge: [
+            source('src/changed.ts', 'typescript'),
+            source('src/added.ts', 'typescript'),
+            source('app/A.php', 'php'),
+            source('resources/B.vue', 'vue'),
+          ],
+        },
       },
-      ['src/changed.ts']
-    );
+    });
 
-    expect(loadCoverageProducerRuns(db)).toEqual({
-      'php-tree-sitter': { status: 'success', failures: 0, completedCandidates: 8 },
-      'typescript-tree-sitter': { status: 'partial', failures: 1, completedCandidates: 10 },
+    expect(loadCoverageProducerRuns(db)).toMatchObject({
+      // Counted from the tree as it is now, not carried from the last full run.
+      'php-tree-sitter': { status: 'success', failures: 0, completedCandidates: 1 },
+      'typescript-tree-sitter': { status: 'success', failures: 0, completedCandidates: 2 },
+      // B.vue was not refreshed, so the server's last recorded outcome stands.
       'vue-language-server': { status: 'success', failures: 0, completedCandidates: 4 },
-      'structural-overlay': { status: 'success', failures: 0, completedCandidates: 22 },
+      'structural-overlay': { status: 'success', failures: 0, completedCandidates: 0 },
     });
   });
 
