@@ -12,6 +12,10 @@ export default defineConfig({
     // The default 5s is too tight for those on slower CI runners (they take
     // ~6s there vs ~1.5s locally), so raise the ceiling for the whole suite.
     testTimeout: 20000,
+    // Test files run side by side, each in its own process. Four at a time is what a CI runner
+    // has cores for; more than that on a large machine starves the tests that spawn the CLI or
+    // a language server and run on short real timers.
+    maxWorkers: 4,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
