@@ -4,7 +4,9 @@
 // in the typed-receiver pass has none of its LSP-resolved call edges (stage `calls`). A server that
 // was still indexing the workspace when its wait bound ran out is recorded once, with `filePath`
 // "." (stage `index`): every answer it gave may reflect a partial index. A server that failed to
-// start is recorded the same way at stage `init`: its language has no LSP data at all.
+// start is recorded the same way at stage `init`: its language has no LSP data at all. A server
+// that stopped answering part-way is recorded once per stage it was needed for, with the number of
+// files that stage could not complete (reason `unresponsive`), not once per file.
 // `lux index status --json` lists them; an empty list means the run's LSP output is complete.
 
 import type { LuxDatabase } from '../../db/index.js';
@@ -22,7 +24,19 @@ const STAGES: ReadonlyArray<LspEnrichmentFailure['stage']> = [
 ];
 
 /** Why a file was not enriched. The raw message is not kept: it carries per-run request ids. */
-export type LspEnrichmentFailureReason = 'timeout' | 'transport' | 'error' | 'response';
+export type LspEnrichmentFailureReason =
+  'timeout' | 'transport' | 'error' | 'response' | 'unresponsive';
+
+const REASONS: readonly LspEnrichmentFailureReason[] = [
+  'timeout',
+  'transport',
+  'error',
+  'response',
+  'unresponsive',
+];
+
+/** How the client words a server that stopped answering; the language is its first word. */
+const STOPPED_ANSWERING = /^(\S+) language server stopped answering/;
 
 export interface LspEnrichmentFailure {
   /** Repo-relative path of the affected file; "." for a whole-workspace `index` entry. */
@@ -39,10 +53,16 @@ export interface LspEnrichmentFailure {
   code?: number;
   /** For an `error` reason: what was thrown, since no other field says. */
   message?: string;
+  /**
+   * For an `unresponsive` reason with `filePath` ".": how many files the stage could not complete
+   * because the server had stopped answering.
+   */
+  fileCount?: number;
   reason: LspEnrichmentFailureReason;
 }
 
 export function classifyLspEnrichmentError(message: string): LspEnrichmentFailureReason {
+  if (STOPPED_ANSWERING.test(message)) return 'unresponsive';
   if (/timed out/i.test(message)) return 'timeout';
   if (/exited unexpectedly|shut down|not writable|process error|is not running/i.test(message)) {
     return 'transport';
@@ -68,9 +88,13 @@ export function mergeLspEnrichmentFailures(
   failures: LspEnrichmentFailure[]
 ): void {
   const refreshed = new Set(refreshedPaths);
-  // A scoped run restarts the servers, so its workspace-wide outcomes replace the recorded ones.
-  const kept = loadLspEnrichmentFailures(db).filter(
-    (failure) => failure.filePath !== WORKSPACE && !refreshed.has(failure.filePath)
+  // A scoped run restarts the servers, so its workspace-wide outcomes replace the recorded ones —
+  // except a count of files an unresponsive server left behind, which stands for those files and
+  // is only made good by a run that asks about all of them again.
+  const kept = loadLspEnrichmentFailures(db).filter((failure) =>
+    failure.filePath === WORKSPACE
+      ? failure.reason === 'unresponsive'
+      : !refreshed.has(failure.filePath)
   );
   persistLspEnrichmentFailures(db, [...kept, ...failures]);
 }
@@ -101,11 +125,44 @@ function isFailure(item: unknown): item is LspEnrichmentFailure {
     !!failure &&
     typeof failure.filePath === 'string' &&
     STAGES.includes(failure.stage) &&
-    ['timeout', 'transport', 'error', 'response'].includes(failure.reason)
+    REASONS.includes(failure.reason)
   );
 }
 
-function sortFailures(failures: LspEnrichmentFailure[]): LspEnrichmentFailure[] {
+/**
+ * One entry per stage and language for the files a server that stopped answering left behind:
+ * thousands of identical per-file entries would say no more than their count.
+ */
+function collapseUnresponsive(failures: readonly LspEnrichmentFailure[]): LspEnrichmentFailure[] {
+  const collapsed = new Map<string, LspEnrichmentFailure>();
+  const counted = new Set<string>();
+  const rest: LspEnrichmentFailure[] = [];
+  for (const failure of failures) {
+    if (failure.reason !== 'unresponsive') {
+      rest.push(failure);
+      continue;
+    }
+    const key = `${failure.stage}\0${failure.languageId ?? ''}`;
+    // A file reported twice is one file. An entry that is already a count is added as it stands.
+    if (failure.filePath !== WORKSPACE) {
+      if (counted.has(`${key}\0${failure.filePath}`)) continue;
+      counted.add(`${key}\0${failure.filePath}`);
+    }
+    const entry = collapsed.get(key) ?? {
+      filePath: WORKSPACE,
+      stage: failure.stage,
+      reason: 'unresponsive' as const,
+      languageId: failure.languageId,
+      fileCount: 0,
+    };
+    entry.fileCount = (entry.fileCount ?? 0) + (failure.fileCount ?? 1);
+    collapsed.set(key, entry);
+  }
+  return [...rest, ...collapsed.values()];
+}
+
+function sortFailures(input: readonly LspEnrichmentFailure[]): LspEnrichmentFailure[] {
+  const failures = collapseUnresponsive(input);
   const key = (failure: LspEnrichmentFailure) =>
     [
       failure.filePath,
@@ -169,7 +226,15 @@ export function requestIssueFailures(
 export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]): string[] {
   const lines: string[] = [];
   for (const stage of STAGES) {
-    const entries = sortFailures(failures.filter((failure) => failure.stage === stage));
+    const all = sortFailures(failures.filter((failure) => failure.stage === stage));
+    for (const lost of all.filter((entry) => entry.reason === 'unresponsive')) {
+      lines.push(
+        `LSP output incomplete — ${stage}: the ${lost.languageId} language server stopped ` +
+          `answering and was not asked about ${lost.fileCount} file(s); ` +
+          'see lspEnrichmentFailures in `lux index status --json`.'
+      );
+    }
+    const entries = all.filter((entry) => entry.reason !== 'unresponsive');
     if (entries.length === 0) continue;
     const reasons = [...new Set(entries.map((entry) => entry.reason))].sort().join(', ');
     // Timeouts, lost transports and error answers explain themselves; anything else is shown.
@@ -218,8 +283,12 @@ export function lostServerFailure(
 }
 
 /** The reason a failure message classifies as, with the message itself kept for an `error`. */
-function reasonOf(message: string): Pick<LspEnrichmentFailure, 'reason' | 'message'> {
+function reasonOf(
+  message: string
+): Pick<LspEnrichmentFailure, 'reason' | 'message' | 'languageId'> {
   const reason = classifyLspEnrichmentError(message);
+  if (reason === 'unresponsive')
+    return { reason, languageId: STOPPED_ANSWERING.exec(message)?.[1] };
   return reason === 'error' ? { reason, message } : { reason };
 }
 

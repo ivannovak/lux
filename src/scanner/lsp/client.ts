@@ -1,4 +1,4 @@
-// Generic LSP client wrapper with concurrency limiting and timeout handling.
+// Generic LSP client wrapper: one request in flight at a time, with timeout handling.
 //
 // Communicates with language servers over stdio using the JSON-RPC protocol
 // defined by the Language Server Protocol. Manages the full server lifecycle:
@@ -31,9 +31,11 @@ export interface LspClientOptions {
   cwd?: string;
   /** Environment variables for the server process. Merged with process.env. */
   env?: Record<string, string>;
-  /** Maximum number of concurrent in-flight requests (default: 4). */
-  maxConcurrency?: number;
-  /** Timeout in milliseconds for individual requests (default: 30000). */
+  /**
+   * Timeout in milliseconds for individual requests (default: 30000). The clock runs from the
+   * moment the request is written, and nothing else of this client's is in flight then, so it
+   * measures the server's work on that request.
+   */
   requestTimeoutMs?: number;
   /** Timeout in milliseconds for server initialization (default: 60000). */
   initTimeoutMs?: number;
@@ -44,6 +46,8 @@ export interface LspClientOptions {
    * provider) answers null for that item: "no value set, use your default".
    */
   configuration?: (section: string | undefined) => unknown;
+  /** What to call the server in an error (e.g. "php"). */
+  serverLabel?: string;
 }
 
 /** Internal representation of a pending JSON-RPC request. */
@@ -51,6 +55,14 @@ interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Frees the request slot. */
+  settle: () => void;
+}
+
+/** A request that timed out and was cancelled, and that the server has not yet answered. */
+interface AbandonedRequest {
+  timer: ReturnType<typeof setTimeout>;
+  settle: () => void;
 }
 
 /** Refcounted open-document lease state, keyed by URI. */
@@ -72,13 +84,13 @@ export class LspResponseError extends Error {
 }
 
 /**
- * A request got no answer: it timed out, or the transport died under it. Unlike an error answer
- * or a malformed result, this says nothing about the file and depends on load, so it must not be
- * read as "this item has no data".
+ * A request got no answer: it timed out, the transport died under it, or it was not sent because
+ * the server had stopped answering. Unlike an error answer or a malformed result, this says
+ * nothing about the file and depends on load, so it must not be read as "this item has no data".
  */
 export class LspTransientError extends Error {
   constructor(
-    readonly kind: 'timeout' | 'transport',
+    readonly kind: 'timeout' | 'transport' | 'unresponsive',
     message: string
   ) {
     super(message);
@@ -92,6 +104,30 @@ export class LspTransientError extends Error {
  * request still times out is recorded as not enriched.
  */
 const REQUEST_TIMEOUT_RETRIES = 1;
+
+/**
+ * Requests in flight at once. intelephense, tsserver and the Vue language server each answer one
+ * request at a time, so a second request sent early only waits in the server's queue with its
+ * timeout running: measured on a 9.6k-file repository, 8 in flight took the same total time as 1
+ * and made a 1.5 s `references` request take 10 s. This is a property of the servers, not a
+ * tuning knob; see README "Language-server requests".
+ */
+const REQUESTS_IN_FLIGHT = 1;
+
+/**
+ * A server that leaves this many request attempts in a row without a response of any kind — no
+ * answer within the timeout, and none to the cancellation within the wait that follows — has
+ * stopped answering, and nothing more is sent to it. Without this, every remaining file would
+ * wait out two attempts of two timeout periods each: hours on a large repository.
+ *
+ * The number is two requests with their retries. One request alone must not be enough: a single
+ * file can be pathological for a server that is otherwise fine. Two is enough because the evidence
+ * is already strong by then — eight timeout periods with not one message answered — and in about
+ * 250,000 requests measured against intelephense, tsserver and the Vue language server (load
+ * average 10 to 45) no attempt went that way even once: every timeout seen was a request that the
+ * server answered late. Any response, including a late or an error one, starts the count again.
+ */
+const UNANSWERED_ATTEMPTS_BEFORE_LOST = 2 * (1 + REQUEST_TIMEOUT_RETRIES);
 
 /** How long a server has to exit after SIGTERM before it is sent SIGKILL. */
 const KILL_GRACE_MS = 2_000;
@@ -145,8 +181,8 @@ class Semaphore {
  * - Spawning the server process
  * - JSON-RPC message framing (Content-Length headers)
  * - Request/response correlation via message IDs
- * - Concurrency limiting for outbound requests
- * - Per-request timeout handling
+ * - Sending one request at a time, so a request's timeout measures the server's work on it
+ * - Per-request timeout handling, with `$/cancelRequest` for a request that timed out
  * - Graceful shutdown (shutdown request + exit notification)
  *
  * Usage:
@@ -157,15 +193,13 @@ class Semaphore {
  */
 export class LspClient {
   private readonly options: Required<
-    Pick<
-      LspClientOptions,
-      'maxConcurrency' | 'requestTimeoutMs' | 'initTimeoutMs' | 'maxOpenDocuments'
-    >
+    Pick<LspClientOptions, 'requestTimeoutMs' | 'initTimeoutMs' | 'maxOpenDocuments'>
   > &
     LspClientOptions;
   private process: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
+  private readonly abandoned = new Map<number, AbandonedRequest>();
   private readonly semaphore: Semaphore;
   private readonly openDocSemaphore: Semaphore;
   private readonly openDocs = new Map<string, OpenDoc>();
@@ -174,20 +208,25 @@ export class LspClient {
   private inputBuffer: Buffer = Buffer.alloc(0);
   private contentLength = -1;
   private _initialized = false;
+  /** Whether a request has been sent since `initialize`. */
+  private _firstRequestSent = false;
   private _serverCapabilities: InitializeResult | null = null;
   private _shutdownRequested = false;
   /** Set when the server process died or errored without a shutdown having been requested. */
   private _transportLost: string | null = null;
+  /** Attempts in a row that got no response within their timeout or the wait after it. */
+  private unansweredAttempts = 0;
+  /** Set when the server stopped answering; nothing is sent to it after that. */
+  private _stoppedAnswering: string | null = null;
 
   constructor(options: LspClientOptions) {
     this.options = {
-      maxConcurrency: 4,
       requestTimeoutMs: 30_000,
       initTimeoutMs: 60_000,
       maxOpenDocuments: 12,
       ...options,
     };
-    this.semaphore = new Semaphore(this.options.maxConcurrency);
+    this.semaphore = new Semaphore(REQUESTS_IN_FLIGHT);
     this.openDocSemaphore = new Semaphore(this.options.maxOpenDocuments);
   }
 
@@ -221,7 +260,7 @@ export class LspClient {
 
     let result: InitializeResult;
     try {
-      result = (await this.sendRequest(
+      result = (await this.sendRequestRaw(
         InitializeRequest.method,
         params,
         this.options.initTimeoutMs
@@ -235,6 +274,7 @@ export class LspClient {
     }
 
     this._serverCapabilities = result;
+    this._firstRequestSent = false;
 
     this.sendNotification(InitializedNotification.method, {});
     this._initialized = true;
@@ -255,8 +295,18 @@ export class LspClient {
 
     this._shutdownRequested = true;
 
+    // A server that stopped answering is not asked to shut down, only told to exit and killed.
+    if (this._stoppedAnswering) {
+      this.sendNotification(ExitNotification.method, undefined);
+      this._initialized = false;
+      this.cleanup();
+      return;
+    }
+
     try {
-      await this.sendRequest(ShutdownRequest.method, null, this.options.requestTimeoutMs);
+      // Not queued behind the request slot: a slot still held for a cancelled request must not
+      // delay the exit.
+      await this.sendRequestRaw(ShutdownRequest.method, null, this.options.requestTimeoutMs);
     } catch {
       // lux-intentional-swallow: shutting down a server that may already have exited.
       // Best-effort — server may already be dead
@@ -275,8 +325,9 @@ export class LspClient {
   /**
    * Send a JSON-RPC request and wait for the response.
    *
-   * Respects the concurrency semaphore — if maxConcurrency requests are
-   * already in flight, this call will wait until a slot opens.
+   * Requests are sent one at a time: this call waits until the server has answered the previous
+   * one. A request that times out is cancelled (`$/cancelRequest`) and sent once more under a new
+   * id; an answer that later arrives for the cancelled id is dropped.
    *
    * @param method - The LSP method (e.g. "textDocument/documentSymbol").
    * @param params - Method parameters.
@@ -487,12 +538,22 @@ export class LspClient {
       return;
     }
 
+    // Any response shows the server is answering.
+    this.unansweredAttempts = 0;
+
     const id = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
     const pending = this.pending.get(id);
-    if (!pending) return;
+    if (!pending) {
+      // An answer to a request that was cancelled after timing out. Its caller has already been
+      // told, and a retry has its own id, so the answer is dropped; it only shows the server is
+      // free again.
+      this.settleAbandoned(id);
+      return;
+    }
 
     clearTimeout(pending.timer);
     this.pending.delete(id);
+    pending.settle();
 
     if (message.error) {
       pending.reject(new LspResponseError(message.error.code, message.error.message));
@@ -507,17 +568,34 @@ export class LspClient {
 
   private async sendRequest(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
     await this.semaphore.acquire();
-
-    try {
-      return await this.sendRequestRaw(method, params, timeoutMs);
-    } finally {
+    // A server answers `initialize` before it has finished starting: tsserver is spawned and the
+    // project loaded on the first request, which then takes seconds that say nothing about that
+    // request. The first request sent is given the initialization timeout — only the first, so a
+    // server that never answers costs one such wait and not one per file.
+    const timeout =
+      timeoutMs ??
+      (this._firstRequestSent
+        ? this.options.requestTimeoutMs
+        : Math.max(this.options.requestTimeoutMs, this.options.initTimeoutMs));
+    this._firstRequestSent = true;
+    if (this._stoppedAnswering) {
       this.semaphore.release();
+      throw new LspTransientError('unresponsive', this._stoppedAnswering);
     }
+    // The slot is freed when the server is done with the request, which for a timed-out request
+    // is later than when the caller is told: see `abandon`.
+    return this.sendRequestRaw(method, params, timeout, () => this.semaphore.release());
   }
 
-  private sendRequestRaw(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
+  private sendRequestRaw(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+    settle: () => void = () => {}
+  ): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       if (!this.process?.stdin?.writable) {
+        settle();
         reject(new LspTransientError('transport', 'Language server stdin is not writable'));
         return;
       }
@@ -527,6 +605,7 @@ export class LspClient {
 
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        this.abandon(id, timeout, settle);
         reject(
           new LspTransientError(
             'timeout',
@@ -535,7 +614,7 @@ export class LspClient {
         );
       }, timeout);
 
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, settle });
 
       const message: RequestMessage = {
         jsonrpc: '2.0',
@@ -546,6 +625,35 @@ export class LspClient {
 
       this.writeMessage(message);
     });
+  }
+
+  /**
+   * Cancel a request that timed out, and keep its slot until the server answers it (with the late
+   * result or a "cancelled" error) or `graceMs` passes. A server that answers one request at a
+   * time may still be computing the cancelled one; a request sent before it finishes would have
+   * that remainder charged to its own timeout.
+   */
+  private abandon(id: number, graceMs: number, settle: () => void): void {
+    this.sendNotification('$/cancelRequest', { id });
+    const timer = setTimeout(() => {
+      // Neither an answer nor an acknowledgement of the cancellation.
+      this.unansweredAttempts++;
+      if (this.unansweredAttempts >= UNANSWERED_ATTEMPTS_BEFORE_LOST && !this._stoppedAnswering) {
+        this._stoppedAnswering =
+          `${this.options.serverLabel ?? 'the'} language server stopped answering: ` +
+          `no response to ${this.unansweredAttempts} request attempts in a row`;
+      }
+      this.settleAbandoned(id);
+    }, graceMs);
+    this.abandoned.set(id, { timer, settle });
+  }
+
+  private settleAbandoned(id: number): void {
+    const abandoned = this.abandoned.get(id);
+    if (!abandoned) return;
+    clearTimeout(abandoned.timer);
+    this.abandoned.delete(id);
+    abandoned.settle();
   }
 
   /**
@@ -600,6 +708,7 @@ export class LspClient {
     // A server that died mid-run is a transport failure, like a request it never answered — not
     // a caller's mistake — so the caller records what it could not ask.
     if (this._transportLost) throw new LspTransientError('transport', this._transportLost);
+    if (this._stoppedAnswering) throw new LspTransientError('unresponsive', this._stoppedAnswering);
     if (!this._initialized) {
       throw new Error('Client is not initialized. Call initialize() first.');
     }
@@ -611,8 +720,10 @@ export class LspClient {
   private rejectAll(error: Error): void {
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(error);
       this.pending.delete(id);
+      pending.settle();
+      pending.reject(error);
     }
+    for (const id of [...this.abandoned.keys()]) this.settleAbandoned(id);
   }
 }

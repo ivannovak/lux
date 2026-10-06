@@ -84,8 +84,6 @@ export interface LspEnricherConfig {
   serverCommand: string;
   /** Arguments to pass to the language server. */
   serverArgs: string[];
-  /** Maximum concurrent LSP requests. */
-  maxConcurrency?: number;
   /** Timeout in milliseconds for individual LSP requests. */
   requestTimeoutMs?: number;
   /** Timeout in milliseconds for server initialization. */
@@ -127,8 +125,8 @@ export interface LspEnricher {
   enrich(filePath: string): Promise<EnrichmentResult | null>;
 
   /**
-   * Enrich multiple documents. Implementations should respect concurrency
-   * limits defined in config.maxConcurrency.
+   * Enrich multiple documents. The client sends one request at a time, whatever
+   * the number of documents in progress.
    *
    * @param filePaths - Absolute paths to the files to enrich.
    * @returns Array of enrichment results (nulls filtered out).

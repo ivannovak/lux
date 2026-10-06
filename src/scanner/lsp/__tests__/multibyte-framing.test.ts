@@ -8,12 +8,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { LspClient } from '../client.js';
 
-// A minimal language server: answers `initialize`, collects `test/echo` requests, and once it
-// holds `expected` of them answers all at once — written in one block, or one byte per write.
+// A minimal language server: answers `initialize`, and answers each `test/echo` with two
+// notifications carrying the same text followed by the response — three frames written in one
+// block, or one byte per write. A frame cut too long takes the start of the next with it, so a
+// mis-framed notification loses the response.
 const FAKE_SERVER = String.raw`
-const [mode, expected] = [process.argv[1], Number(process.argv[2])];
+const mode = process.argv[1];
 let buffer = Buffer.alloc(0);
-const pending = [];
 const frame = (message) => {
   const body = Buffer.from(JSON.stringify(message), 'utf-8');
   return Buffer.concat([Buffer.from('Content-Length: ' + body.length + '\r\n\r\n'), body]);
@@ -41,10 +42,9 @@ process.stdin.on('data', (chunk) => {
     if (message.method === 'initialize') {
       process.stdout.write(frame({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } }));
     } else if (message.method === 'test/echo') {
-      pending.push(message);
-      if (pending.length === expected) {
-        send(Buffer.concat(pending.map((m) => frame({ jsonrpc: '2.0', id: m.id, result: m.params }))));
-      }
+      const note = frame({ jsonrpc: '2.0', method: 'test/note', params: message.params });
+      const answer = frame({ jsonrpc: '2.0', id: message.id, result: message.params });
+      send(Buffer.concat([note, note, answer]));
     } else if (message.method === 'shutdown') {
       process.stdout.write(frame({ jsonrpc: '2.0', id: message.id, result: null }));
     } else if (message.method === 'exit') {
@@ -70,9 +70,8 @@ afterEach(async () => {
 async function startClient(mode: 'block' | 'bytewise'): Promise<LspClient> {
   const client = new LspClient({
     serverCommand: process.execPath,
-    serverArgs: ['-e', FAKE_SERVER, mode, String(NAMES.length)],
-    maxConcurrency: NAMES.length,
-    requestTimeoutMs: 5_000,
+    serverArgs: ['-e', FAKE_SERVER, mode],
+    requestTimeoutMs: 2_000,
   });
   clients.push(client);
   await client.initialize({ processId: process.pid, rootUri: null, capabilities: {} });

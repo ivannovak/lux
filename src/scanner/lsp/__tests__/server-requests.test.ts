@@ -89,11 +89,15 @@ describe('LspClient — server-initiated requests', () => {
 
     const pending = (
       client as unknown as {
-        pending: Map<number, { resolve: (v: unknown) => void; timer: unknown }>;
+        pending: Map<number, { resolve: (v: unknown) => void; timer: unknown; settle: () => void }>;
       }
     ).pending;
     const seen: unknown[] = [];
-    pending.set(42, { resolve: (v: unknown) => seen.push(v), timer: setTimeout(() => {}, 0) });
+    pending.set(42, {
+      resolve: (v: unknown) => seen.push(v),
+      timer: setTimeout(() => {}, 0),
+      settle: () => {},
+    });
 
     deliver({ jsonrpc: '2.0', id: 42, result: { ok: true } });
 

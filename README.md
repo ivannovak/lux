@@ -188,26 +188,30 @@ environmental inputs below are pinned:
   index names exactly what is missing.** A consumer that needs byte-identical output should refuse
   an index whose list is non-empty. Each entry has a `stage` and a `reason`:
 
-  | `stage`      | what is missing                                                        |
-  | ------------ | ---------------------------------------------------------------------- |
-  | `init`       | the whole language: its server failed to start (`filePath: "."`)       |
-  | `index`      | a complete index: the server was still indexing at `init_timeout_ms`   |
+  | `stage`      | what is missing                                                                         |
+  | ------------ | --------------------------------------------------------------------------------------- |
+  | `init`       | the whole language: its server failed to start (`filePath: "."`)                        |
+  | `index`      | a complete index: the server was still indexing at `init_timeout_ms`                    |
   | `capability` | one request kind for the language: the server declared it, then answered MethodNotFound |
-  | `symbols`    | the file's LSP enrichment, or one request of it                        |
-  | `calls`      | the file's LSP-resolved call edges, or one request of them             |
+  | `symbols`    | the file's LSP enrichment, or one request of it                                         |
+  | `calls`      | the file's LSP-resolved call edges, or one request of them                              |
 
   `reason` is one of:
-  - `timeout` — the request got no answer in `request_timeout_ms`, after one retry;
+  - `timeout` — the server did not answer the request in `request_timeout_ms`, and did not answer
+    it when it was sent once more (see "Language-server requests" below);
   - `transport` — the server died. Every later request fails the same way, so each file it leaves
     without data is recorded; a server that dies before its language's files come up is recorded
     once for the language, at stage `init`;
   - `response` — the server answered a request with an error; the entry carries the `method` and
     `code`;
+  - `unresponsive` — the server stopped answering part-way through. Nothing more was sent to it;
+    one entry per stage, with `filePath: "."` and `fileCount`, the number of files that stage
+    could not complete (see "Language-server requests" below);
   - `error` — anything else that was thrown (a Lux defect, or a failure the three above do not
     name); the entry carries the `message`, and the warning line quotes the first one. A
-  request for a capability the server did not declare is never sent, and is not a failure. An
-  error answer counts as an empty result only if it is on the allowlist in
-  `src/scanner/lsp/requester.ts`, whose entries each cite why that answer means "nothing here".
+    request for a capability the server did not declare is never sent, and is not a failure. An
+    error answer counts as an empty result only if it is on the allowlist in
+    `src/scanner/lsp/requester.ts`, whose entries each cite why that answer means "nothing here".
 
   intelephense is started with a fresh storage directory each run (its default keeps the workspace
   index in `$TMPDIR/intelephense/` between runs; Lux's is `$TMPDIR/lux-intelephense-<pid>-*`,
@@ -215,6 +219,41 @@ environmental inputs below are pinned:
   outright) and pinned `files.exclude` settings, and
   enrichment waits for its `indexingEnded` notification. typescript-language-server is started
   without its syntax-only server and without automatic type acquisition.
+
+  **Language-server requests.** Lux sends a language server one request at a time, so
+  `request_timeout_ms` measures the server's work on that request. intelephense, tsserver and the
+  Vue language server each answer one request at a time; a second request sent early only waits in
+  the server's queue with its timeout running. Measured on a 9.6k-file Laravel/Vue repository
+  (enrichment time for all files of the language, load average about 20):
+
+  | server                     | in flight: 1 | 2    | 4         | 8       | one `references` request on a 6k-reference class |
+  | -------------------------- | ------------ | ---- | --------- | ------- | ------------------------------------------------ |
+  | intelephense               | 54–57 s      | 61 s | 50 s      | 48–53 s | 2.5 s alone; 10–12 s with 8 in flight            |
+  | typescript-language-server | 11–12 s      | 10 s | 11 s      | 9–10 s  | —                                                |
+  | vue-language-server        | 129–143 s    | —    | 123–140 s | 129 s   | —                                                |
+
+  Run-to-run spread on that machine is about ±6 %, which covers every difference in the table:
+  sending more at once does not finish sooner, it only makes each request look slower.
+
+  - `max_concurrency` under `lsp.enrichers` is therefore no longer used. A `lux.yaml` that still
+    sets it gets one warning per run naming the enrichers that do; remove the key.
+  - A request that times out is cancelled with `$/cancelRequest` and sent once more under a new
+    id. An answer that arrives later for the cancelled id is dropped. The next request is not
+    sent until the server has answered the cancelled one or another `request_timeout_ms` has
+    passed, so one slow request is not charged to the request after it.
+  - A server answers `initialize` before it has finished starting (tsserver is spawned and the
+    project loaded on the first request). The first request sent to a server is therefore
+    given `init_timeout_ms` (only the first: a server that never answers costs one such wait).
+  - A server that leaves two requests and their retries in a row without a response of any kind
+    — four attempts, each with no answer in its timeout and none to the cancellation in the
+    wait after it, eight timeout periods in all — has stopped answering. Nothing more is sent to
+    it for the rest of the run, it is not restarted (a restart mid-run would make the output
+    depend on when it happened), and the files it leaves are recorded as one `unresponsive`
+    entry per stage. Any response, a late or an error one included, starts the count again, so
+    one pathological file between healthy ones does not lose the language. A scoped
+    `lux index sync` keeps a recorded `unresponsive` count; only a full rebuild clears it.
+  - Up to 12 files are still read and opened in the server ahead of their requests; opening a
+    document is a notification and is not timed.
 
 What the rebuild guarantees itself:
 

@@ -519,7 +519,6 @@ const ENRICHER_FACTORIES: Record<
     new PhpLspEnricher({
       serverCommand: entry.serverCommand,
       serverArgs: entry.serverArgs,
-      maxConcurrency: entry.maxConcurrency,
       requestTimeoutMs: entry.requestTimeoutMs,
       initTimeoutMs: entry.initTimeoutMs,
     }),
@@ -527,7 +526,6 @@ const ENRICHER_FACTORIES: Record<
     new TypeScriptLspEnricher({
       serverCommand: entry.serverCommand,
       serverArgs: entry.serverArgs,
-      maxConcurrency: entry.maxConcurrency,
       requestTimeoutMs: entry.requestTimeoutMs,
       initTimeoutMs: entry.initTimeoutMs,
     }),
@@ -535,7 +533,6 @@ const ENRICHER_FACTORIES: Record<
     new VueLspEnricher({
       serverCommand: entry.serverCommand,
       serverArgs: entry.serverArgs,
-      maxConcurrency: entry.maxConcurrency,
       requestTimeoutMs: entry.requestTimeoutMs,
       initTimeoutMs: entry.initTimeoutMs,
     }),
@@ -544,7 +541,7 @@ const ENRICHER_FACTORIES: Record<
 /**
  * Max files enriched concurrently (Lever B). Aligns with the LspClient's
  * `maxOpenDocuments` cap so in-flight file reads and open documents stay bounded
- * together; the request Semaphore(4) continues to bound LSP requests underneath.
+ * together; the client sends the requests of those files one at a time.
  * The pack build (REQ-4, 3–6× the files) is the real beneficiary — treat this as
  * a conservative tuning knob, not a correctness parameter.
  */
@@ -932,6 +929,17 @@ export async function generalScan(
  */
 export function buildRegistry(entries: LspEnricherEntry[], warn?: WarnFn): EnricherRegistry {
   const registry = new EnricherRegistry();
+
+  const unusedSetting = entries
+    .filter((entry) => entry.enabled !== false && entry.maxConcurrency !== undefined)
+    .map((entry) => entry.languageId);
+  if (unusedSetting.length > 0) {
+    warn?.(
+      `max_concurrency is no longer used (${unusedSetting.join(', ')}); remove it from lux.yaml. ` +
+        'Requests are sent to a language server one at a time, so that request_timeout_ms ' +
+        "measures the server's work on a request and not the time it spent queued."
+    );
+  }
 
   for (const entry of entries) {
     if (entry.enabled === false) continue;
