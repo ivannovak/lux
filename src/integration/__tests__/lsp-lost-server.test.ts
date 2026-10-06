@@ -40,7 +40,10 @@ process.stdin.on('data', (chunk) => {
       send({ jsonrpc: '2.0', method: 'indexingEnded' });
       if (dying && role === 'php') setTimeout(() => process.exit(1), 100);
     } else if (message.method === 'textDocument/documentSymbol') {
-      send({ jsonrpc: '2.0', id: message.id, result: [] });
+      // The fixture's PHP file declares class A, and an empty answer for it would be a failure.
+      const range = { start: { line: 4, character: 0 }, end: { line: 4, character: 10 } };
+      const php = message.params.textDocument.uri.endsWith('.php');
+      send({ jsonrpc: '2.0', id: message.id, result: php ? [{ name: 'A', kind: 5, range, selectionRange: range }] : [] });
     } else if (message.id !== undefined && message.method) {
       send({ jsonrpc: '2.0', id: message.id, result: null });
     } else if (message.method === 'exit') {

@@ -6,6 +6,7 @@
 
 import { readFileSync } from 'fs';
 import { createRunStorage, removeRunStorage } from './run-storage.js';
+import { LspEmptyAnswerError, phpSourceDeclaresSymbols } from './empty-answer.js';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { DocumentSymbol, Location, TypeHierarchyItem } from 'vscode-languageserver-protocol';
 import { LspClient } from './client.js';
@@ -149,6 +150,7 @@ export class PhpLspEnricher implements LspEnricher {
   /** This run's intelephense storage; removed at shutdown. */
   private storagePath: string | undefined;
   private readonly maxRefLocations: number;
+  private readonly _emptyAnswers = { reasked: 0, recovered: 0 };
 
   constructor(options?: PhpLspEnricherOptions) {
     this.config = {
@@ -290,9 +292,36 @@ export class PhpLspEnricher implements LspEnricher {
 
     // Route open/close through the refcounted lease so bounded-parallel
     // enrichment (Lever B) never double-opens or closes a mid-request document.
-    return this.client.withDocument(uri, 'php', fileContent, () =>
-      this.enrichOpen(uri, filePath, fileContent)
+    return this.withSecondVisit(() =>
+      this.client!.withDocument(uri, 'php', fileContent, () =>
+        this.enrichOpen(uri, filePath, fileContent)
+      )
     );
+  }
+
+  /**
+   * Run a visit of one document; if an answer in it was not believable, run it once more, with
+   * the document opened afresh. A second unbelievable answer is thrown, and the caller records
+   * the file: it is never stored as a file without symbols or a call without a target.
+   */
+  private async withSecondVisit<T>(visit: () => Promise<T>): Promise<T> {
+    try {
+      return await visit();
+    } catch (error) {
+      if (!(error instanceof LspEmptyAnswerError)) throw error;
+      this._emptyAnswers.reasked++;
+      const result = await visit();
+      this._emptyAnswers.recovered++;
+      return result;
+    }
+  }
+
+  /**
+   * Visits with an answer that was not believable (documentSymbol or definition), and how many a
+   * second visit settled.
+   */
+  get emptyAnswers(): { reasked: number; recovered: number } {
+    return { ...this._emptyAnswers };
   }
 
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
@@ -307,7 +336,7 @@ export class PhpLspEnricher implements LspEnricher {
     //    In a Blade template only the PHP variables are declarations (identity/php-declarations.ts).
     const reported = bladeDeclarations(
       filePath,
-      (await this.getDocumentSymbols(uri, filePath)).map(withStableAnonymousNames)
+      (await this.getDocumentSymbols(uri, filePath, fileContent)).map(withStableAnonymousNames)
     );
     const declarations = phpDeclarations(reported, (namespace) =>
       namespaceOpensBlock(fileContent, symbolPosition(namespace)?.line ?? 0)
@@ -353,8 +382,10 @@ export class PhpLspEnricher implements LspEnricher {
       return null;
     }
     const uri = pathToFileURL(filePath).toString();
-    return this.client.withDocument(uri, 'php', content, () =>
-      this.resolveDefinitionOpen(uri, line, character)
+    return this.withSecondVisit(() =>
+      this.client!.withDocument(uri, 'php', content, () =>
+        this.resolveDefinitionOpen(uri, line, character)
+      )
     );
   }
 
@@ -364,12 +395,16 @@ export class PhpLspEnricher implements LspEnricher {
     line: number,
     character: number
   ): Promise<{ filePath: string; line: number } | null> {
+    const method = 'textDocument/definition';
     const result = await this.requester!.ask<Location | Location[] | null>(
       { filePath: fileURLToPath(uri), stage: 'calls' },
-      'textDocument/definition',
+      method,
       'definitionProvider',
       { textDocument: { uri }, position: { line, character } }
     );
+    // intelephense answers `[]` where an open document has no target, and `null` only for a
+    // document it does not hold open.
+    if (result === null) throw new LspEmptyAnswerError(method, 'null');
     const loc = Array.isArray(result) ? result[0] : result;
     if (!loc) return null;
     return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
@@ -393,13 +428,15 @@ export class PhpLspEnricher implements LspEnricher {
       return positions.map(() => null);
     }
     const uri = pathToFileURL(filePath).toString();
-    return this.client.withDocument(uri, 'php', content, async () => {
-      const out: Array<{ filePath: string; line: number } | null> = [];
-      for (const p of positions) {
-        out.push(await this.resolveDefinitionOpen(uri, p.line, p.character));
-      }
-      return out;
-    });
+    return this.withSecondVisit(() =>
+      this.client!.withDocument(uri, 'php', content, async () => {
+        const out: Array<{ filePath: string; line: number } | null> = [];
+        for (const p of positions) {
+          out.push(await this.resolveDefinitionOpen(uri, p.line, p.character));
+        }
+        return out;
+      })
+    );
   }
 
   async enrichBatch(filePaths: string[]): Promise<PhpEnrichmentResult[]> {
@@ -420,14 +457,37 @@ export class PhpLspEnricher implements LspEnricher {
   // LSP queries
   // -------------------------------------------------------------------------
 
-  private async getDocumentSymbols(uri: string, filePath: string): Promise<DocumentSymbol[]> {
+  /**
+   * The document's symbols. intelephense answers `[]` for an open document with no symbols and
+   * `null` for a document it does not hold open, so `null` here is never "no symbols"; and `[]`
+   * for a source that declares a class or function is the answer it gives when the document is
+   * closed under the request. Both are thrown, not returned as an empty list.
+   */
+  private async getDocumentSymbols(
+    uri: string,
+    filePath: string,
+    fileContent?: string
+  ): Promise<DocumentSymbol[]> {
+    const method = 'textDocument/documentSymbol';
     const result = await this.requester!.ask<DocumentSymbol[] | null>(
       { filePath, stage: 'symbols' },
-      'textDocument/documentSymbol',
+      method,
       'documentSymbolProvider',
       { textDocument: { uri } }
     );
-    return result ?? [];
+    // Not asked, or an error answer the requester has recorded.
+    if (result === undefined) return [];
+    if (result === null) throw new LspEmptyAnswerError(method, 'null');
+    if (
+      result.length === 0 &&
+      fileContent !== undefined &&
+      // A Blade template's markup is not PHP the AST can vouch for.
+      !filePath.endsWith('.blade.php') &&
+      (await phpSourceDeclaresSymbols(filePath, fileContent))
+    ) {
+      throw new LspEmptyAnswerError(method, 'empty');
+    }
+    return result;
   }
 
   private async getSymbolReferences(
@@ -442,6 +502,8 @@ export class PhpLspEnricher implements LspEnricher {
       const position = symbolPosition(symbol);
       if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
+      // intelephense answers [] for an unreferenced symbol and for a document it does not hold
+      // open alike, so an empty answer here cannot be checked.
       const locations = await this.requester!.ask<Location[] | null>(
         { filePath, stage: 'symbols' },
         'textDocument/references',
@@ -569,14 +631,20 @@ function compareLocations(a: Location, b: Location): number {
 }
 
 /**
+ * intelephense's name for an anonymous class: `*` and a random number in hex, unpadded, so of any
+ * length. No declared PHP name starts with `*`.
+ */
+const ANONYMOUS_CLASS_NAME = /^\*[0-9a-f]+$/;
+
+/**
  * intelephense names an anonymous class `*<random hex>`, a new name every session. Name it by
  * where it starts instead, so the same file yields the same symbols and references.
  */
-function withStableAnonymousNames(symbol: DocumentSymbol): DocumentSymbol {
+export function withStableAnonymousNames(symbol: DocumentSymbol): DocumentSymbol {
   const start = (symbol.range ?? symbol.selectionRange)?.start.line ?? 0;
   return {
     ...symbol,
-    name: /^\*[0-9a-f]{6,8}$/.test(symbol.name) ? `*anonymous@${start}` : symbol.name,
+    name: ANONYMOUS_CLASS_NAME.test(symbol.name) ? `*anonymous@${start}` : symbol.name,
     ...(symbol.children ? { children: symbol.children.map(withStableAnonymousNames) } : {}),
   };
 }

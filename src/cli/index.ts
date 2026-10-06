@@ -2,6 +2,8 @@
 
 import { Command } from 'commander';
 import { existsSync } from 'fs';
+import { resolve as resolvePath } from 'path';
+import { LSP_TRACE_ENV } from '../scanner/lsp/trace.js';
 import { LuxDatabase, toStoredPath } from '../db/index.js';
 import { LuxSqlite } from '../db/sqlite-adapter.js';
 import { GeneralScanner } from '../scanner/index.js';
@@ -105,7 +107,13 @@ program
   .option('--db <path>', 'Database path (defaults to <corpus>/.lux/lux.db)')
   .option('--corpus <path>', 'Content root directory path (defaults to current working directory)')
   .option('--verbose', 'Also print routine database steps, such as each migration applied')
+  .option(
+    '--lsp-trace <file>',
+    'Append a timestamped record of every language-server message to <file> (for diagnosis)'
+  )
   .hook('preAction', (_program, actionCommand) => {
+    const lspTraceFile = program.opts().lspTrace as string | undefined;
+    if (lspTraceFile) process.env[LSP_TRACE_ENV] = resolvePath(lspTraceFile);
     const verbose = program.opts().verbose === true;
     const quiet = actionCommand.opts().quiet === true;
     setDbNoticeHandler((kind, message) => {

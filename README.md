@@ -207,6 +207,13 @@ environmental inputs below are pinned:
   - `unresponsive` — the server stopped answering part-way through. Nothing more was sent to it;
     one entry per stage, with `filePath: "."` and `fileCount`, the number of files that stage
     could not complete (see "Language-server requests" below);
+  - `empty` — the server answered, successfully, with nothing that can be believed, twice: once
+    and again with the document opened afresh. For intelephense that is `null` to
+    `documentSymbol` or `definition` (its answer for a document it does not hold open; an open
+    document with nothing in it gets `[]`), or `[]` to `documentSymbol` for a PHP file whose
+    syntax tree declares a class, interface, trait, enum, function or method. The entry carries
+    the `method`. An empty `references` answer has no such tell (intelephense answers `[]` for a
+    document it does not hold open too), so it is taken as it comes;
   - `error` — anything else that was thrown (a Lux defect, or a failure the three above do not
     name); the entry carries the `message`, and the warning line quotes the first one. A
     request for a capability the server did not declare is never sent, and is not a failure. An
@@ -252,6 +259,9 @@ environmental inputs below are pinned:
     entry per stage. Any response, a late or an error one included, starts the count again, so
     one pathological file between healthy ones does not lose the language. A scoped
     `lux index sync` keeps a recorded `unresponsive` count; only a full rebuild clears it.
+  - `lux --lsp-trace <file> …` (or `LUX_LSP_TRACE=<file>`) appends one JSON line per message to
+    and from every language server: a timestamp, the method, the document and position asked
+    about, and for an answer whether it was `null`, `[]` or how many items. Off by default.
   - Up to 12 files are still read and opened in the server ahead of their requests; opening a
     document is a notification and is not timed.
 
@@ -306,8 +316,9 @@ What the rebuild guarantees itself:
   declarations drop out of the census, which can turn another file's id from qualified to bare or
   back. Such a run always lists the failed file in `lspEnrichmentFailures`, which is why stable
   ids, like every other determinism guarantee here, hold only for a run whose list is empty.
+
 - **One fact declared in several files follows a stated rule, never processing order.**
-  - *HTTP routes.* A route (method and path) that two files declare is stored once per file, under
+  - _HTTP routes._ A route (method and path) that two files declare is stored once per file, under
     the same file-qualified form: `surface:http:GET:/#file:routes/web.php` and
     `surface:http:GET:/#file:workbench/routes/web.php`, each with its own handler, route name and
     edges; no node keeps `surface:http:GET:/`. Laravel itself keeps whichever was registered last,
@@ -319,13 +330,13 @@ What the rebuild guarantees itself:
     its spec targets in it, so `overlay spec-evidence ask --kind route` resolves each one.
     `overlay ownership --kernel` compares kernel and client by method and path, so a route either
     side declares in several files is still one row.
-  - *Events.* One boundary per event class. Laravel adds every provider's listeners to the
+  - _Events._ One boundary per event class. Laravel adds every provider's listeners to the
     dispatcher, so the contract lists every registering file (`registeredIn`) and the union of
     their listeners; `file_path` is the first registering file by path.
-  - *Artisan commands.* A class declaring the name outranks the scheduler's reference to it. Two
+  - _Artisan commands._ A class declaring the name outranks the scheduler's reference to it. Two
     files declaring one name are each stored file-qualified
     (`opb:command:report:send#file:<path>`); the scheduler's reference stays on the bare name.
-  - *Jobs.* One boundary per job class. A scheduler declaration outranks a dispatch-site
+  - _Jobs._ One boundary per job class. A scheduler declaration outranks a dispatch-site
     inference. The `HANDLED_BY` edge from a job to its class is shared by every site that reaches
     the job, so it states no transport; each site's transport is on its own `DISPATCHES` (or the
     scheduler's `TRIGGERS`) edge.

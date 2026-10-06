@@ -15,6 +15,7 @@ import { runLux } from './helpers/determinism.js';
 //   goes-silent         answers five textDocument/documentSymbol requests, then nothing at all
 //   reject-all          answers every textDocument/* and typeHierarchy/* request with an error
 //   method-not-found    answers prepareTypeHierarchy with MethodNotFound although it declared it
+//   null-symbols        answers textDocument/documentSymbol with null, as for a document not open
 //   healthy             answers everything
 const FAKE_SERVER = `
 const mode = process.argv[2];
@@ -46,7 +47,10 @@ process.stdin.on('data', (chunk) => {
       send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Unhandled method' } });
     } else if (message.method === 'textDocument/definition') {
       if (mode === 'crash-on-definition') process.exit(1);
-      if (mode !== 'silent-definition') send({ jsonrpc: '2.0', id: message.id, result: null });
+      // [] is intelephense's "no target" for an open document; null means it was not open.
+      if (mode !== 'silent-definition') send({ jsonrpc: '2.0', id: message.id, result: [] });
+    } else if (message.method === 'textDocument/documentSymbol' && mode === 'null-symbols') {
+      send({ jsonrpc: '2.0', id: message.id, result: null });
     } else if (message.method === 'textDocument/documentSymbol') {
       symbolsAnswered++;
       send({ jsonrpc: '2.0', id: message.id, result: [{ name: 'A', kind: 5, range: range(4), selectionRange: range(4) }] });
@@ -80,6 +84,7 @@ const MODES = [
   'goes-silent',
   'reject-all',
   'method-not-found',
+  'null-symbols',
   'healthy',
 ];
 const outputByMode: Record<string, string> = {};
@@ -231,6 +236,23 @@ describe('LSP failures reach index status --json', () => {
     expect(outputByMode['method-not-found']).toMatch(
       /Warning: LSP output incomplete — capability: php textDocument\/prepareTypeHierarchy/
     );
+  });
+
+  it('records every file whose documentSymbol answer was null, not "no symbols"', () => {
+    const empty = failuresByMode['null-symbols'].filter((f) => f.stage === 'symbols');
+    expect(empty.map((f) => f.filePath).sort()).toEqual(
+      [...CALLERS.map((c) => `src/${c}.php`), 'src/Service.php'].sort()
+    );
+    expect(empty[0]).toEqual({
+      filePath: 'src/Caller00.php',
+      stage: 'symbols',
+      reason: 'empty',
+      method: 'textDocument/documentSymbol',
+    });
+    expect(outputByMode['null-symbols']).toMatch(
+      /Warning: LSP output incomplete — symbols: 21 file\(s\) \(empty\)/
+    );
+    expect(outputByMode['null-symbols']).toMatch(/⚠ index rebuild complete/);
   });
 
   it('records nothing, and closes clean, when the server answers everything', () => {

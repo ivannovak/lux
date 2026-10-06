@@ -25,7 +25,7 @@ const STAGES: ReadonlyArray<LspEnrichmentFailure['stage']> = [
 
 /** Why a file was not enriched. The raw message is not kept: it carries per-run request ids. */
 export type LspEnrichmentFailureReason =
-  'timeout' | 'transport' | 'error' | 'response' | 'unresponsive';
+  'timeout' | 'transport' | 'error' | 'response' | 'unresponsive' | 'empty';
 
 const REASONS: readonly LspEnrichmentFailureReason[] = [
   'timeout',
@@ -33,7 +33,11 @@ const REASONS: readonly LspEnrichmentFailureReason[] = [
   'error',
   'response',
   'unresponsive',
+  'empty',
 ];
+
+/** How an answer that said nothing where the source has something is worded; see empty-answer.ts. */
+const EMPTY_ANSWER = /^(\S+) answered (?:null|empty)\b/;
 
 /** How the client words a server that stopped answering; the language is its first word. */
 const STOPPED_ANSWERING = /^(\S+) language server stopped answering/;
@@ -48,7 +52,10 @@ export interface LspEnrichmentFailure {
   stage: 'symbols' | 'calls' | 'index' | 'init' | 'capability';
   /** The language server an `index`, `init` or `capability` entry is about. */
   languageId?: string;
-  /** For a `response` reason: the request the server answered with an error, and its code. */
+  /**
+   * For a `response` reason: the request the server answered with an error, and its code. For an
+   * `empty` reason: the request it answered with nothing, twice, for a file that has something.
+   */
   method?: string;
   code?: number;
   /** For an `error` reason: what was thrown, since no other field says. */
@@ -63,6 +70,7 @@ export interface LspEnrichmentFailure {
 
 export function classifyLspEnrichmentError(message: string): LspEnrichmentFailureReason {
   if (STOPPED_ANSWERING.test(message)) return 'unresponsive';
+  if (EMPTY_ANSWER.test(message)) return 'empty';
   if (/timed out/i.test(message)) return 'timeout';
   if (/exited unexpectedly|shut down|not writable|process error|is not running/i.test(message)) {
     return 'transport';
@@ -285,8 +293,9 @@ export function lostServerFailure(
 /** The reason a failure message classifies as, with the message itself kept for an `error`. */
 function reasonOf(
   message: string
-): Pick<LspEnrichmentFailure, 'reason' | 'message' | 'languageId'> {
+): Pick<LspEnrichmentFailure, 'reason' | 'message' | 'languageId' | 'method'> {
   const reason = classifyLspEnrichmentError(message);
+  if (reason === 'empty') return { reason, method: EMPTY_ANSWER.exec(message)?.[1] };
   if (reason === 'unresponsive')
     return { reason, languageId: STOPPED_ANSWERING.exec(message)?.[1] };
   return reason === 'error' ? { reason, message } : { reason };
