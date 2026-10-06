@@ -22,7 +22,8 @@ vi.mock('../adapters/worker-host.js', async (importOriginal) => {
   };
 });
 
-const { generalScan } = await import('../general.js');
+const { generalScan, GeneralScanner } = await import('../general.js');
+const { analyzeProgram } = await import('../adapters/program-analysis.js');
 
 const dirs: string[] = [];
 
@@ -58,5 +59,9 @@ describe('generalScan — parser worker that fails to start', () => {
     expect(result.warnings.filter((message) => message.includes('failed to start'))).toHaveLength(
       2
     );
+
+    // Each unparsed file is one failure diagnostic, which is what coverage counts: five, not ten.
+    const analysis = await analyzeProgram(await new GeneralScanner(repo).scan(), repo);
+    expect(analysis.diagnostics.filter((item) => item.code === 'start-timeout')).toHaveLength(5);
   });
 });
