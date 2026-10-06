@@ -4,9 +4,8 @@
 // queries for PHP files. Enrichment results are structured for storage in
 // metadata.lsp fields on indexed entities.
 
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { readFileSync } from 'fs';
+import { createRunStorage, removeRunStorage } from './run-storage.js';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { DocumentSymbol, Location, TypeHierarchyItem } from 'vscode-languageserver-protocol';
 import { LspClient } from './client.js';
@@ -180,10 +179,10 @@ export class PhpLspEnricher implements LspEnricher {
     // intelephense keeps its workspace index in a storage directory (by default
     // $TMPDIR/intelephense/<workspace hash>) and starts from it on the next run, so answers depended
     // on what an earlier run left there; a stale state stalled indexing outright. Each run gets a
-    // fresh directory, removed at shutdown: re-indexing costs seconds, and the index is then a
-    // function of the workspace alone. A directory under .lux/ would persist across rebuilds, which
+    // fresh directory, removed at shutdown or process exit (lsp/run-storage.ts): re-indexing costs
+    // seconds, and the index is then a function of the workspace alone. A directory under .lux/ would persist across rebuilds, which
     // is the dependence being removed.
-    this.storagePath = mkdtempSync(join(tmpdir(), 'lux-intelephense-'));
+    this.storagePath = createRunStorage('lux-intelephense-');
     this._indexIncomplete = false;
 
     this.client = new LspClient({
@@ -264,7 +263,7 @@ export class PhpLspEnricher implements LspEnricher {
 
   private removeStorage(): void {
     if (!this.storagePath) return;
-    rmSync(this.storagePath, { recursive: true, force: true });
+    removeRunStorage(this.storagePath);
     this.storagePath = undefined;
   }
 

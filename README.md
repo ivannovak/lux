@@ -196,15 +196,23 @@ environmental inputs below are pinned:
   | `symbols`    | the file's LSP enrichment, or one request of it                        |
   | `calls`      | the file's LSP-resolved call edges, or one request of them             |
 
-  `reason` is `timeout` (after one retry), `transport` (the server died; every later request
-  fails the same way, so each file it leaves without data is recorded), `response` (the server
-  answered a request with an error; the entry carries the `method` and `code`), or `error`. A
+  `reason` is one of:
+  - `timeout` — the request got no answer in `request_timeout_ms`, after one retry;
+  - `transport` — the server died. Every later request fails the same way, so each file it leaves
+    without data is recorded; a server that dies before its language's files come up is recorded
+    once for the language, at stage `init`;
+  - `response` — the server answered a request with an error; the entry carries the `method` and
+    `code`;
+  - `error` — anything else that was thrown (a Lux defect, or a failure the three above do not
+    name); the entry carries the `message`, and the warning line quotes the first one. A
   request for a capability the server did not declare is never sent, and is not a failure. An
   error answer counts as an empty result only if it is on the allowlist in
   `src/scanner/lsp/requester.ts`, whose entries each cite why that answer means "nothing here".
 
   intelephense is started with a fresh storage directory each run (its default keeps the workspace
-  index in `$TMPDIR/intelephense/` between runs) and pinned `files.exclude` settings, and
+  index in `$TMPDIR/intelephense/` between runs; Lux's is `$TMPDIR/lux-intelephense-<pid>-*`,
+  removed at shutdown or process exit, and swept by the next run if the process was killed
+  outright) and pinned `files.exclude` settings, and
   enrichment waits for its `indexingEnded` notification. typescript-language-server is started
   without its syntax-only server and without automatic type acquisition.
 

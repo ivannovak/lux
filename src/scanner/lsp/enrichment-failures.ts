@@ -37,6 +37,8 @@ export interface LspEnrichmentFailure {
   /** For a `response` reason: the request the server answered with an error, and its code. */
   method?: string;
   code?: number;
+  /** For an `error` reason: what was thrown, since no other field says. */
+  message?: string;
   reason: LspEnrichmentFailureReason;
 }
 
@@ -126,7 +128,7 @@ export function failedStartFailure(languageId: string, message: string): LspEnri
   return {
     filePath: WORKSPACE,
     stage: 'init',
-    reason: classifyLspEnrichmentError(message),
+    ...reasonOf(message),
     languageId,
   };
 }
@@ -170,6 +172,8 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
     const entries = sortFailures(failures.filter((failure) => failure.stage === stage));
     if (entries.length === 0) continue;
     const reasons = [...new Set(entries.map((entry) => entry.reason))].sort().join(', ');
+    // Timeouts, lost transports and error answers explain themselves; anything else is shown.
+    const thrown = entries.find((entry) => entry.reason === 'error' && entry.message)?.message;
     const detail =
       stage === 'symbols' || stage === 'calls'
         ? fileStageDetail(entries, reasons)
@@ -183,7 +187,8 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
             .sort()
             .join(', ') + ` (${reasons})`;
     lines.push(
-      `LSP output incomplete — ${stage}: ${detail}; see lspEnrichmentFailures in \`lux index status --json\`.`
+      `LSP output incomplete — ${stage}: ${detail}${thrown ? ` — first error: ${thrown}` : ''}; ` +
+        'see lspEnrichmentFailures in `lux index status --json`.'
     );
   }
   return lines;
@@ -194,4 +199,35 @@ function fileStageDetail(entries: readonly LspEnrichmentFailure[], reasons: stri
   const files = [...new Set(entries.map((entry) => entry.filePath))];
   const more = files.length > 3 ? ', …' : '';
   return `${files.length} file(s) (${reasons}), e.g. ${files.slice(0, 3).join(', ')}${more}`;
+}
+
+/**
+ * The entry for a server that started and has since died, found when its language's files come up
+ * for enrichment: none of them is asked about, so the language is recorded, once. `started` is the
+ * set of languages whose server started; the language is taken out of it so it is recorded once.
+ */
+export function lostServerFailure(
+  enricher: { languageId: string; isReady: boolean },
+  started: Set<string>
+): LspEnrichmentFailure | undefined {
+  if (enricher.isReady || !started.delete(enricher.languageId)) return undefined;
+  return failedStartFailure(
+    enricher.languageId,
+    `${enricher.languageId} language server is not running`
+  );
+}
+
+/** The reason a failure message classifies as, with the message itself kept for an `error`. */
+function reasonOf(message: string): Pick<LspEnrichmentFailure, 'reason' | 'message'> {
+  const reason = classifyLspEnrichmentError(message);
+  return reason === 'error' ? { reason, message } : { reason };
+}
+
+/** The entry for one file a stage could not complete, from the message of what went wrong. */
+export function fileFailure(
+  filePath: string,
+  stage: 'symbols' | 'calls',
+  message: string
+): LspEnrichmentFailure {
+  return { filePath, stage, ...reasonOf(message) };
 }

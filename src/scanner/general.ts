@@ -35,9 +35,10 @@ import { WarningLog, warnSink, type WarnFn } from './reporter.js';
 import { parseMarkdownSource, unreadableWarning } from './markdown.js';
 import { canonicalScanOrder, compareCodeUnits } from './scan-order.js';
 import {
-  classifyLspEnrichmentError,
   failedStartFailure,
+  fileFailure,
   incompleteIndexFailure,
+  lostServerFailure,
   requestIssueFailures,
   summarizeLspFailures,
   type LspEnrichmentFailure,
@@ -630,6 +631,8 @@ export async function generalScan(
   const callResolutionErrors: Array<{ filePath: string; error: string }> = [];
   const incompleteIndexes: string[] = [];
   const failedEnrichers: Array<{ languageId: string; error: string }> = [];
+  const startedServers = new Set<string>();
+  const lostServers: LspEnrichmentFailure[] = [];
   let activeCount = 0;
   // Kept alive past enrichment so the typed-receiver LSP pass can query it.
   let activeRegistry: EnricherRegistry | null = null;
@@ -652,6 +655,7 @@ export async function generalScan(
           report(`Initializing ${enricher.languageId} enricher...`);
           await enricher.initialize(workspaceRoot);
           activeCount++;
+          startedServers.add(enricher.languageId);
           if (enricher.indexIncomplete) {
             incompleteIndexes.push(enricher.languageId);
             report(
@@ -688,7 +692,13 @@ export async function generalScan(
       //    alone meets the REQ-3 app-build target; B+D+E carry the rest.
       for (const [languageId, filePaths] of filesToEnrich) {
         const enricher = registry.get(languageId);
-        if (!enricher?.isReady) continue;
+        if (!enricher?.isReady) {
+          // A server that started and died before its files came up leaves the whole language
+          // without LSP data; skipping it without a record would read as complete output.
+          const lost = enricher && lostServerFailure(enricher, startedServers);
+          if (lost) lostServers.push(lost);
+          continue;
+        }
 
         report(`Enriching ${filePaths.length} ${languageId} files (bounded parallel)...`);
 
@@ -876,17 +886,12 @@ export async function generalScan(
       : absolutePath;
   const lspFailures: LspEnrichmentFailure[] = [
     ...failedEnrichers.map((failure) => failedStartFailure(failure.languageId, failure.error)),
+    ...lostServers,
     ...incompleteIndexes.map(incompleteIndexFailure),
-    ...errors.map((error) => ({
-      filePath: toRelative(error.filePath),
-      stage: 'symbols' as const,
-      reason: classifyLspEnrichmentError(error.error),
-    })),
-    ...callResolutionErrors.map((error) => ({
-      filePath: toRelative(error.filePath),
-      stage: 'calls' as const,
-      reason: classifyLspEnrichmentError(error.error),
-    })),
+    ...errors.map((error) => fileFailure(toRelative(error.filePath), 'symbols', error.error)),
+    ...callResolutionErrors.map((error) =>
+      fileFailure(toRelative(error.filePath), 'calls', error.error)
+    ),
     ...requestIssueFailures(activeRegistry?.drainRequestIssues() ?? [], toRelative),
   ];
   for (const line of summarizeLspFailures(lspFailures)) warn(line, 'lsp-output');

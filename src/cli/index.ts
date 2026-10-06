@@ -26,10 +26,11 @@ import type { ScopedDecision } from '../scanner/sync-escalation.js';
 import { persistStructuralConfigFingerprint } from '../scanner/config-fingerprint.js';
 import { buildIndexStatusPayload } from './status-payload.js';
 import {
-  classifyLspEnrichmentError,
   failedStartFailure,
+  fileFailure,
   incompleteIndexFailure,
   loadLspEnrichmentFailures,
+  lostServerFailure,
   mergeLspEnrichmentFailures,
   requestIssueFailures,
   summarizeLspFailures,
@@ -938,11 +939,13 @@ indexCmd
               });
               const registry = buildRegistry(config.lsp.enrichers, warn);
               const lspFailures: LspEnrichmentFailure[] = [];
+              const startedServers = new Set<string>();
 
               const workspaceRoot = config.lsp.workspaceRoot ?? corpusPath;
               for (const enricher of registry.getAll()) {
                 try {
                   await enricher.initialize(workspaceRoot);
+                  startedServers.add(enricher.languageId);
                   if (enricher.indexIncomplete) {
                     lspFailures.push(incompleteIndexFailure(enricher.languageId));
                   }
@@ -968,18 +971,23 @@ indexCmd
               for (const filePath of sourceFilesToEnrich) {
                 const ext = path.extname(filePath);
                 const enricher = registry.getByExtension(ext);
-                if (!enricher?.isReady) continue;
+                if (!enricher?.isReady) {
+                  // Started, then died: its files are skipped, so the language is recorded.
+                  const lost = enricher && lostServerFailure(enricher, startedServers);
+                  if (lost) lspFailures.push(lost);
+                  continue;
+                }
                 try {
                   const result = await enricher.enrich(filePath);
                   if (result) enrichmentMap.set(filePath, result);
                 } catch (error) {
-                  lspFailures.push({
-                    filePath: toRelative(filePath),
-                    stage: 'symbols',
-                    reason: classifyLspEnrichmentError(
+                  lspFailures.push(
+                    fileFailure(
+                      toRelative(filePath),
+                      'symbols',
                       error instanceof Error ? error.message : String(error)
-                    ),
-                  });
+                    )
+                  );
                 }
               }
               lspFailures.push(...requestIssueFailures(registry.drainRequestIssues(), toRelative));

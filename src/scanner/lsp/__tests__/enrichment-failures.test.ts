@@ -151,7 +151,13 @@ describe('LSP enrichment failure record', () => {
     });
     persistCoverageProducerRuns(db, scan);
     expect(loadLspEnrichmentFailures(db)).toEqual([
-      { filePath: '.', stage: 'calls', reason: 'error' },
+      { filePath: '.', stage: 'calls', reason: 'error', message: 'unexpected server state' },
+    ]);
+    // An `error` says nothing by its reason, so the summary line carries what was thrown.
+    expect(summarizeLspFailures(loadLspEnrichmentFailures(db))).toEqual([
+      expect.stringContaining(
+        'calls: 1 file(s) (error), e.g. . — first error: unexpected server state;'
+      ),
     ]);
     db.close();
   });

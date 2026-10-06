@@ -51,10 +51,11 @@ import { buildAstSymbolNodes } from '../ast/symbols.js';
 import { collectSymbolDeclarations } from '../identity/symbol-census.js';
 import { bareSymbolId, SymbolIdCollisions } from '../identity/symbol-collisions.js';
 import {
-  classifyLspEnrichmentError,
   failedStartFailure,
+  fileFailure,
   incompleteIndexFailure,
   loadLspEnrichmentFailures,
+  lostServerFailure,
   requestIssueFailures,
   summarizeLspFailures,
   type LspEnrichmentFailure,
@@ -616,6 +617,7 @@ async function runLspTier(
 }> {
   const enrichments: EnrichmentMap = new Map();
   const failures: LspEnrichmentFailure[] = [];
+  const startedServers = new Set<string>();
   const toRelative = (absolutePath: string): string =>
     absolutePath.startsWith(rootPath + '/')
       ? absolutePath.slice(rootPath.length + 1)
@@ -640,6 +642,7 @@ async function runLspTier(
       try {
         await e.initialize(workspaceRoot);
         active++;
+        startedServers.add(e.languageId);
         reporter.ran(`enricher:${e.languageId}`);
         if (e.indexIncomplete) failures.push(incompleteIndexFailure(e.languageId));
       } catch (error) {
@@ -659,18 +662,19 @@ async function runLspTier(
       if (k.type !== 'source-code' || !k.content) continue;
       const lang = langForFile(k.filePath);
       const enricher = lang ? registry.get(lang === 'php' ? 'php' : 'typescript') : undefined;
-      if (!enricher?.isReady) continue;
+      if (!enricher?.isReady) {
+        // Started, then died: the language's files are skipped, so the language is recorded.
+        const lost = enricher && lostServerFailure(enricher, startedServers);
+        if (lost) failures.push(lost);
+        continue;
+      }
       try {
         const r = await enricher.enrich(k.filePath);
         if (r) enrichments.set(k.filePath, r);
       } catch (error) {
         // Isolated: the file stays unenriched, and is recorded as such.
         const message = error instanceof Error ? error.message : String(error);
-        failures.push({
-          stage: 'symbols',
-          filePath: toRelative(k.filePath),
-          reason: classifyLspEnrichmentError(message),
-        });
+        failures.push(fileFailure(toRelative(k.filePath), 'symbols', message));
       }
     }
 
@@ -691,11 +695,7 @@ async function runLspTier(
         resolveExternalTarget,
         symbolCollisions,
         onTransientFailure: (filePath, error) =>
-          failures.push({
-            stage: 'calls',
-            filePath: toRelative(filePath),
-            reason: classifyLspEnrichmentError(error.message),
-          }),
+          failures.push(fileFailure(toRelative(filePath), 'calls', error.message)),
       }
     );
     failures.push(...requestIssueFailures(registry.drainRequestIssues(), toRelative));
