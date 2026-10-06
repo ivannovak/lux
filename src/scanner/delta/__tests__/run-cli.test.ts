@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('runDeltaCli exit idiom (Decision 6)', () => {
-  it('on a computeDelta refusal: closes the read-only db and sets exitCode without process.exit or usage writes', () => {
+  it('on a computeDelta refusal: closes the read-only db and sets exitCode without process.exit or usage writes', async () => {
     const corpus = join(root, 'plain'); // exists, but not a git repo → not-a-git-repo refusal
     const program = { opts: () => ({ corpus, db: dbPath }) } as unknown as Command;
 
@@ -44,7 +44,7 @@ describe('runDeltaCli exit idiom (Decision 6)', () => {
     // --check turns not-a-git-repo into a hard refusal from inside computeDelta (analysis mode
     // would degrade it to an empty report). This is the refusal branch that still instruments +
     // closes (run.ts:208-225) — the Decision-6 acceptance path.
-    runDeltaCli(program, {
+    await runDeltaCli(program, {
       depth: 6,
       maxNodes: 2000,
       maxFanout: 64,

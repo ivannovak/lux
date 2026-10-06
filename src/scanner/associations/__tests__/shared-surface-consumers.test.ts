@@ -126,6 +126,9 @@ describe('the spec targets delta hands to spec-evidence', () => {
     evidenceEdgeCount: 0,
     operationalBoundaries: [],
     orphanedNodeCount: 0,
+    symbolChanges: [],
+    precision: { fileLevelOnly: [], renamedOnly: [], cosmeticOnly: [], changedOutsideSymbols: [] },
+    walkSeeds: [],
   };
 
   it('names each declaration of a shared route, and each name resolves to that declaration', () => {

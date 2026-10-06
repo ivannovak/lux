@@ -267,3 +267,19 @@ export function getDirtyFileEntries(rootPath: string): DirtyEntry[] {
   }
   return entries.filter((e) => e.path.length > 0);
 }
+
+/** A file's content at a ref, or null when the ref does not hold it (or it is not a blob). */
+export function readFileAtRef(rootPath: string, ref: string, relPath: string): string | null {
+  assertSafeGitRef(ref);
+  try {
+    return execFileSync('git', ['show', '--end-of-options', `${ref}:${relPath}`], {
+      cwd: rootPath,
+      encoding: 'utf-8',
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    // lux-intentional-swallow: the path does not exist at this ref (added or deleted file); the caller treats that side as absent.
+    return null;
+  }
+}

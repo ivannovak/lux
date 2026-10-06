@@ -30,6 +30,9 @@ function input(symbolIds: string[]): AssembleInput {
     evidenceEdgeCount: 0,
     operationalBoundaries: [],
     orphanedNodeCount: 0,
+    symbolChanges: [],
+    precision: { fileLevelOnly: [], renamedOnly: [], cosmeticOnly: [], changedOutsideSymbols: [] },
+    walkSeeds: symbolIds,
   };
   const downstream: DownstreamResult = {
     entrySurfaces: [],

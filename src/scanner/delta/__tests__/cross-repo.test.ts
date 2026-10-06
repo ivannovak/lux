@@ -79,6 +79,15 @@ function edge(
   });
 }
 
+/** The kernel file: a namespaced class whose method changes, and a global helper that changes. */
+function offerService(version: number): string {
+  return (
+    `<?php\nnamespace Acme\\Core {\n    class OfferService\n    {\n` +
+    `        public function show() { return ${version}; }\n    }\n}\n` +
+    `namespace {\n    function helper() { return ${version}; }\n}\n`
+  );
+}
+
 /** A sibling `.lux` with route --handled_by--> controller --calls--> the shared kernel FQCN. */
 function makeResSibling(path: string): void {
   const db = new LuxDatabase(path);
@@ -96,17 +105,17 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surface', () => {
-  it('reports the sibling HTTP surface via structural-walk with honest hops/confidence + seeds', () => {
+  it('reports the sibling HTTP surface via structural-walk with honest hops/confidence + seeds', async () => {
     // Primary (kernel) git corpus: a committed change to src/OfferService.php, whose FQCN + a
     // bare-name helper both live in the primary .lux keyed under that file.
     const kernel = join(root, 'kernel');
     initRepo(kernel);
     mkdirSync(join(kernel, 'src'), { recursive: true });
-    writeFileSync(join(kernel, 'src', 'OfferService.php'), '<?php // v1');
+    writeFileSync(join(kernel, 'src', 'OfferService.php'), offerService(1));
     git(kernel, ['add', '-A']);
     git(kernel, ['commit', '-q', '-m', 'base']);
     const base = git(kernel, ['rev-parse', 'HEAD']);
-    writeFileSync(join(kernel, 'src', 'OfferService.php'), '<?php // v2');
+    writeFileSync(join(kernel, 'src', 'OfferService.php'), offerService(2));
     git(kernel, ['add', '-A']);
     git(kernel, ['commit', '-q', '-m', 'change offer service']);
 
@@ -119,7 +128,7 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
     node(kdb, FQCN, { filePath: 'src/OfferService.php' });
     node(kdb, HELPER, { filePath: 'src/OfferService.php' }); // bare-name → excluded from seeds
 
-    const result = computeDelta(kdb, kernel, opts({ committedOnly: true, against: ['res'] }));
+    const result = await computeDelta(kdb, kernel, opts({ committedOnly: true, against: ['res'] }));
     kdb.close();
 
     expect('report' in result).toBe(true);
@@ -130,7 +139,9 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
     const s = cri!.siblings[0];
     expect(s.name).toBe('res');
     expect(s.attached).toBe(true);
-    expect(s.seedsTotal).toBe(1); // only the FQCN — the bare-name helper is repo-local, not a seed
+    // The changed method and the class around it; the bare-name helper changed too but is
+    // repo-local, not a seed.
+    expect(s.seedsTotal).toBe(2);
     expect(s.seedsMatched).toBe(1);
     expect(s.entrySurfaces).toEqual([
       {
@@ -149,13 +160,13 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
     // text render (analysis default) surfaces the cross-repo impact, not only --json
     const text = renderDeltaText(result.report);
     expect(text).toContain('cross-repo impact');
-    expect(text).toContain('res: 1/1 seed(s) matched');
+    expect(text).toContain('res: 1/2 seed(s) matched');
     expect(text).toContain(ROUTE);
   });
 });
 
 describe('cross-repo delta — no deadlock after a prior primary-side write (MCP long-lived server)', () => {
-  it('resolves the sibling surface even when the primary handle has already written (usage-event/migration)', () => {
+  it('resolves the sibling surface even when the primary handle has already written (usage-event/migration)', async () => {
     // The intersection must NOT ATTACH the sibling onto the primary: a prior cached write on the
     // primary handle leaves node-sqlite3-wasm unable to DETACH, deadlocking the sibling open on the
     // busy-timeout. This exercises that exact path directly (a fast assert — a regression would hang
@@ -180,6 +191,14 @@ describe('cross-repo delta — no deadlock after a prior primary-side write (MCP
       evidenceEdgeCount: 0,
       operationalBoundaries: [],
       orphanedNodeCount: 0,
+      symbolChanges: [],
+      precision: {
+        fileLevelOnly: [],
+        renamedOnly: [],
+        cosmeticOnly: [],
+        changedOutsideSymbols: [],
+      },
+      walkSeeds: [FQCN],
     };
     const { impact } = computeCrossRepoImpact(primary, corpus, touch, ['res'], budget());
     primary.close();
@@ -192,7 +211,7 @@ describe('cross-repo delta — no deadlock after a prior primary-side write (MCP
 });
 
 describe('cross-repo delta — portable-seed law (peer vs kernel; bare/path excluded)', () => {
-  it('a peer receives portable FQCNs only; a kernel additionally receives http surfaces', () => {
+  it('a peer receives portable FQCNs only; a kernel additionally receives http surfaces', async () => {
     // Direct computeCrossRepoImpact with a synthetic touch carrying all four id classes. Empty
     // sibling dbs → seedsMatched:0, but seedsTotal reflects exactly the filtered seed set.
     const corpus = join(root, 'primary');
@@ -220,6 +239,14 @@ describe('cross-repo delta — portable-seed law (peer vs kernel; bare/path excl
       evidenceEdgeCount: 0,
       operationalBoundaries: [],
       orphanedNodeCount: 0,
+      symbolChanges: [],
+      precision: {
+        fileLevelOnly: [],
+        renamedOnly: [],
+        cosmeticOnly: [],
+        changedOutsideSymbols: [],
+      },
+      walkSeeds: [FQCN, 'surface:http:GET:/x', HELPER, 'file:routes/web.php'],
     };
 
     const { impact } = computeCrossRepoImpact(primary, corpus, touch, ['res', 'core'], budget());
@@ -247,7 +274,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
     return { corpus, db };
   }
 
-  it('unregistered / db-absent / schema-skew / worktree-missing each degrade + fail --check', () => {
+  it('unregistered / db-absent / schema-skew / worktree-missing each degrade + fail --check', async () => {
     for (const cls of ['unregistered', 'db-absent', 'schema-skew', 'worktree-missing'] as const) {
       const { corpus, db } = makeCorpus();
       let againstName = 'phantom';
@@ -279,7 +306,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
       }
 
       // analysis mode: degrades to a report with the sibling attached:false + a refusal string.
-      const analysis = computeDelta(
+      const analysis = await computeDelta(
         db,
         corpus,
         opts({ committedOnly: true, against: [againstName] })
@@ -295,7 +322,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
       }
 
       // --check: the same unresolvable sibling becomes a hard config-error refusal (nonzero exit).
-      const checked = computeDelta(
+      const checked = await computeDelta(
         db,
         corpus,
         opts({ committedOnly: true, against: [againstName], check: true })
@@ -310,7 +337,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
     }
   });
 
-  it('a corrupt / non-lux db: sibling degrades in analysis and refuses under --check (FIX 1)', () => {
+  it('a corrupt / non-lux db: sibling degrades in analysis and refuses under --check (FIX 1)', async () => {
     // The path exists but is not a readable Lux index. FIX 1b catches this at resolve time as a
     // `db-unreadable` refusal (no raw throw escapes computeDelta); analysis degrades (attached:false
     // + trust warning, exit-0-equivalent report) and --check turns it into a config-error refusal.
@@ -320,7 +347,11 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
     writeFileSync(bogus, 'not a sqlite database at all');
     writeFileSync(join(corpus, 'lux.yaml'), `siblings:\n  bad:\n    db: ${bogus}\n`);
 
-    const analysis = computeDelta(db, corpus, opts({ committedOnly: true, against: ['bad'] }));
+    const analysis = await computeDelta(
+      db,
+      corpus,
+      opts({ committedOnly: true, against: ['bad'] })
+    );
     expect('report' in analysis).toBe(true);
     if ('report' in analysis) {
       const s = analysis.report.crossRepoImpact?.siblings[0];
@@ -330,7 +361,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
       expect(analysis.report.trust.warnings.some((w) => w.includes('bad'))).toBe(true);
     }
 
-    const checked = computeDelta(
+    const checked = await computeDelta(
       db,
       corpus,
       opts({ committedOnly: true, against: ['bad'], check: true })
@@ -345,7 +376,7 @@ describe('cross-repo delta — SC-8: every refusal class degrades + refuses unde
 });
 
 describe('cross-repo delta — a post-resolve open fault isolates to that sibling (FIX 1)', () => {
-  it('degrades the faulted sibling, still processes the healthy one, and closes its handle', () => {
+  it('degrades the faulted sibling, still processes the healthy one, and closes its handle', async () => {
     // Both siblings RESOLVE cleanly (valid, current-schema indexes). Simulate a fault that only
     // surfaces on the post-resolve open — a cross-process busy-timeout / TOCTOU re-index — for one of
     // them. FIX 1 must degrade THAT sibling (refusal, no throw), keep processing the healthy sibling
@@ -381,6 +412,14 @@ describe('cross-repo delta — a post-resolve open fault isolates to that siblin
       evidenceEdgeCount: 0,
       operationalBoundaries: [],
       orphanedNodeCount: 0,
+      symbolChanges: [],
+      precision: {
+        fileLevelOnly: [],
+        renamedOnly: [],
+        cosmeticOnly: [],
+        changedOutsideSymbols: [],
+      },
+      walkSeeds: [FQCN],
     };
     const { impact, refusals } = computeCrossRepoImpact(
       primary,

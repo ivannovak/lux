@@ -89,7 +89,7 @@ describe('delta read-only structural invariant (SC-7, Decision 14 — row-count 
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it('leaves structural_nodes / structural_edges / ownership byte-identical across analysis AND check runs', () => {
+  it('leaves structural_nodes / structural_edges / ownership byte-identical across analysis AND check runs', async () => {
     const before = structuralSnapshot(db);
     // sanity: the fixture actually has the rows we intend to protect.
     expect(before.nodeCount).toBe(2);
@@ -97,7 +97,7 @@ describe('delta read-only structural invariant (SC-7, Decision 14 — row-count 
     expect(before.ownershipDigest).toBe('edge:handled=client-override');
 
     // analysis mode.
-    const analysis = computeDelta(db, repo, {
+    const analysis = await computeDelta(db, repo, {
       depth: 6,
       maxNodes: 2000,
       maxFanout: 64,
@@ -108,7 +108,7 @@ describe('delta read-only structural invariant (SC-7, Decision 14 — row-count 
     expect(structuralSnapshot(db)).toEqual(before);
 
     // gate mode (check:true) — a distinct code path (gate input building) that also must not write.
-    const checked = computeDelta(db, repo, {
+    const checked = await computeDelta(db, repo, {
       depth: 6,
       maxNodes: 2000,
       maxFanout: 64,

@@ -46,6 +46,10 @@ export function assembleDeltaReport(inp: AssembleInput): DeltaReportV1 {
       // past the life of the touch set.
       symbolIds: [...inp.touch.symbolIds],
       symbolSample: inp.touch.symbolIds.slice(0, 10),
+      changedSymbols: inp.touch.symbolChanges.length,
+      changedSymbolIds: inp.touch.symbolChanges.map((change) => change.id),
+      symbolChanges: inp.touch.symbolChanges,
+      precision: inp.touch.precision,
     },
     downstream: {
       entrySurfaces: inp.downstream.entrySurfaces,
@@ -81,6 +85,7 @@ export function renderDeltaText(r: DeltaReportV1): string {
       `${r.touched.surfacesDeclared} surface(s) declared · ${r.touched.evidenceEdges} evidence edge(s)` +
       (r.touched.orphanedNodes ? ` · ${r.touched.orphanedNodes} orphaned` : '')
   );
+  lines.push(`  ${changedSymbolsLine(r)}`);
   if (r.modules.changed.length) {
     lines.push(`  modules: ${r.modules.changed.join(', ')}`);
     if (r.modules.dependents.length) {
@@ -173,4 +178,31 @@ export function renderDeltaText(r: DeltaReportV1): string {
     }
   }
   return lines.join('\n');
+}
+
+/** `symbols changed: 3 of 41 in the changed files (2 modified, 1 added)` plus what needs saying. */
+function changedSymbolsLine(r: DeltaReportV1): string {
+  const counts = new Map<string, number>();
+  for (const change of r.touched.symbolChanges) {
+    counts.set(change.change, (counts.get(change.change) ?? 0) + 1);
+  }
+  const kinds = ['modified', 'added', 'removed', 'moved', 'file-level']
+    .filter((kind) => counts.has(kind))
+    .map((kind) => `${counts.get(kind)} ${kind}`);
+  const p = r.touched.precision;
+  const notes = [
+    p.changedOutsideSymbols.length
+      ? `${p.changedOutsideSymbols.length} file(s) changed outside any symbol`
+      : '',
+    p.cosmeticOnly.length
+      ? `${p.cosmeticOnly.length} file(s) changed only in comments or spacing`
+      : '',
+    p.renamedOnly.length ? `${p.renamedOnly.length} file(s) renamed without edits` : '',
+    p.fileLevelOnly.length ? `${p.fileLevelOnly.length} file(s) not attributable to symbols` : '',
+  ].filter(Boolean);
+  return (
+    `symbols changed: ${r.touched.changedSymbols} of ${r.touched.symbols} in the changed files` +
+    (kinds.length ? ` (${kinds.join(', ')})` : '') +
+    (notes.length ? ` · ${notes.join(' · ')}` : '')
+  );
 }

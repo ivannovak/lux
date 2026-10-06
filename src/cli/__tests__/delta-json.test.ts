@@ -68,8 +68,8 @@ describe('delta --json envelope schema contract (spec 15)', () => {
     if (existsSync(repo)) rmSync(repo, { recursive: true, force: true });
   });
 
-  it('emits a frozen schemaVersion:1 envelope with every top-level block', () => {
-    const result = computeDelta(db, repo, opts());
+  it('emits a frozen schemaVersion:1 envelope with every top-level block', async () => {
+    const result = await computeDelta(db, repo, opts());
     expect('report' in result).toBe(true);
     if (!('report' in result)) return;
     const r = result.report;
@@ -91,11 +91,11 @@ describe('delta --json envelope schema contract (spec 15)', () => {
     expect(r.ownership.source).toBe('unavailable');
   });
 
-  it('degrades a non-git corpus to an empty report + warning in analysis mode (Decision 18)', () => {
+  it('degrades a non-git corpus to an empty report + warning in analysis mode (Decision 18)', async () => {
     const plain = join(tmpdir(), `lux-delta-plain-${Date.now()}`);
     mkdirSync(plain, { recursive: true });
     try {
-      const result = computeDelta(db, plain, opts());
+      const result = await computeDelta(db, plain, opts());
       expect('report' in result).toBe(true);
       if (!('report' in result)) return;
       expect(result.report.schemaVersion).toBe(1);
@@ -106,11 +106,11 @@ describe('delta --json envelope schema contract (spec 15)', () => {
     }
   });
 
-  it('refuses a non-git corpus under --check (Decision 18)', () => {
+  it('refuses a non-git corpus under --check (Decision 18)', async () => {
     const plain = join(tmpdir(), `lux-delta-plain2-${Date.now()}`);
     mkdirSync(plain, { recursive: true });
     try {
-      const result = computeDelta(db, plain, opts({ check: true }));
+      const result = await computeDelta(db, plain, opts({ check: true }));
       expect('refusal' in result).toBe(true);
       if ('refusal' in result) expect(result.refusal.reason).toBe('not-a-git-repo');
     } finally {

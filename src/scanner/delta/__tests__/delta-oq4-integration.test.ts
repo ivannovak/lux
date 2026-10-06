@@ -59,7 +59,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('computeDelta OQ4 end-to-end (spec 12 / SC-5)', () => {
-  it('reports the stale-overlay file over a pointer-at-HEAD-edges-stale overlay (default base)', () => {
+  it('reports the stale-overlay file over a pointer-at-HEAD-edges-stale overlay (default base)', async () => {
     const repo = join(root, 'app');
     initRepo(repo);
     writeFileSync(join(repo, 'app.php'), '<?php // app\n');
@@ -79,7 +79,7 @@ describe('computeDelta OQ4 end-to-end (spec 12 / SC-5)', () => {
       })
     );
 
-    const result = computeDelta(db, repo, opts({ committedOnly: false }));
+    const result = await computeDelta(db, repo, opts({ committedOnly: false }));
     db.close();
 
     expect('report' in result).toBe(true);
@@ -90,7 +90,7 @@ describe('computeDelta OQ4 end-to-end (spec 12 / SC-5)', () => {
     expect(result.report.changeSet.files.some((f) => f.path === 'app.php')).toBe(true);
   });
 
-  it('an explicit --base leaves the change-set empty (overlay marks not consulted)', () => {
+  it('an explicit --base leaves the change-set empty (overlay marks not consulted)', async () => {
     const repo = join(root, 'app2');
     initRepo(repo);
     writeFileSync(join(repo, 'app.php'), '<?php // app\n');
@@ -110,7 +110,7 @@ describe('computeDelta OQ4 end-to-end (spec 12 / SC-5)', () => {
     );
 
     // explicit base == HEAD ⇒ HEAD..HEAD empty, source:'flag' ⇒ overlay marks NOT injected.
-    const result = computeDelta(db, repo, opts({ base: head, committedOnly: true }));
+    const result = await computeDelta(db, repo, opts({ base: head, committedOnly: true }));
     db.close();
 
     expect('report' in result).toBe(true);

@@ -10,6 +10,9 @@ function touchSet(over: Partial<DeltaTouchSet> = {}): DeltaTouchSet {
     evidenceEdgeCount: 0,
     operationalBoundaries: [],
     orphanedNodeCount: 0,
+    symbolChanges: [],
+    precision: { fileLevelOnly: [], renamedOnly: [], cosmeticOnly: [], changedOutsideSymbols: [] },
+    walkSeeds: [],
     ...over,
   };
 }

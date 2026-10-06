@@ -1,5 +1,6 @@
 import type { LuxDatabase } from '../../db/index.js';
 import type { DeltaChangeSet, DeltaTouchSet, TouchedNode } from './types.js';
+import type { ChangedSymbols } from './changed-symbols.js';
 
 /**
  * Resolve the touch-set from the change-set's index-join paths (Decision 3): touched nodes
@@ -8,8 +9,19 @@ import type { DeltaChangeSet, DeltaTouchSet, TouchedNode } from './types.js';
  * declaring file was DELETED is annotated `nodeState: "orphaned"` (file gone, node still indexed)
  * so a consumer distinguishes "changed" from "removed".
  */
-export function resolveTouchSet(db: LuxDatabase, changeSet: DeltaChangeSet): DeltaTouchSet {
-  const relPaths = changeSet.indexPaths;
+export function resolveTouchSet(
+  db: LuxDatabase,
+  changeSet: DeltaChangeSet,
+  changed: ChangedSymbols
+): DeltaTouchSet {
+  // A renamed file's facts are under its old path when the index sits at the base and under its
+  // new path when the index sits at the head; join on both.
+  const relPaths = [
+    ...new Set([
+      ...changeSet.indexPaths,
+      ...changeSet.files.filter((f) => f.status === 'renamed').map((f) => f.path),
+    ]),
+  ];
   const deletedPaths = new Set(
     changeSet.files.filter((f) => f.status === 'deleted').map((f) => f.renamedFrom ?? f.path)
   );
@@ -41,5 +53,8 @@ export function resolveTouchSet(db: LuxDatabase, changeSet: DeltaChangeSet): Del
     evidenceEdgeCount: evidenceEdges.length,
     operationalBoundaries,
     orphanedNodeCount,
+    symbolChanges: changed.changes,
+    precision: changed.precision,
+    walkSeeds: changed.seeds,
   };
 }
