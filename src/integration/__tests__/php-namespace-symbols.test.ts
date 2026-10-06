@@ -230,10 +230,7 @@ describe('PHP namespaces in the symbol graph', () => {
   });
 
   it('asks the server about the declarations of a block, never about a namespace or a selector', () => {
-    // The stub answers every references request with [], and an empty answer is asked twice.
-    const asked = [...new Set(referenceRequests)];
-    expect(referenceRequests).toHaveLength(asked.length * 2);
-    expect(asked).toEqual([
+    expect(referenceRequests).toEqual([
       'Bracketed.php:3', // Z, inside `namespace App\\Br { … }`
       'Bracketed.php:7', // in_global
       'One.php:4',

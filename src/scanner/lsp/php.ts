@@ -151,7 +151,6 @@ export class PhpLspEnricher implements LspEnricher {
   private storagePath: string | undefined;
   private readonly maxRefLocations: number;
   private readonly _emptyAnswers = { reasked: 0, recovered: 0 };
-  private readonly _emptyReferences = { reasked: 0, recovered: 0 };
 
   constructor(options?: PhpLspEnricherOptions) {
     this.config = {
@@ -323,11 +322,6 @@ export class PhpLspEnricher implements LspEnricher {
    */
   get emptyAnswers(): { reasked: number; recovered: number } {
     return { ...this._emptyAnswers };
-  }
-
-  /** Empty references answers asked for again, and how many then had references. */
-  get emptyReferences(): { reasked: number; recovered: number } {
-    return { ...this._emptyReferences };
   }
 
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
@@ -508,25 +502,18 @@ export class PhpLspEnricher implements LspEnricher {
       const position = symbolPosition(symbol);
       if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
-      const ask = () =>
-        this.requester!.ask<Location[] | null>(
-          { filePath, stage: 'symbols' },
-          'textDocument/references',
-          'referencesProvider',
-          {
-            textDocument: { uri },
-            position: { line: position.line, character: position.character },
-            context: { includeDeclaration: false },
-          }
-        );
-      let locations = await ask();
-      // No answer shape tells an unreferenced symbol from one the server lost track of, so an
-      // empty answer is asked for once more and the second answer is kept.
-      if (Array.isArray(locations) && locations.length === 0) {
-        this._emptyReferences.reasked++;
-        locations = await ask();
-        if (locations && locations.length > 0) this._emptyReferences.recovered++;
-      }
+      // intelephense answers [] for an unreferenced symbol and for a document it does not hold
+      // open alike, so an empty answer here cannot be checked.
+      const locations = await this.requester!.ask<Location[] | null>(
+        { filePath, stage: 'symbols' },
+        'textDocument/references',
+        'referencesProvider',
+        {
+          textDocument: { uri },
+          position: { line: position.line, character: position.character },
+          context: { includeDeclaration: false },
+        }
+      );
 
       if (locations && locations.length > 0) {
         results.push({

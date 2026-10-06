@@ -17,14 +17,12 @@ import { classifyLspEnrichmentError, fileFailure } from '../enrichment-failures.
 //   empty-once   the first documentSymbol for a document is answered [], later ones properly
 //   healthy      documentSymbol is answered with one class
 //   def-null     definition is always answered null; def-null-once only the first time
-//   refs-late    references is answered [] the first time it is asked, then one location
 const FAKE_SERVER = String.raw`
 const [mode, logFile] = [process.argv[1], process.argv[2]];
 const fs = require('fs');
 let buffer = Buffer.alloc(0);
 const asked = new Set();
 let definitionsAsked = 0;
-let referencesAsked = 0;
 const reply = (message) => {
   const body = Buffer.from(JSON.stringify(message), 'utf-8');
   process.stdout.write(Buffer.concat([Buffer.from('Content-Length: ' + body.length + '\r\n\r\n'), body]));
@@ -55,10 +53,7 @@ process.stdin.on('data', (chunk) => {
       definitionsAsked++;
       const unanswered = mode === 'def-null' || (mode === 'def-null-once' && definitionsAsked === 1);
       reply({ jsonrpc: '2.0', id: message.id, result: unanswered ? null : [{ uri: 'file:///Other.php', range: range(4) }] });
-    } else if (message.method === 'textDocument/references') {
-      referencesAsked++;
-      const late = mode === 'refs-late' && referencesAsked === 1;
-      reply({ jsonrpc: '2.0', id: message.id, result: late ? [] : mode === 'refs-late' ? [{ uri: 'file:///Other.php', range: range(4) }] : [] });
+
     } else if (message.id !== undefined && message.method) {
       reply({ jsonrpc: '2.0', id: message.id, result: message.method === 'shutdown' ? null : [] });
     } else if (message.method === 'exit') {
@@ -251,23 +246,5 @@ describe('a definition answer of null', () => {
   it('is the same for a single definition lookup', async () => {
     const { enricher, file } = await start('def-null', 'Thing.php', WITH_CLASS);
     await expect(enricher.resolveDefinition(file, 4, 20)).rejects.toThrow(/answered null/);
-  });
-});
-
-describe('an empty references answer', () => {
-  it('is asked for once more, and the second answer is kept', async () => {
-    const { enricher, file, log } = await start('refs-late', 'Thing.php', WITH_CLASS);
-    const result = await enricher.enrich(file);
-    expect(result?.references.map((entry) => entry.referenceCount)).toEqual([1]);
-    expect(enricher.emptyReferences).toEqual({ reasked: 1, recovered: 1 });
-    const seen = readFileSync(log, 'utf-8').trim().split('\n');
-    expect(seen.filter((entry) => entry.startsWith('references'))).toHaveLength(2);
-  });
-
-  it('is believed when the second answer is empty too', async () => {
-    const { enricher, file } = await start('healthy', 'Thing.php', WITH_CLASS);
-    const result = await enricher.enrich(file);
-    expect(result?.references).toEqual([]);
-    expect(enricher.emptyReferences).toEqual({ reasked: 1, recovered: 0 });
   });
 });

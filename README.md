@@ -212,8 +212,8 @@ environmental inputs below are pinned:
     `documentSymbol` or `definition` (its answer for a document it does not hold open; an open
     document with nothing in it gets `[]`), or `[]` to `documentSymbol` for a PHP file whose
     syntax tree declares a class, interface, trait, enum, function or method. The entry carries
-    the `method`. An empty `references` answer has no such tell: it is asked once more and the
-    second answer is kept;
+    the `method`. An empty `references` answer has no such tell (intelephense answers `[]` for a
+    document it does not hold open too), so it is taken as it comes;
   - `error` — anything else that was thrown (a Lux defect, or a failure the three above do not
     name); the entry carries the `message`, and the warning line quotes the first one. A
     request for a capability the server did not declare is never sent, and is not a failure. An

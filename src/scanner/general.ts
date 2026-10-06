@@ -902,12 +902,10 @@ export async function generalScan(
     // How often an answer was not believable and asked again: the evidence the check is live.
     for (const enricher of activeRegistry.getAll()) {
       const visits = enricher.emptyAnswers;
-      const refs = enricher.emptyReferences;
-      if (visits || refs) {
+      if (visits) {
         report(
-          `${enricher.languageId}: ${visits?.reasked ?? 0} visit(s) re-run after an empty answer ` +
-            `(${visits?.recovered ?? 0} then answered); ${refs?.reasked ?? 0} empty references ` +
-            `answer(s) asked again (${refs?.recovered ?? 0} then had references).`
+          `${enricher.languageId}: ${visits.reasked} visit(s) re-run after an empty answer ` +
+            `(${visits.recovered} then answered).`
         );
       }
     }
