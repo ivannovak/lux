@@ -161,6 +161,20 @@ function ensureRollbackJournal(path: string): void {
   }
 }
 
+const DEFAULT_BUSY_TIMEOUT_MS = 30_000;
+
+/**
+ * How long a connection waits on a locked index before giving up with SQLITE_BUSY: 30 s, or
+ * `LUX_BUSY_TIMEOUT_MS` when that is a whole number of milliseconds (0 fails at once). A caller
+ * that would rather hear "locked" quickly than wait out a long writer sets it; so do tests of the
+ * refusal itself.
+ */
+export function busyTimeoutMs(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.LUX_BUSY_TIMEOUT_MS;
+  if (raw === undefined || !/^\d+$/.test(raw)) return DEFAULT_BUSY_TIMEOUT_MS;
+  return Number(raw);
+}
+
 export interface RunResult {
   changes: number;
   lastInsertRowid: number | bigint;
@@ -267,7 +281,7 @@ export class LuxSqlite {
     this.db = new WasmDb(path, { readOnly: opts.readonly, fileMustExist: opts.fileMustExist });
     // WAL is gone → the whole-file lock is held for a full write transaction; wait on it
     // generously (a large rebuild/vendor-pack merge can hold it several seconds) before SQLITE_BUSY.
-    this.db.run('PRAGMA busy_timeout = 30000');
+    this.db.run(`PRAGMA busy_timeout = ${busyTimeoutMs()}`);
     this.registered = !opts.readonly && path !== ':memory:';
     if (this.registered) registerOwner(path);
     if (path !== ':memory:') {

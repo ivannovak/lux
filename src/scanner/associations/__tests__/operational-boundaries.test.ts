@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { ScanResult } from '../../types.js';
@@ -10,7 +11,7 @@ import { LaravelSchedulerExtractor } from '../framework/laravel/scheduler.js';
 import { LaravelJobDispatchExtractor } from '../framework/laravel/jobs.js';
 import { LaravelEventListenerExtractor } from '../framework/laravel/events.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'operational-boundaries-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-operational-boundaries-test-'));
 const ROOT = '/app';
 
 function makeDb(): LuxDatabase {

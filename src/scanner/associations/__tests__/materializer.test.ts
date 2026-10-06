@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import { materializeNodes, buildFileNode, buildSymbolNodes } from '../materializer.js';
@@ -7,7 +8,7 @@ import type { ScanResult, ScannedKnowledge } from '../../types.js';
 import type { EnrichmentResult } from '../../lsp/index.js';
 import type { EnrichmentMap } from '../../general.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'materializer-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-materializer-test-'));
 const ROOT = '/app';
 
 function makeDb(): LuxDatabase {

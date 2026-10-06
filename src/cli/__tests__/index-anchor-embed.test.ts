@@ -37,10 +37,11 @@ import {
   ANCHOR_EMBED_MODEL,
   ANCHOR_EMBED_MODEL_ARTIFACTS,
 } from '../../scanner/embeddings/model-pin.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 // The real per-machine weights cache (from THIS test process's HOME). Case 3 needs it present; the
 // other two cases are independent of it.
@@ -67,15 +68,11 @@ function runCli(
 ) {
   const baseEnv = { ...process.env };
   delete baseEnv.LUX_EMBEDDING_TOKEN;
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...baseEnv, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...baseEnv, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
+  });
 }
 
 function initRepo(repoPath: string): void {

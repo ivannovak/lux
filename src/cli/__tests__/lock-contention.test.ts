@@ -13,12 +13,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_CLI = join(REPO_ROOT, 'dist', 'cli', 'index.js');
-const DIST_ADAPTER = join(REPO_ROOT, 'dist', 'db', 'sqlite-adapter.js');
-const DIST_NOTICES = join(REPO_ROOT, 'dist', 'db', 'notices.js');
-const DIST_RUN_STORAGE = join(REPO_ROOT, 'dist', 'scanner', 'lsp', 'run-storage.js');
+const DIST_CLI = built('src/cli/index.ts');
+const DIST_ADAPTER = built('src/db/sqlite-adapter.ts');
+const DIST_NOTICES = built('src/db/notices.ts');
+const DIST_RUN_STORAGE = built('src/scanner/lsp/run-storage.ts');
 
 const CLEARED = 'cleared a stale database lock';
 
@@ -121,7 +122,7 @@ function holder(mode: 'read' | 'write', holdMs: number, name: string): Holder {
   return { holding, finished };
 }
 
-describe.skipIf(!existsSync(DIST_CLI))('live processes contending for one index', () => {
+describe('live processes contending for one index', () => {
   it('a search does not clear a live reader’s lock, so writers stay one at a time', async () => {
     const reader = holder('read', 1500, 'reader');
     await reader.holding;

@@ -7,20 +7,17 @@ import { LuxDatabase } from '../../db/index.js';
 import { persistRebuildTrustState } from '../../scanner/overlay-trust-state.js';
 import type { RebuildResult } from '../../scanner/rebuild-orchestrator.js';
 import type { StructuralEdge, StructuralNode } from '../../db/types.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 function runCli(repoPath: string, dbPath: string, args: string[]) {
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+  });
 }
 function now(): number {
   return Math.floor(Date.now() / 1000);

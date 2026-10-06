@@ -1,12 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import { AssociationEngine } from '../engine.js';
 import type { StructuralRelationEdge } from '../types.js';
 import { classifyOwnership, classifyHandlerOwnership, resolveAppNamespace } from '../ownership.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'ownership-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-ownership-test-'));
 const now = () => Math.floor(Date.now() / 1000);
 
 function symbolNode(id: string, origin: 'local' | 'vendor-pack' = 'local') {

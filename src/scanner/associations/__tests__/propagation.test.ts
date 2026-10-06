@@ -1,14 +1,15 @@
 // Tests for symbolic propagation passes (provider, consumer, artifact).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import { propagateSurfaces } from '../propagation.js';
 import type { AssociationContext } from '../types.js';
 import type { StructuralNode, StructuralEdge } from '../../../db/types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'propagation-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-propagation-test-'));
 const ROOT = '/app';
 
 function makeDb(): LuxDatabase {

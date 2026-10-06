@@ -11,11 +11,12 @@ import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import { LuxDatabase } from '../../db/index.js';
 import { loadOverlayTrustState } from '../../scanner/overlay-trust-state.js';
+import { built, builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
-const FAULTS = join(__dirname, 'fixtures', 'faults', 'inject.ts');
+const CLI_ENTRY = builtCli();
+const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 
 // spawnSync blocks the event loop, so the per-call timeout is the hang guard and the per-case
 // timeout only bounds total duration; the clean-quiet case makes five LSP-backed runs.
@@ -96,18 +97,7 @@ function runLux(
   const preload = opts.faults ? ['--import', FAULTS] : [];
   const r = spawnSync(
     process.execPath,
-    [
-      '--import',
-      'tsx',
-      ...preload,
-      CLI_ENTRY,
-      ...(opts.globalArgs ?? []),
-      '--db',
-      dbPath,
-      '--corpus',
-      repo,
-      ...args,
-    ],
+    [...preload, CLI_ENTRY, ...(opts.globalArgs ?? []), '--db', dbPath, '--corpus', repo, ...args],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',

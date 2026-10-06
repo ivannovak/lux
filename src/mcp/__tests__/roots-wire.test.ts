@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,9 +10,10 @@ import {
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
 function makeFixture(parent: string, name: string, token: string): string {
   const corpus = join(parent, name);
@@ -43,7 +44,7 @@ async function eventually<T>(fn: () => Promise<T>, accept: (value: T) => boolean
   return last;
 }
 
-describe.skipIf(!existsSync(DIST_SERVER))('MCP Roots workspace selection (over the wire)', () => {
+describe('MCP Roots workspace selection (over the wire)', () => {
   let tempRoot: string;
   let first: string;
   let second: string;

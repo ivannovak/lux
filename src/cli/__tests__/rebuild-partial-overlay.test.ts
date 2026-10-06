@@ -16,10 +16,11 @@ import {
   type LspEnricherConfig,
 } from '../../scanner/lsp/index.js';
 import type { EnrichmentResult } from '../../scanner/lsp/index.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 const roots: string[] = [];
 
@@ -137,7 +138,7 @@ describe('a rebuild phase that fails part-way', () => {
 
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', dir, 'index', 'rebuild'],
+      [CLI_ENTRY, '--db', dbPath, '--corpus', dir, 'index', 'rebuild'],
       { cwd: PROJECT_ROOT, encoding: 'utf-8', env: { ...process.env, HOME: tempDir('lux-home-') } }
     );
     expect(result.status, result.stderr).toBe(0);

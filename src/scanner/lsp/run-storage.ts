@@ -5,6 +5,7 @@
 // killed outright runs no hook, so the directory name carries the owning pid and the next run
 // sweeps the directories of processes that no longer exist.
 
+import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,8 +32,19 @@ export function removeRunStorage(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
-/** Remove `<prefix><pid>-*` directories whose pid is not a running process. */
-export function sweepRunStorage(prefix: string, baseDir: string = tmpdir()): void {
+/**
+ * Remove `<prefix><pid>-*` directories whose pid is not a running process.
+ *
+ * The removal is handed to `remove`, which by default does it in a separate process and does not
+ * wait. A server's storage can hold tens of thousands of files, and a recursive synchronous delete
+ * of a few such leftovers held the main thread for minutes before the next server was even
+ * started.
+ */
+export function sweepRunStorage(
+  prefix: string,
+  baseDir: string = tmpdir(),
+  remove: (paths: string[]) => void = removeInBackground
+): void {
   let names: string[];
   try {
     names = readdirSync(baseDir);
@@ -40,12 +52,32 @@ export function sweepRunStorage(prefix: string, baseDir: string = tmpdir()): voi
     // lux-intentional-swallow: a temp directory that cannot be listed has nothing this run can sweep; creating the run's own directory in it fails loudly next.
     return;
   }
+  const leftovers: string[] = [];
   for (const name of names) {
     if (!name.startsWith(prefix)) continue;
     const pid = Number(/^(\d+)-/.exec(name.slice(prefix.length))?.[1]);
     if (!Number.isInteger(pid) || isRunning(pid)) continue;
-    rmSync(join(baseDir, name), { recursive: true, force: true });
+    leftovers.push(join(baseDir, name));
   }
+  if (leftovers.length > 0) remove(leftovers);
+}
+
+const REMOVE_SCRIPT =
+  "const fs = require('node:fs');" +
+  'for (const path of process.argv.slice(1)) fs.rmSync(path, { recursive: true, force: true });';
+
+/**
+ * Delete directories in a detached process that outlives this one. A leftover this fails to remove
+ * is still there, under its dead owner's pid, for the next run's sweep.
+ */
+function removeInBackground(paths: string[]): void {
+  const child = spawn(process.execPath, ['-e', REMOVE_SCRIPT, ...paths], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  // Without a listener a failed spawn would be an unhandled 'error'; the leftovers simply stay.
+  child.on('error', () => undefined);
+  child.unref();
 }
 
 function isRunning(pid: number): boolean {

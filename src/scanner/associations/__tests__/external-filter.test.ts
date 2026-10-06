@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { StructuralNode, StructuralEdge, NodeOrigin } from '../../../db/types.js';
@@ -9,7 +10,7 @@ import { getSurfaceFeaturePath } from '../surface-retrieval.js';
 // capability's consumers/providers/artifacts in surface-retrieval. External
 // nodes stay reachable through a trace, never as an app retrieval answer.
 
-const testDir = join(import.meta.dirname, 'fixtures', 'external-filter-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-external-filter-test-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

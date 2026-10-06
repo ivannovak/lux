@@ -1,13 +1,14 @@
 // Tests for tranche-one bounded downstream step.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../../db/index.js';
 import type { StructuralNode } from '../../../../db/types.js';
 import { findBoundedDownstreamStep } from '../downstream.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'downstream-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-downstream-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

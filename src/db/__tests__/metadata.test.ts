@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, mkdtempSync } from 'fs';
 import { LuxDatabase } from '../index.js';
 import {
   OVERLAY_TRUST_STATE_KEY,
@@ -8,9 +8,10 @@ import {
   loadOverlayTrustState,
   markOverlayTrustAfterSync,
 } from '../../scanner/overlay-trust-state.js';
+import { tmpdir } from 'node:os';
 
 describe('Index Metadata Operations', () => {
-  const testDir = join(__dirname, 'fixtures', 'metadata-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-metadata-test-'));
   const dbPath = join(testDir, 'test.db');
   let db: LuxDatabase;
 

@@ -15,12 +15,13 @@ import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { loadOverlayTrustState } from '../../scanner/overlay-trust-state.js';
+import { built, builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 const HOOK = join(PROJECT_ROOT, 'bin', 'post-commit-hook.sh');
-const FAULTS = join(__dirname, 'fixtures', 'faults', 'inject.ts');
+const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 const SOURCE_CLI = join(__dirname, 'fixtures', 'hook-cli', 'lux-from-source.sh');
 
 // spawnSync blocks the event loop, so the per-call timeout is the hang guard and the per-case
@@ -82,7 +83,7 @@ function runLux(
   const preload = opts.faults ? ['--import', FAULTS] : [];
   const r = spawnSync(
     process.execPath,
-    ['--import', 'tsx', ...preload, CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
+    [...preload, CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',
@@ -189,7 +190,8 @@ describe('scoped refresh reports what it absorbed (issue #6)', () => {
           LUX_TEST_NODE: process.execPath,
           LUX_SKIP_SYNC: '',
           LUX_TEST_FAULTS: 'laravel-detector',
-          NODE_OPTIONS: `--import tsx --import ${FAULTS}`,
+          LUX_TEST_CLI_ENTRY: CLI_ENTRY,
+          NODE_OPTIONS: `--import ${FAULTS}`,
           FORCE_COLOR: '0',
           NO_COLOR: '1',
         },

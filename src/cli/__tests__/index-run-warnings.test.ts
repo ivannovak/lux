@@ -13,10 +13,11 @@ import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 // spawnSync blocks the event loop, so the per-call timeout is the hang guard and the per-case
 // timeout only bounds total duration. An LSP-backed rebuild is the slowest call here.
@@ -51,16 +52,12 @@ function commitAll(repo: string, msg: string): string {
 }
 
 function runLux(repo: string, dbPath: string, args: string[]) {
-  const r = spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-      timeout: CALL_TIMEOUT_MS,
-    }
-  );
+  const r = spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    timeout: CALL_TIMEOUT_MS,
+  });
   if (r.error) throw new Error(`lux ${args.join(' ')} did not finish: ${r.error.message}`);
   return r;
 }

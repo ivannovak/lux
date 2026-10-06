@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync, mkdtempSync } from 'fs';
 import { generalScan } from '../../scanner/general.js';
 import { GeneralScanner } from '../../scanner/index.js';
 import { LuxDatabase } from '../../db/index.js';
 import { computeClusters } from '../../scanner/imports/clustering.js';
 import { detectModuleBoundaries, resolveModule } from '../../scanner/imports/module-boundary.js';
+import { tmpdir } from 'node:os';
 
 describe('Dependency Pipeline Integration', () => {
-  const testDir = join(__dirname, 'fixtures', 'deps-pipeline-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-deps-pipeline-test-'));
   const dbPath = join(testDir, 'test.db');
 
   beforeEach(() => {

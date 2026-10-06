@@ -2,7 +2,7 @@
 // whatever directory the server process runs in (issue #16).
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -11,11 +11,12 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
-describe.skipIf(!existsSync(DIST_SERVER))('MCP paths are corpus-relative (over the wire)', () => {
+describe('MCP paths are corpus-relative (over the wire)', () => {
   let root: string;
   let corpus: string;
   let client: Client;

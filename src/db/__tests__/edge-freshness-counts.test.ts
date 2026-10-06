@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../index.js';
 import type { StructuralEdge } from '../types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'edge-freshness-counts');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-edge-freshness-counts-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

@@ -4,10 +4,11 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 function git(repoPath: string, command: string): string {
   return execSync(command, {
@@ -18,19 +19,15 @@ function git(repoPath: string, command: string): string {
 }
 
 function runCli(repoPath: string, dbPath: string, args: string[]) {
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: {
-        ...process.env,
-        FORCE_COLOR: '0',
-        NO_COLOR: '1',
-      },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      FORCE_COLOR: '0',
+      NO_COLOR: '1',
+    },
+  });
 }
 
 describe('index status trust diagnostics', () => {

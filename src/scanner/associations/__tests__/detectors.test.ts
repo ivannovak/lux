@@ -1,14 +1,15 @@
 // Tests for CapabilitySurfaceDetector contract and LaravelHttpSurfaceDetector.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import { LaravelHttpSurfaceDetector } from '../detectors/laravel-http.js';
 import { runDetectors, createDefaultDetectors } from '../detectors/index.js';
 import type { AssociationContext } from '../types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'detectors-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-detectors-test-'));
 const ROOT = '/app';
 
 function makeDb(): LuxDatabase {

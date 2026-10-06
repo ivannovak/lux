@@ -1,7 +1,8 @@
 // Tests for tranche-one cross-language promotion threshold (T9, R10).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../../db/index.js';
 import type { ConfidenceClass, EdgeEvidence } from '../../../../db/types.js';
@@ -14,7 +15,7 @@ import {
 } from '../cross-language.js';
 import type { FeaturePathCrossLanguage } from '../contract.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'cross-language-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-cross-language-test-'));
 
 const SURFACE_ID = 'surface:http:POST:/offers';
 

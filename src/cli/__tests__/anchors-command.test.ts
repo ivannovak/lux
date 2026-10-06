@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LuxDatabase } from '../../db/index.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 // CLI text-surface behavior for the consumer-polish default (issue #77 item #3): when the test-exclusion
 // default swallows every match, the human CLI must not go silent — it prints "No anchors found" AND a
@@ -12,17 +13,17 @@ import { LuxDatabase } from '../../db/index.js';
 // spawned CLI so the commander wiring + renderer are exercised end-to-end.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLI_ENTRY = join(__dirname, '..', 'index.ts');
+const CLI_ENTRY = builtCli();
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 
 function runCli(dbPath: string, corpusPath: string, args: string[]) {
   const env = { ...process.env };
   delete env.LUX_EMBEDDING_TOKEN; // lexical-only fixture; keep the local posture regardless of shell
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', corpusPath, ...args],
-    { cwd: PROJECT_ROOT, encoding: 'utf-8', env: { ...env, NO_COLOR: '1', FORCE_COLOR: '0' } }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', corpusPath, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...env, NO_COLOR: '1', FORCE_COLOR: '0' },
+  });
 }
 
 const split = (raw: string): string[] =>

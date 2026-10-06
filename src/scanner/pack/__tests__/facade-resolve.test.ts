@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { StructuralNode, EdgeType } from '../../../db/types.js';
@@ -19,7 +20,7 @@ import {
 // external/local, and with or without an outgoing edge so the 3-tier continuation
 // branch (ADR-2) is exercised on a real graph. Covers 20-VALIDATION §D.1.
 
-const testDir = join(import.meta.dirname, 'fixtures', 'facade-resolve-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-facade-resolve-test-'));
 
 // --- Source-file scaffolding -------------------------------------------------
 // One wide-spanning enclosing method attributes every seeded call edge; its

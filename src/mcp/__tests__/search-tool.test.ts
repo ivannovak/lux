@@ -5,7 +5,7 @@
 // M2 limit coercion had NO handler-level assertion (M3). This closes that gap.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -14,9 +14,10 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
 /** A primary corpus with a couple of `settlement` hits + one term that lives ONLY in a title. */
 function makeFixture(root: string): { corpus: string; dbPath: string } {
@@ -60,7 +61,7 @@ function parse(res: unknown): SearchReport {
   return JSON.parse(content.text) as SearchReport;
 }
 
-describe.skipIf(!existsSync(DIST_SERVER))('MCP lux_search handler (over the wire)', () => {
+describe('MCP lux_search handler (over the wire)', () => {
   let root: string;
   let client: Client;
 

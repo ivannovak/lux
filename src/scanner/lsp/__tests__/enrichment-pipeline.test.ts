@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { loadLspConfig } from '../../config.js';
 import {
@@ -12,12 +12,13 @@ import type { EnrichmentResult, LspEnricher } from '../index.js';
 import { generalScan, attachEnrichment } from '../../general.js';
 import { LuxDatabase } from '../../../db/index.js';
 import type { DocumentSymbol, Diagnostic, Location } from 'vscode-languageserver-protocol';
+import { tmpdir } from 'node:os';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-const testDir = join(import.meta.dirname, 'fixtures', 'enrichment-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-enrichment-test-'));
 const corpusDir = join(testDir, 'corpus');
 const clientsDir = join(corpusDir, 'knowledge', '10_clients');
 

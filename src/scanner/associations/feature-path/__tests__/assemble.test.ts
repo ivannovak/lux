@@ -1,14 +1,15 @@
 // Tests for tranche-one feature-path retrieval assembly.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../../db/index.js';
 import type { StructuralEdge, StructuralNode } from '../../../../db/types.js';
 import { assembleFeaturePathAnswer } from '../assemble.js';
 import { resolveFeaturePathTarget } from '../resolve.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'assemble-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-assemble-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });
