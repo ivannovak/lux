@@ -49,6 +49,9 @@ import type { OperationalExtractor } from './operational/types.js';
 import { propagateSurfaces } from './propagation.js';
 import { reporterFrom, type Reporter } from '../reporter.js';
 
+/** How the AST symbol phase is named in a warning; the chunked symbol write starts its error with it. */
+const AST_PHASE = 'AST symbol materialization';
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -196,9 +199,11 @@ export async function rebuildStructuralOverlay(
       report(`Materialized ${astNodes} AST symbol node(s).`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // The message names the phase, how far it got and why.
-      reporter.warn(message, 'ast');
-      phaseFailures.push(message);
+      // The chunked symbol write names the phase, how far it got and why in its own message. Any
+      // other failure in the phase (grammar loading, anchor texts) does not, so name it here.
+      const warning = message.startsWith(AST_PHASE) ? message : `${AST_PHASE} failed — ${message}`;
+      reporter.warn(warning, 'ast');
+      phaseFailures.push(warning);
     }
   }
 
