@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, mkdtempSync } from 'fs';
 import { LuxDatabase } from '../../db/index.js';
+import { tmpdir } from 'node:os';
 
 describe('Deps Command', () => {
-  const testDir = join(__dirname, 'fixtures', 'deps-cmd-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-deps-cmd-test-'));
   const dbPath = join(testDir, 'test.db');
   let db: LuxDatabase;
 

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'fs';
 import { join, dirname } from 'path';
 import { LuxDatabase } from '../../db/index.js';
 import { generalScan } from '../general.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'first-party-promotion');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-first-party-promotion-'));
 
 function write(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });

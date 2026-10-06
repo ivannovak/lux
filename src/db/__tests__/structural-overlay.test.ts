@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../index.js';
 import type { StructuralNode, StructuralEdge, EdgeEvidence } from '../types.js';
@@ -8,7 +9,7 @@ import type { StructuralNode, StructuralEdge, EdgeEvidence } from '../types.js';
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const testDir = join(import.meta.dirname, 'fixtures', 'structural-overlay-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-structural-overlay-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

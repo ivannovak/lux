@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, existsSync, writeFileSync, mkdtempSync } from 'fs';
 import { generalScan } from '../../general.js';
 import { LuxDatabase } from '../../../db/index.js';
 
 describe('Scanner Import Integration', () => {
-  const testDir = join(__dirname, 'fixtures', 'scanner-int-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-scanner-int-test-'));
   const dbPath = join(testDir, 'test.db');
 
   beforeEach(() => {

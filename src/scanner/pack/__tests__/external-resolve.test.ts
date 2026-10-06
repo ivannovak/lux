@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { StructuralNode } from '../../../db/types.js';
@@ -9,7 +10,7 @@ import { makeExternalTargetResolver } from '../external-resolve.js';
 // lands in vendor/ to the id of a merged vendor-pack node, confirming presence +
 // externality so boundary edges never dangle.
 
-const testDir = join(import.meta.dirname, 'fixtures', 'external-resolve-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-external-resolve-test-'));
 const vendorFile = join(testDir, 'vendor', 'illuminate', 'database', 'Model.php');
 
 // 0-based line indices in the content below.

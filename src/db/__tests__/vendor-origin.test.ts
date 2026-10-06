@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../index.js';
 import type { StructuralNode, StructuralEdge } from '../types.js';
@@ -8,7 +9,7 @@ import type { StructuralNode, StructuralEdge } from '../types.js';
 // the `origin` provenance column (migration 012), origin-aware read helpers,
 // the public transaction wrapper, and the ATTACH-based vendor-pack merge.
 
-const testDir = join(import.meta.dirname, 'fixtures', 'vendor-origin-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-vendor-origin-test-'));
 
 function freshDir(): void {
   rmSync(testDir, { recursive: true, force: true });

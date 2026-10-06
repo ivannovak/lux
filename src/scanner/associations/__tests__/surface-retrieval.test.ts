@@ -1,7 +1,8 @@
 // Tests for surface-centered retrieval helpers and feature-path formatting.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import {
@@ -14,7 +15,7 @@ import {
 } from '../surface-retrieval.js';
 import type { StructuralNode, StructuralEdge } from '../../../db/types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'surface-retrieval-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-surface-retrieval-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

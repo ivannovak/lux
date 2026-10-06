@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { StructuralNode } from '../../../db/types.js';
 import { resolveTouchSet } from '../touch.js';
 import type { DeltaChangeSet } from '../types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'delta-touch');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-delta-touch-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

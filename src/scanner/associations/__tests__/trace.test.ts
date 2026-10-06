@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type { ConfidenceClass, EdgeType, NodeOrigin } from '../../../db/types.js';
@@ -14,7 +15,7 @@ import {
   traceFrom,
 } from '../trace.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'trace-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-trace-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

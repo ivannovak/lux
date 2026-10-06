@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, realpathSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, realpathSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { resolveFirstPartyRoots } from '../first-party.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'first-party-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-first-party-test-'));
 
 /** Build a corpus with vendor/composer/installed.json + package source dirs. */
 function setup(

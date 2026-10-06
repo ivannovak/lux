@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import {
@@ -12,7 +13,7 @@ import {
   getTrustAwareOperationalNeighborhood,
 } from '../operational/retrieval.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'operational-retrieval-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-operational-retrieval-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

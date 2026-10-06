@@ -1,12 +1,13 @@
 // Tests for tranche-one ownership attribution.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, existsSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import type { FeaturePathDirectEvidenceItem, FeaturePathTarget } from '../contract.js';
 import { attributeFeaturePathOwnership } from '../ownership.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'ownership-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-ownership-test-'));
 
 function makeRepoRoot(...subpaths: string[]): string {
   for (const sub of subpaths) {

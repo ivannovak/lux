@@ -18,7 +18,7 @@ function runCli(corpus: string, args: string[]) {
 }
 
 describe('Search Module Annotations', () => {
-  const testDir = join(__dirname, 'fixtures', 'search-deps-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-search-deps-test-'));
   const dbPath = join(testDir, 'test.db');
   let db: LuxDatabase;
 

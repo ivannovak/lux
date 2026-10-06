@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import type {
@@ -12,7 +13,7 @@ import type {
 import { walkDownstream, type DownstreamBudget } from '../downstream.js';
 import type { DeltaTouchSet } from '../types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'delta-downstream');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-delta-downstream-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

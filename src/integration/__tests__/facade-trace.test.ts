@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { generalScan } from '../../scanner/general.js';
 import { LuxDatabase } from '../../db/index.js';
@@ -22,7 +23,7 @@ import type { StructuralNode, StructuralEdge } from '../../db/types.js';
 //   G2 — `DB::table`   → `Illuminate\Database\Connection::table` (facade-catalog, 0.6) that continues to `Query\Builder::from`.
 //   G4 — `--min-confidence proven` excludes every facade-catalog edge (proven layer undiluted).
 
-const testDir = join(import.meta.dirname, 'fixtures', 'facade-trace-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-facade-trace-test-'));
 const S = (fqn: string): string => `symbol:php:${fqn}`;
 const now = (): number => Math.floor(Date.now() / 1000);
 

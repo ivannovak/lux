@@ -2,12 +2,13 @@
 // and that surface-specific query helpers return correct results.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../index.js';
 import type { StructuralNode, StructuralEdge } from '../types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'capability-surface-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-capability-surface-test-'));
 
 function makeDb(): LuxDatabase {
   mkdirSync(testDir, { recursive: true });

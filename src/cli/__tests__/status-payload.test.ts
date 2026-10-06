@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { execSync } from 'child_process';
 import { join } from 'path';
 import { LuxDatabase } from '../../db/index.js';
@@ -7,7 +8,7 @@ import type { StructuralEdge } from '../../db/types.js';
 import type { RuntimePathResolution } from '../../utils/runtime-paths.js';
 import { buildIndexStatusPayload, buildOverlayStatusPayload } from '../status-payload.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'status-payload');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-status-payload-'));
 const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..');
 
 function now(): number {

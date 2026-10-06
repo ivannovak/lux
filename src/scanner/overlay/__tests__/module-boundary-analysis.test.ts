@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../../db/index.js';
 import {
@@ -19,7 +20,7 @@ import {
 import { persistRebuildTrustState } from '../../overlay-trust-state.js';
 import type { StructuralEdge, StructuralNode } from '../../../db/types.js';
 
-const testDir = join(import.meta.dirname, 'fixtures', 'module-boundary-analysis-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-module-boundary-analysis-test-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

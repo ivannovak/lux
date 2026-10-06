@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'fs';
+import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { LuxDatabase } from '../../db/index.js';
 import type { StructuralNode, NodeOrigin } from '../../db/types.js';
@@ -9,7 +10,7 @@ import { inspectOverlayTrustState } from '../overlay-trust-state.js';
 // status` counts app-origin nodes only — merged vendor-pack nodes (which can
 // number in the hundreds of thousands) must not inflate the counts.
 
-const testDir = join(import.meta.dirname, 'fixtures', 'overlay-trust-external-test');
+const testDir = mkdtempSync(join(tmpdir(), 'lux-overlay-trust-external-test-'));
 
 function now(): number {
   return Math.floor(Date.now() / 1000);

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync, mkdtempSync } from 'fs';
 import { detectModuleBoundaries, resolveModule } from '../module-boundary.js';
+import { tmpdir } from 'node:os';
 
 describe('Module Boundary Detection', () => {
-  const testDir = join(__dirname, 'fixtures', 'boundary-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-boundary-test-'));
 
   beforeEach(() => {
     if (existsSync(testDir)) {

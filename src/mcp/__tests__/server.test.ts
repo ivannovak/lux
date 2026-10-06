@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { tmpdir } from 'node:os';
 import { join } from 'path';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, mkdtempSync } from 'fs';
 import { LuxDatabase, resolveStoredPath } from '../../db/index.js';
 import { GeneralScanner } from '../../scanner/index.js';
 
@@ -15,7 +16,7 @@ import { GeneralScanner } from '../../scanner/index.js';
  */
 
 describe('MCP Server Tools', () => {
-  const testDir = join(__dirname, 'fixtures', 'mcp-test');
+  const testDir = mkdtempSync(join(tmpdir(), 'lux-mcp-test-'));
   const contentDir = join(testDir, 'content');
   const dbPath = join(testDir, 'test.db');
   let db: LuxDatabase;
