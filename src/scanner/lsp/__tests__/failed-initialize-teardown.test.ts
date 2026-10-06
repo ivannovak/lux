@@ -36,6 +36,9 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 const { LspClient } = await import('../client.js');
+
+/** client.ts's KILL_GRACE_MS: how long a server has after SIGTERM before SIGKILL. */
+const KILL_GRACE_MS = 2_000;
 const { VueLspEnricher } = await import('../vue.js');
 const { EnricherRegistry } = await import('../index.js');
 const { generalScan } = await import('../../general.js');
@@ -114,8 +117,30 @@ async function handlesLeftAfter(child: ChildProcess, boundMs: number): Promise<u
   return liveHandlesOf(child);
 }
 
-function activeTimers(): number {
-  return process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+/**
+ * Record the timers armed for `delayMs` and every timer cleared, by handle, while leaving both
+ * functions working. This identifies one specific timer; a count of active timers at an instant
+ * also sees every unrelated timer in the process and changes with load.
+ */
+function watchTimers(delayMs: number): { armed: unknown[]; cleared: unknown[] } {
+  const armed: unknown[] = [];
+  const cleared: unknown[] = [];
+  const setTimer = globalThis.setTimeout as (...args: unknown[]) => unknown;
+  const clearTimer = globalThis.clearTimeout;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay?: number,
+    ...rest: unknown[]
+  ) => {
+    const handle = setTimer(callback, delay, ...rest);
+    if (delay === delayMs) armed.push(handle);
+    return handle;
+  }) as typeof setTimeout);
+  vi.spyOn(globalThis, 'clearTimeout').mockImplementation((handle?: unknown) => {
+    cleared.push(handle);
+    clearTimer(handle as Parameters<typeof clearTimeout>[0]);
+  });
+  return { armed, cleared };
 }
 
 function isAlive(pid: number): boolean {
@@ -151,6 +176,7 @@ afterAll(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   // Never leak a stub into the rest of the suite, whatever the assertions said.
   for (const child of spawned.splice(0)) {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
@@ -164,7 +190,7 @@ afterEach(() => {
 
 describe('LspClient — initialize answered with an error', () => {
   it('rejects, then terminates the server and releases its handles', async () => {
-    const timersBefore = activeTimers();
+    const killTimers = watchTimers(KILL_GRACE_MS);
 
     await expect(initializeStub([], 10_000)).rejects.toThrow(
       'LSP error -32603: stub refuses to initialize'
@@ -175,7 +201,8 @@ describe('LspClient — initialize answered with an error', () => {
     expect(await exitsWithin(child, 5_000)).toBe(true);
     expect(await handlesLeftAfter(child, 1_000)).toEqual([]);
     // The SIGKILL fallback is disarmed once the server has gone on SIGTERM.
-    expect(activeTimers()).toBe(timersBefore);
+    expect(killTimers.armed).toHaveLength(1);
+    expect(killTimers.cleared).toContain(killTimers.armed[0]);
   });
 
   it('force-kills a server that ignores SIGTERM', async () => {

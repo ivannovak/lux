@@ -76,7 +76,9 @@ export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanRe
     scan.overlay?.programAnalysis?.facts.filter((facts) => facts.languageId === 'javascript') ?? [];
   const javascriptFailures =
     scan.overlay?.programAnalysis?.diagnostics.filter((diagnostic) =>
-      ['timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(diagnostic.code)
+      ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
+        diagnostic.code
+      )
     ).length ?? 0;
   runs['javascript-tree-sitter'] = {
     status:
@@ -95,7 +97,9 @@ export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanRe
   const vueFacts = scan.overlay?.programAnalysis?.vueFacts ?? [];
   const vueCompilerFailures =
     scan.overlay?.programAnalysis?.diagnostics.filter((diagnostic) =>
-      ['timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(diagnostic.code)
+      ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
+        diagnostic.code
+      )
     ).length ?? 0;
   runs['vue-compiler-sfc'] = {
     status:

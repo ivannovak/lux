@@ -12,7 +12,8 @@ export type AdapterWorkerResponseV1 =
       schemaVersion: 1;
       ok: false;
       diagnostic: {
-        code: 'timeout' | 'limit' | 'parse-error' | 'path-escape' | 'worker-error';
+        code:
+          'timeout' | 'start-timeout' | 'limit' | 'parse-error' | 'path-escape' | 'worker-error';
         message: string;
       };
     };
