@@ -26,7 +26,10 @@ export interface LspEnricherEntry {
   serverCommand?: string;
   /** Arguments to pass to the language server. */
   serverArgs?: string[];
-  /** Maximum concurrent LSP requests. */
+  /**
+   * Deprecated and unused: requests are sent to a server one at a time. Parsed only so that a
+   * config that still sets it is told so.
+   */
   maxConcurrency?: number;
   /** Per-request timeout in milliseconds. */
   requestTimeoutMs?: number;

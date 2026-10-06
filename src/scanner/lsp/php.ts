@@ -109,8 +109,6 @@ export interface PhpLspEnricherOptions {
   serverCommand?: string;
   /** Override server arguments (default: ["--stdio"]). */
   serverArgs?: string[];
-  /** Maximum concurrent LSP requests (default: 4). */
-  maxConcurrency?: number;
   /** Per-request timeout in ms (default: 15000). */
   requestTimeoutMs?: number;
   /** Initialization timeout in ms (default: 60000). */
@@ -151,7 +149,6 @@ export class PhpLspEnricher implements LspEnricher {
     this.config = {
       serverCommand: options?.serverCommand ?? 'intelephense',
       serverArgs: options?.serverArgs ?? ['--stdio'],
-      maxConcurrency: options?.maxConcurrency ?? 4,
       requestTimeoutMs: options?.requestTimeoutMs ?? 15_000,
       initTimeoutMs: options?.initTimeoutMs ?? 60_000,
     };
@@ -189,7 +186,6 @@ export class PhpLspEnricher implements LspEnricher {
       serverCommand: this.config.serverCommand,
       serverArgs: this.config.serverArgs,
       cwd: workspaceRoot,
-      maxConcurrency: this.config.maxConcurrency,
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
       configuration: (section) => (section === 'intelephense' ? INTELEPHENSE_SETTINGS : undefined),
@@ -384,10 +380,7 @@ export class PhpLspEnricher implements LspEnricher {
   async enrichBatch(filePaths: string[]): Promise<PhpEnrichmentResult[]> {
     const results: PhpEnrichmentResult[] = [];
 
-    // Process sequentially — the LspClient's internal semaphore handles
-    // concurrency for individual LSP requests within each enrichment.
-    // Sequential file processing avoids overwhelming intelephense with
-    // too many open documents.
+    // One file at a time, so no more than one document is open in intelephense.
     for (const filePath of filePaths) {
       const result = await this.enrich(filePath);
       if (result) {

@@ -32,8 +32,6 @@ export interface VueLspEnricherOptions {
   serverCommand?: string;
   /** Override server arguments (default: ["--stdio"]). */
   serverArgs?: string[];
-  /** Maximum concurrent LSP requests (default: 4). */
-  maxConcurrency?: number;
   /** Per-request timeout in ms (default: 15000). */
   requestTimeoutMs?: number;
   /**
@@ -87,7 +85,6 @@ export class VueLspEnricher implements LspEnricher {
     this.config = {
       serverCommand: options?.serverCommand ?? 'vue-language-server',
       serverArgs: options?.serverArgs ?? ['--stdio'],
-      maxConcurrency: options?.maxConcurrency ?? 4,
       requestTimeoutMs: options?.requestTimeoutMs ?? 15_000,
       initTimeoutMs: options?.initTimeoutMs ?? 120_000,
     };
@@ -112,7 +109,6 @@ export class VueLspEnricher implements LspEnricher {
       serverCommand: this.config.serverCommand,
       serverArgs: this.config.serverArgs,
       cwd: workspaceRoot,
-      maxConcurrency: this.config.maxConcurrency,
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
     });

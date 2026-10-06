@@ -263,7 +263,6 @@ function buildPhpRegistry(projectRoot: string): EnricherRegistry {
     new PhpLspEnricher({
       serverCommand: entry?.serverCommand,
       serverArgs: entry?.serverArgs,
-      maxConcurrency: entry?.maxConcurrency,
       requestTimeoutMs: entry?.requestTimeoutMs,
       initTimeoutMs: entry?.initTimeoutMs,
     })

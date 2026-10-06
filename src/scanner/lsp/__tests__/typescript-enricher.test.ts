@@ -33,13 +33,11 @@ describe('TypeScriptLspEnricher', () => {
       const enricher = new TypeScriptLspEnricher({
         serverCommand: '/usr/local/bin/typescript-language-server',
         serverArgs: ['--stdio', '--log-level', '3'],
-        maxConcurrency: 2,
         requestTimeoutMs: 5000,
         initTimeoutMs: 30000,
       });
       expect(enricher.config.serverCommand).toBe('/usr/local/bin/typescript-language-server');
       expect(enricher.config.serverArgs).toEqual(['--stdio', '--log-level', '3']);
-      expect(enricher.config.maxConcurrency).toBe(2);
       expect(enricher.config.requestTimeoutMs).toBe(5000);
       expect(enricher.config.initTimeoutMs).toBe(30000);
     });

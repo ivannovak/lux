@@ -72,6 +72,7 @@ async function enrichOne(mode: 'silent' | 'error' | 'slow-once' | 'flat') {
     serverCommand: process.execPath,
     serverArgs: ['-e', FAKE_SERVER, mode],
     requestTimeoutMs: 300,
+    initTimeoutMs: 300,
   });
   await enricher.initialize(dir);
   return enricher.enrich(file);
@@ -95,6 +96,7 @@ describe('enrichment failures are not silent', () => {
       serverCommand: process.execPath,
       serverArgs: ['-e', FAKE_SERVER, 'silent'],
       requestTimeoutMs: 200,
+      initTimeoutMs: 200,
     });
     await enricher.initialize(dir);
     await expect(
