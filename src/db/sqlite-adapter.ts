@@ -1,11 +1,8 @@
-import { createRequire } from 'node:module';
 import {
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
-  readdirSync,
-  readFileSync,
   readSync,
   rmdirSync,
   rmSync,
@@ -13,18 +10,18 @@ import {
   writeSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
-import type {
-  Database as WasmDatabase,
-  Statement as WasmStatement,
-  BindValues,
-} from 'node-sqlite3-wasm';
+import { driver, type BindValues, type WasmDatabase, type WasmStatement } from './driver.js';
+import {
+  describeLock,
+  installLockOwnership,
+  ownersDir,
+  reclaimStaleLock,
+} from './lock-ownership.js';
 
-// node-sqlite3-wasm ships a CommonJS Emscripten bundle whose exports are attached at
-// runtime, so `cjs-module-lexer` cannot see them and native-ESM `import { Database }`
-// fails ("no export named 'Database'"). Load it via createRequire (works under native
-// ESM, tsx, and vitest alike); the value is the class, typed from the type-only import.
-const require = createRequire(import.meta.url);
-const { Database: WasmDb } = require('node-sqlite3-wasm') as { Database: typeof WasmDatabase };
+const WasmDb = driver.Database;
+
+// Before any handle exists: every lock the engine takes must name its owner (lock-ownership.ts).
+installLockOwnership();
 
 /**
  * `LuxSqlite` — a thin, synchronous, better-sqlite3-shaped adapter over
@@ -76,8 +73,8 @@ function normalizeGet<T>(row: T | null): T | undefined {
 // death (better-sqlite3 used POSIX fcntl locks, which the kernel drops). So a hard
 // crash mid-write leaves a stale `.lock` that wedges every reopen in SQLITE_BUSY.
 // Mitigation: (a) close open DBs on SIGINT/SIGTERM/exit so the common Ctrl-C case
-// releases the lock; (b) a per-PID owner registry so a deliberate `index rebuild` can
-// reclaim a lock whose owner is provably dead, without racing a live writer.
+// releases the lock; (b) every lock names its owner (lock-ownership.ts), so an open can
+// reclaim a lock whose owner is provably dead and leave every other lock alone.
 
 const openInstances = new Set<LuxSqlite>();
 let cleanupHooked = false;
@@ -106,18 +103,17 @@ function hookProcessCleanup(): void {
   });
 }
 
-function ownersDir(path: string): string {
-  return `${path}.owners`;
-}
-
-/** Record this process as an owner of the DB at `path` (a per-PID marker; best-effort). */
+/**
+ * Record this process in the per-PID owner registry (best-effort). Lock ownership itself is the
+ * token inside the lock directory; the registry is what a Lux that predates tokens consults before
+ * reclaiming, so read-write opens keep writing it and such a Lux does not take a live writer's lock.
+ */
 function registerOwner(path: string): void {
   try {
     mkdirSync(ownersDir(path), { recursive: true });
     writeFileSync(`${ownersDir(path)}/${process.pid}`, hostname());
   } catch {
-    // lux-intentional-swallow: the owner registry only assists stale-lock recovery; the open itself is unaffected.
-    /* best-effort; the registry only assists stale-lock recovery */
+    // lux-intentional-swallow: the registry only protects this writer from an older Lux's reclaim; the open itself is unaffected.
   }
 }
 
@@ -163,21 +159,6 @@ function ensureRollbackJournal(path: string): void {
   } finally {
     closeSync(fd);
   }
-}
-
-/**
- * Reset a statement through node-sqlite3-wasm's internal `_reset` (sqlite3_reset), which its public
- * API does not expose. The package is pinned (0.8.59); stmt-get-lock.test.ts fails if this stops
- * releasing the lock.
- */
-function resetStatement(statement: WasmStatement): void {
-  const internal = statement as unknown as { _reset?: () => boolean };
-  if (typeof internal._reset !== 'function') {
-    throw new Error(
-      'node-sqlite3-wasm Statement has no _reset(); cannot release its lock after get()'
-    );
-  }
-  internal._reset();
 }
 
 export interface RunResult {
@@ -240,7 +221,7 @@ export class Stmt {
   get(...p: unknown[]): unknown {
     return this.exec(() => {
       const row = normalizeGet(this.raw.get(bindArgs(p)));
-      resetStatement(this.raw);
+      this.raw.reset();
       return row;
     });
   }
@@ -265,59 +246,14 @@ export class LuxSqlite {
   /** true when this instance registered a PID owner-marker (file-backed read-write). */
   private readonly registered: boolean;
 
-  /**
-   * Reclaim a stale VFS lock left by a crashed process. Clears `${path}.lock` ONLY when
-   * no live owner remains (per-PID markers in `${path}.owners`), so it never races a live
-   * concurrent writer. Intended for a deliberate `index rebuild` (derived state — safe).
-   * Returns true if a stale lock was cleared.
-   */
+  /** Clear `${path}.lock` when its owner is provably dead. See lock-ownership.ts for the rule. */
   static reclaimStaleLock(path: string): boolean {
-    const lockDir = `${path}.lock`;
-    if (!existsSync(lockDir)) return false;
-    const dir = ownersDir(path);
-    let markers: string[];
-    try {
-      markers = readdirSync(dir);
-    } catch {
-      // lux-intentional-swallow: no owner registry: no owners to check.
-      markers = [];
-    }
-    let liveOwner = false;
-    for (const m of markers) {
-      const pid = Number(m);
-      if (!Number.isInteger(pid) || pid <= 0) continue;
-      let markerHost = '';
-      try {
-        markerHost = readFileSync(`${dir}/${m}`, 'utf8').trim();
-      } catch {
-        // lux-intentional-swallow: an unreadable marker is treated as same-host, the conservative reading.
-        /* ignore unreadable marker */
-      }
-      if (markerHost && markerHost !== hostname()) {
-        liveOwner = true; // different host — can't verify liveness locally; be conservative
-        continue;
-      }
-      try {
-        process.kill(pid, 0); // throws ESRCH if the process is gone
-        liveOwner = true;
-      } catch {
-        // lux-intentional-swallow: the process is gone (ESRCH); its marker is pruned.
-        try {
-          rmSync(`${dir}/${m}`, { force: true }); // prune the dead owner's marker
-        } catch {
-          // lux-intentional-swallow: best-effort cleanup; the error that matters is already thrown or returned.
-          /* best-effort */
-        }
-      }
-    }
-    if (liveOwner) return false; // a live process holds the DB — respect the lock
-    try {
-      rmSync(lockDir, { recursive: true, force: true });
-      return true;
-    } catch {
-      // lux-intentional-swallow: the lock stays, and the caller reports a locked database.
-      return false;
-    }
+    return reclaimStaleLock(path);
+  }
+
+  /** Why `${path}.lock` is still there, or undefined when there is no lock. */
+  static describeLock(path: string): string | undefined {
+    return describeLock(path);
   }
 
   constructor(path: string, opts: LuxSqliteOptions = {}) {

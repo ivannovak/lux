@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "build": "tsc && npm run copy-assets",
-    "copy-assets": "cp -r src/db/migrations dist/db/ && mkdir -p dist/scanner/adapters/hcl && cp src/scanner/adapters/hcl/tree-sitter-hcl.wasm dist/scanner/adapters/hcl/",
+    "copy-assets": "cp -r src/db/migrations dist/db/ && cp -r src/db/vendor dist/db/ && mkdir -p dist/scanner/adapters/hcl && cp src/scanner/adapters/hcl/tree-sitter-hcl.wasm dist/scanner/adapters/hcl/",
     "version": "tsx scripts/sync-plugin-version.ts",
     "dev": "tsc --watch",
     "lint": "eslint src --ext .ts",
@@ -62,7 +62,6 @@
     "glob": "^13.0.6",
     "gray-matter": "^4.0.3",
     "jsonc-parser": "3.3.1",
-    "node-sqlite3-wasm": "0.8.59",
     "onnxruntime-web": "1.27.0",
     "tree-sitter-wasms": "^0.1.13",
     "vscode-languageserver-protocol": "^3.18.2",

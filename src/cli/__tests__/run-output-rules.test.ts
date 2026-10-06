@@ -6,7 +6,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { tmpdir } from 'os';
+import { hostname, tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import { LuxDatabase } from '../../db/index.js';
@@ -386,20 +386,26 @@ describe('run output rules (issue #6)', () => {
       expectSilent(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
       const NOTE = 'Note: cleared a stale database lock';
 
-      // A lock left by a crashed run: no live owner, so the next open reclaims it.
+      // A lock left by a crashed run: its owner token names a pid that is not running, so the next
+      // open reclaims it. (A lock that names no owner is never reclaimed.)
+      const crashedRunLeavesLock = (): void => {
+        mkdirSync(`${dbPath}.lock/4194303-0123456789ab@${encodeURIComponent(hostname())}`, {
+          recursive: true,
+        });
+      };
       commitFile(repo, 'notes.md', '# notes\n');
-      mkdirSync(`${dbPath}.lock`);
+      crashedRunLeavesLock();
       expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
 
       // Notices print by default, not only under --verbose.
       commitFile(repo, 'notes.md', '# notes\n\nmore\n');
-      mkdirSync(`${dbPath}.lock`);
+      crashedRunLeavesLock();
       const plain = runLux(repo, dbPath, ['index', 'sync']);
       expect(plain.status, plain.stderr).toBe(0);
       expect(plain.stderr).toContain(NOTE);
 
       commitFile(repo, 'notes.md', '# notes\n\nmore\n\nagain\n');
-      mkdirSync(`${dbPath}.lock`);
+      crashedRunLeavesLock();
       const verbose = runLux(repo, dbPath, ['index', 'sync'], { globalArgs: ['--verbose'] });
       expect(verbose.status, verbose.stderr).toBe(0);
       expect(verbose.stderr).toContain(NOTE);

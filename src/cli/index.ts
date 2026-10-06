@@ -160,7 +160,7 @@ indexCmd
       }
 
       // A prior run killed mid-write (Ctrl-C / OOM) can leave a stale WASM-SQLite lock
-      // that wedges every open; a deliberate rebuild reclaims it when no live owner remains.
+      // that wedges every open; a rebuild reclaims it when its owner is provably dead.
       if (LuxSqlite.reclaimStaleLock(dbPath) && options.quiet !== true) {
         dbNotice('notice', 'cleared a stale database lock from a previously interrupted run.');
       }

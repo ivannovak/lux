@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { LuxDatabase } from './index.js';
+import { LuxDatabase, reclaimStaleIndexLock } from './index.js';
 import { MigrationRunner } from './migrations.js';
 import { LuxSqlite } from './sqlite-adapter.js';
 
@@ -57,10 +57,14 @@ function errorMessage(error: unknown): string {
 }
 
 function unreadable(dbPath: string, error: unknown): IndexOpenResult {
+  // A lock still standing after the busy timeout is the usual cause; say who holds it.
+  const lock = LuxSqlite.describeLock(dbPath);
   return {
     ok: false,
     refusal: 'db-unreadable',
-    message: `The Lux index at ${dbPath} could not be opened: ${errorMessage(error)}`,
+    message:
+      `The Lux index at ${dbPath} could not be opened: ${errorMessage(error)}` +
+      (lock ? ` (${lock})` : ''),
   };
 }
 
@@ -72,6 +76,8 @@ function unreadable(dbPath: string, error: unknown): IndexOpenResult {
  * schema, and no mode may open a schema newer than this Lux build understands.
  */
 export function openIndex(dbPath: string, mode: IndexOpenMode): IndexOpenResult {
+  // The schema probe is the first handle on the file, so a provably stale lock goes before it.
+  reclaimStaleIndexLock(dbPath);
   const inspection = inspectExistingSchema(dbPath);
   if (inspection.status === 'unreadable') return unreadable(dbPath, inspection.message);
 
