@@ -115,6 +115,12 @@ export interface EntrySurfaceImpact {
   hops?: number;
   /** Weakest confidence class on the resolving path; null for a direct operational join. */
   weakestConfidence: ConfidenceClass | null;
+  /**
+   * The path the walk took (structural-walk only): node ids from the changed symbol to the node
+   * that handles the surface. A method followed by its class is a crossing, not an edge
+   * (delta/downstream.ts), so the list can be longer than `hops`.
+   */
+  via?: string[];
 }
 
 export interface AsyncBoundary {
