@@ -39,7 +39,7 @@ beforeEach(() => {
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Settlement Notes',
-    file_path: '/client/settlement.md',
+    file_path: 'docs/settlement.md',
     content: 'settlement clearing and netting',
   });
   db.close();

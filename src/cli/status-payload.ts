@@ -91,13 +91,18 @@ function buildRuntimeStatusPayload(runtime: RuntimePathResolution): RuntimeStatu
   };
 }
 
-function buildOverlayTrustPayload(db: LuxDatabase): OverlayTrustPayload {
+function buildOverlayTrustPayload(
+  db: LuxDatabase,
+  runtime?: RuntimePathResolution
+): OverlayTrustPayload {
   const inspection = inspectOverlayTrustState(db);
   const diagnostics = describeOverlayTrustInspection(inspection);
 
   return inspection.state
     ? {
         ...inspection.state,
+        // Not stored in the index: this is the corpus the reader is running against.
+        repoPath: runtime?.corpusPath ?? '',
         trustLevel: diagnostics.trustLevel,
         trustSource: diagnostics.trustSource,
         warnings: diagnostics.warnings,
@@ -109,7 +114,7 @@ export function buildOverlayStatusPayload(
   db: LuxDatabase,
   runtime?: RuntimePathResolution
 ): OverlayStatusPayload {
-  const overlay = buildOverlayTrustPayload(db);
+  const overlay = buildOverlayTrustPayload(db, runtime);
   return runtime
     ? {
         overlay,
@@ -125,7 +130,7 @@ export function buildIndexStatusPayload(
 ): IndexStatusPayload {
   return {
     stats: db.getStats(),
-    overlay: buildOverlayTrustPayload(db),
+    overlay: buildOverlayTrustPayload(db, runtime),
     coverage: buildCoverage(db, { corpusPath: runtime?.corpusPath }),
     lspEnrichmentFailures: loadLspEnrichmentFailures(db),
     symbolIdCollisions: loadSymbolIdCollisionStatus(db),

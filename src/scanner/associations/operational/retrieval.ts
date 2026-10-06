@@ -376,13 +376,14 @@ export function formatOperationalNeighborhoodSummary(
   return lines.join('\n');
 }
 
+/** `_repoRoot` is unused: an index describes one repository, so every stored boundary is its own. */
 export function formatFileOperationalBoundaryBlock(
   db: LuxDatabase,
-  repoRoot: string,
+  _repoRoot: string,
   filePath: string
 ): string | null {
   const boundaries = db
-    .getOperationalBoundariesByRepoRoot(repoRoot)
+    .getOperationalBoundaries()
     .filter((boundary) => boundary.file_path === filePath);
   if (boundaries.length === 0) return null;
 

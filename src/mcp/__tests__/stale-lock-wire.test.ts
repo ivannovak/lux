@@ -40,7 +40,7 @@ function lockedIndex(pid: number, host: string): { corpus: string; dbPath: strin
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Settlement Notes',
-    file_path: '/client/settlement.md',
+    file_path: 'docs/settlement.md',
     content: 'settlement is cleared and netted',
   });
   db.close();
@@ -85,7 +85,7 @@ describe.skipIf(!existsSync(DIST_SERVER))(
       const res = await search(fx);
       expect(res.text).not.toContain('db-unreadable');
       expect(res.isError).toBe(false);
-      expect(res.text).toContain('/client/settlement.md');
+      expect(res.text).toContain('docs/settlement.md');
       expect(existsSync(`${fx.dbPath}.lock`)).toBe(false);
     }, 60000);
 

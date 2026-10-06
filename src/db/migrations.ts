@@ -126,6 +126,26 @@ export class MigrationRunner {
   }
 
   /**
+   * A migration that discards data says so, but only to someone who had data to lose. Its file
+   * carries `-- lux-notice-if-rows(<table>): <message>`; the message is returned when that table
+   * holds rows before the migration runs, and nothing is returned on a new, empty database.
+   */
+  private noticeFor(migration: Migration): string | undefined {
+    const header = /^-- lux-notice-if-rows\((\w+)\): (.+)$/m.exec(migration.sql);
+    if (!header) return undefined;
+    const [, table, message] = header;
+    const exists = this.db.get(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?",
+      table
+    );
+    if (!exists) return undefined;
+    const row = this.db.get(`SELECT EXISTS (SELECT 1 FROM ${table}) AS any_rows`) as {
+      any_rows: number;
+    };
+    return row.any_rows ? message.trim() : undefined;
+  }
+
+  /**
    * Run all pending migrations.
    * Returns the number of migrations applied.
    */
@@ -144,12 +164,17 @@ export class MigrationRunner {
       transaction: <T>(fn: () => T): T => this.db.transaction(fn)(),
       inTransaction: () => this.db.inTransaction(),
     };
+    const notices: string[] = [];
     const result = writeInChunks(target, pending, pending.length, (migration) => {
       dbNotice('progress', `Applying migration ${migration.version}: ${migration.name}`);
+      const notice = this.noticeFor(migration);
       this.applyMigration(migration);
+      if (notice) notices.push(notice);
       dbNotice('progress', `Migration ${migration.version} applied`);
     });
     if (result.error) throw result.error;
+    // Raised once the run has committed: a notice about a migration that was rolled back would lie.
+    for (const notice of notices) dbNotice('notice', notice);
 
     return pending.length;
   }

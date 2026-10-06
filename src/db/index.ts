@@ -53,6 +53,10 @@ export type {
   UnembeddedAnchorNode,
 } from './types.js';
 import { dbNotice } from './notices.js';
+import { STORED_CORPUS_ROOT, assertStoredPath } from './stored-path.js';
+
+// The stored-path rule is part of the DB contract: writers convert with it, readers resolve with it.
+export { resolveStoredPath, toStoredPath } from './stored-path.js';
 
 /** A kernel HTTP `handled_by` route joined against the client's nodes/routes (cross-area, #62). */
 export interface CrossAreaKernelRow {
@@ -88,6 +92,20 @@ export function reclaimStaleIndexLock(dbPath: string): void {
   if (LuxSqlite.reclaimStaleLock(dbPath)) {
     dbNotice('notice', 'cleared a stale database lock left by a previously interrupted run.');
   }
+}
+
+/** `module_dependencies.sample_files` as a list; a value that is not a JSON string array is empty. */
+function parseSampleFiles(sampleFiles: string | null): string[] {
+  if (!sampleFiles) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(sampleFiles);
+  } catch (error) {
+    throw new Error(`module_dependencies.sample_files is not JSON: ${sampleFiles.slice(0, 80)}`, {
+      cause: error,
+    });
+  }
+  return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
 }
 
 export class LuxDatabase {
@@ -242,6 +260,7 @@ export class LuxDatabase {
 
   // Knowledge entry operations
   insertKnowledgeEntry(entry: KnowledgeEntryInsert): number {
+    assertStoredPath(entry.file_path, 'knowledge_entries.file_path');
     const result = this.getQueries().insertKnowledgeEntry.run({
       type: entry.type,
       title: entry.title,
@@ -262,6 +281,7 @@ export class LuxDatabase {
   }
 
   getKnowledgeEntryByPath(filePath: string): KnowledgeEntry | undefined {
+    assertStoredPath(filePath, 'A knowledge entry lookup');
     return this.getQueries().getKnowledgeEntryByPath.get(filePath) as KnowledgeEntry | undefined;
   }
 
@@ -318,6 +338,7 @@ export class LuxDatabase {
 
   // Knowledge entry deletion by path
   deleteKnowledgeEntryByPath(filePath: string): void {
+    assertStoredPath(filePath, 'A knowledge entry delete');
     this.getQueries().deleteKnowledgeEntryByPath.run(filePath);
   }
 
@@ -443,6 +464,9 @@ export class LuxDatabase {
 
   // Module dependency operations
   insertModuleDependency(dep: Omit<ModuleDependency, 'id' | 'created_at'>): void {
+    for (const file of parseSampleFiles(dep.sample_files)) {
+      assertStoredPath(file, 'module_dependencies.sample_files');
+    }
     this.getQueries().insertModuleDependency.run({
       source_module: dep.source_module,
       target_module: dep.target_module,
@@ -1482,7 +1506,8 @@ export class LuxDatabase {
   upsertOperationalBoundary(boundary: OperationalBoundary): void {
     this.getQueries().upsertOperationalBoundary.run({
       id: boundary.id,
-      repo_root: boundary.repo_root,
+      // Whatever root the scanner ran in, the stored value says only "this index's repository".
+      repo_root: STORED_CORPUS_ROOT,
       kind: boundary.kind,
       name: boundary.name,
       trust_tier: boundary.trust_tier,
@@ -1500,10 +1525,9 @@ export class LuxDatabase {
     return this.getQueries().getOperationalBoundariesByKind.all(kind) as OperationalBoundary[];
   }
 
-  getOperationalBoundariesByRepoRoot(repoRoot: string): OperationalBoundary[] {
-    return this.getQueries().getOperationalBoundariesByRepoRoot.all(
-      repoRoot
-    ) as OperationalBoundary[];
+  /** Every operational boundary of the repository this index describes. */
+  getOperationalBoundaries(): OperationalBoundary[] {
+    return this.getQueries().getOperationalBoundaries.all() as OperationalBoundary[];
   }
 
   upsertOperationalHandler(handler: OperationalHandler): void {

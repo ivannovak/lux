@@ -116,7 +116,7 @@ async function rebuilt(repo: string): Promise<LuxDatabase> {
 }
 
 /** The surface and operational rows, without wall-clock fields. */
-function declaredFacts(db: LuxDatabase, repo: string): Record<string, string[]> {
+function declaredFacts(db: LuxDatabase): Record<string, string[]> {
   const surfaces = db.getCapabilitySurfaces();
   const surfaceEdges = new Set<string>();
   for (const surface of surfaces) {
@@ -124,7 +124,7 @@ function declaredFacts(db: LuxDatabase, repo: string): Record<string, string[]> 
       surfaceEdges.add(`${edge.edge_type} ${edge.source_node_id} -> ${edge.target_node_id}`);
     }
   }
-  const boundaries = db.getOperationalBoundariesByRepoRoot(repo);
+  const boundaries = db.getOperationalBoundaries();
   return {
     surfaces: surfaces.map((node) => `${node.id} | ${node.file_path} | ${node.metadata}`).sort(),
     surfaceEdges: [...surfaceEdges].sort(),
@@ -157,7 +157,7 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     const config = loadLspConfig(repo);
     const second = Object.keys(SECOND);
 
-    const before = declaredFacts(db, repo);
+    const before = declaredFacts(db);
     expect(ids(before.surfaces)).toEqual(['surface:http:GET:/', 'surface:http:GET:/faq']);
 
     // The second declarations arrive.
@@ -166,7 +166,7 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     const added: ChangedFile[] = second.map((relPath) => ({ relPath, status: 'added' }));
     await refreshOverlayScoped(db, repo, added, config, {});
 
-    const both = declaredFacts(db, repo);
+    const both = declaredFacts(db);
     expect(ids(both.surfaces)).toEqual([
       'surface:http:GET:/#file:routes/web.php',
       'surface:http:GET:/#file:workbench/routes/web.php',
@@ -181,7 +181,7 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
       '"registeredIn":["src/Module/Alpha/ServiceProvider.php","src/Module/Beta/ServiceProvider.php"]'
     );
     const coldBoth = await rebuilt(repo);
-    expect(both).toEqual(declaredFacts(coldBoth, repo));
+    expect(both).toEqual(declaredFacts(coldBoth));
     coldBoth.close();
 
     // The second declarations go: every id returns to its unqualified form, with nothing left over.
@@ -190,10 +190,10 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     const deleted: ChangedFile[] = second.map((relPath) => ({ relPath, status: 'deleted' }));
     await refreshOverlayScoped(db, repo, deleted, config, {});
 
-    const after = declaredFacts(db, repo);
+    const after = declaredFacts(db);
     expect(after).toEqual(before);
     const coldAfter = await rebuilt(repo);
-    expect(after).toEqual(declaredFacts(coldAfter, repo));
+    expect(after).toEqual(declaredFacts(coldAfter));
     coldAfter.close();
     db.close();
   }, 120_000);
@@ -217,14 +217,14 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     }));
     await refreshOverlayScoped(db, repo, added, loadLspConfig(repo), {});
 
-    const facts = declaredFacts(db, repo);
+    const facts = declaredFacts(db);
     expect(ids(facts.surfaces)).toEqual([
       'surface:http:GET:/#file:routes/web.php',
       'surface:http:GET:/#file:workbench/routes/web.php',
       'surface:http:GET:/faq',
     ]);
     const cold = await rebuilt(repo);
-    expect(facts).toEqual(declaredFacts(cold, repo));
+    expect(facts).toEqual(declaredFacts(cold));
     cold.close();
     db.close();
   }, 120_000);

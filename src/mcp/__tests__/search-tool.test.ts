@@ -27,20 +27,20 @@ function makeFixture(root: string): { corpus: string; dbPath: string } {
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Client Settlement Notes',
-    file_path: '/client/settlement.md',
+    file_path: 'docs/settlement.md',
     content: 'settlement in the client is cleared and netted',
   });
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Settlement Ledger',
-    file_path: '/client/ledger.md',
+    file_path: 'docs/ledger.md',
     content: 'the settlement ledger records every settlement',
   });
   // `Zzquux` appears ONLY in the title → a content_only search must NOT find it.
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Zzquux Report',
-    file_path: '/client/zzquux.md',
+    file_path: 'docs/zzquux.md',
     content: 'this body has no such token',
   });
   db.close();
@@ -90,7 +90,7 @@ describe.skipIf(!existsSync(DIST_SERVER))('MCP lux_search handler (over the wire
     expect(report.schemaVersion).toBe(1);
     expect(report.surface).toBe('search');
     expect(report.refusal).toBeUndefined();
-    const hit = report.results.find((r) => r.filePath === '/client/settlement.md');
+    const hit = report.results.find((r) => r.filePath === 'docs/settlement.md');
     expect(hit).toBeDefined();
     expect(hit!.entryType).toBe('documentation');
     expect(typeof hit!.rank).toBe('number');
@@ -113,7 +113,7 @@ describe.skipIf(!existsSync(DIST_SERVER))('MCP lux_search handler (over the wire
     const unscoped = parse(
       await client.callTool({ name: 'lux_search', arguments: { query: 'Zzquux' } })
     );
-    expect(unscoped.results.some((r) => r.filePath === '/client/zzquux.md')).toBe(true);
+    expect(unscoped.results.some((r) => r.filePath === 'docs/zzquux.md')).toBe(true);
 
     const scoped = parse(
       await client.callTool({
@@ -147,7 +147,7 @@ describe.skipIf(!existsSync(DIST_SERVER))('MCP lux_search handler (over the wire
     expect(report.limit).toBe(20);
     expect(report.refusal).toBeUndefined();
     // Only the two `settlement` bodies match — a coerced search returns the matching set, bounded.
-    expect(report.results.every((r) => r.filePath.startsWith('/client/'))).toBe(true);
+    expect(report.results.every((r) => r.filePath.startsWith('docs/'))).toBe(true);
     expect(report.results.length).toBeLessThanOrEqual(20);
   });
 });

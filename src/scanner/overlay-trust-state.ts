@@ -40,7 +40,9 @@ function persistOverlayTrustState(
   db: LuxDatabase,
   state: PersistedOverlayTrustState
 ): PersistedOverlayTrustState {
-  db.setIndexMetadata(OVERLAY_TRUST_STATE_KEY, JSON.stringify(state));
+  // The repository's location is a fact about this machine, not about the index: it is left out of
+  // what is stored, and status output fills it from the corpus path the reader is running with.
+  db.setIndexMetadata(OVERLAY_TRUST_STATE_KEY, JSON.stringify({ ...state, repoPath: undefined }));
   return state;
 }
 
@@ -144,7 +146,7 @@ export function loadOverlayTrustState(db: LuxDatabase): PersistedOverlayTrustSta
 
     return {
       mode: parsed.mode,
-      repoPath: typeof parsed.repoPath === 'string' ? parsed.repoPath : '',
+      repoPath: '', // never stored; see persistOverlayTrustState
       configSource: typeof parsed.configSource === 'string' ? parsed.configSource : 'lux.yaml',
       configLspEnabled: Boolean(parsed.configLspEnabled),
       surfaceCount: asNumber(parsed.surfaceCount),

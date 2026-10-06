@@ -61,6 +61,8 @@ Implemented search type values:
 - `all`
 - `knowledge`
 
+Result paths (`Path:` in text output, `filePath` in `--json`) are relative to the corpus root.
+
 ## Hooks
 
 Hooks now follow the shared runtime path resolver.
@@ -88,6 +90,10 @@ lux migrate status
 lux migrate up
 lux migrate create <name>
 ```
+
+Migration 016 clears an index written by an older Lux, because it stored absolute file paths. It
+prints a notice when it does; run `lux index rebuild` afterwards, or let the next `lux index sync`
+rebuild in full.
 
 ## Usage observability
 
@@ -119,6 +125,9 @@ lux deps clusters
 lux deps impact <file-path>
 lux deps coverage
 ```
+
+Sample files (in `deps graph` text output and `sampleFiles` in `deps impact --json`) are relative to
+the corpus root.
 
 ## Overlay
 

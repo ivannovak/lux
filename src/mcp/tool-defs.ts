@@ -89,7 +89,8 @@ export const TOOLS: Tool[] = [
       properties: {
         file_path: {
           type: 'string',
-          description: 'Absolute or relative file path',
+          description:
+            'File path as Lux reported it (relative to the corpus root), or an absolute path',
         },
       },
       required: ['file_path'],

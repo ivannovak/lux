@@ -177,7 +177,7 @@ describe('run output rules (issue #6)', () => {
       const contentOf = (): string | undefined => {
         const db = new LuxDatabase(dbPath);
         try {
-          return db.getKnowledgeEntryByPath(join(repo, 'bad.md'))?.content;
+          return db.getKnowledgeEntryByPath('bad.md')?.content;
         } finally {
           db.close();
         }

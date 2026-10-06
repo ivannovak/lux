@@ -88,7 +88,7 @@ describe('production coverage builder', () => {
       db.insertKnowledgeEntry({
         type: 'source-code',
         title: path,
-        file_path: join(root, path),
+        file_path: path,
         metadata: {
           language,
           ...(language === 'vue'
@@ -100,7 +100,7 @@ describe('production coverage builder', () => {
     db.insertKnowledgeEntry({
       type: 'general',
       title: 'not source',
-      file_path: join(root, 'ignored.ts'),
+      file_path: 'ignored.ts',
       metadata: { language: 'typescript' },
     });
     db.upsertStructuralNode(node('ts-a', 'a.ts'));
@@ -135,7 +135,7 @@ describe('production coverage builder', () => {
     db.insertKnowledgeEntry({
       type: 'source-code',
       title: 'a.ts',
-      file_path: join(root, 'a.ts'),
+      file_path: 'a.ts',
       metadata: { language: 'typescript' },
     });
     const payload = buildCoverage(db, { corpusPath: root, loadConfig: () => CONFIG });

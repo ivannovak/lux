@@ -276,7 +276,7 @@ async function extractOperational(
   const log = new WarningLog();
   try {
     await runOperationalExtractors(db, makeContext(entries), extractors, log.reporter);
-    const boundaries = db.getOperationalBoundariesByRepoRoot(ROOT);
+    const boundaries = db.getOperationalBoundaries();
     const run: OperationalRun = {
       boundaries: boundaries
         .map((b) => `${b.id} | ${b.file_path ?? '-'} | tier ${b.trust_tier}`)

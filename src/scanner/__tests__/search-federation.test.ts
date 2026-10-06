@@ -39,8 +39,8 @@ describe('runFederatedSearch', () => {
   it('returns one group per repo (main first), each independently ranked', () => {
     const primary = makeDb('client');
     const kernel = makeDb('kernel');
-    addDoc(primary, 'Client Settlement Notes', '/client/settlement.md', 'settlement in the client');
-    addDoc(kernel, 'Kernel Settlement Engine', '/kernel/engine.md', 'settlement engine internals');
+    addDoc(primary, 'Client Settlement Notes', 'docs/settlement.md', 'settlement in the client');
+    addDoc(kernel, 'Kernel Settlement Engine', 'docs/engine.md', 'settlement engine internals');
 
     const result = runFederatedSearch(
       primary,
@@ -53,8 +53,8 @@ describe('runFederatedSearch', () => {
     expect(result.groups.map((g) => g.repo)).toEqual(['main', 'sib_kernel']);
     expect(result.groups[0].results.length).toBeGreaterThan(0);
     expect(result.groups[1].results.length).toBeGreaterThan(0);
-    expect(result.groups[0].results[0].path).toBe('/client/settlement.md');
-    expect(result.groups[1].results[0].path).toBe('/kernel/engine.md');
+    expect(result.groups[0].results[0].path).toBe('docs/settlement.md');
+    expect(result.groups[1].results[0].path).toBe('docs/engine.md');
     expect(result.federation).toBe(BLOCK);
 
     primary.close();
@@ -64,7 +64,7 @@ describe('runFederatedSearch', () => {
   it('yields an empty group (not an error) for a sibling with no match', () => {
     const primary = makeDb('client');
     const kernel = makeDb('kernel');
-    addDoc(primary, 'Client Settlement Notes', '/client/settlement.md', 'settlement in the client');
+    addDoc(primary, 'Client Settlement Notes', 'docs/settlement.md', 'settlement in the client');
     // kernel has no matching doc.
 
     const result = runFederatedSearch(
@@ -85,9 +85,9 @@ describe('runFederatedSearch', () => {
 
   it('respects the per-repo limit', () => {
     const primary = makeDb('client');
-    addDoc(primary, 'Settle One', '/1.md', 'settlement one');
-    addDoc(primary, 'Settle Two', '/2.md', 'settlement two');
-    addDoc(primary, 'Settle Three', '/3.md', 'settlement three');
+    addDoc(primary, 'Settle One', '1.md', 'settlement one');
+    addDoc(primary, 'Settle Two', '2.md', 'settlement two');
+    addDoc(primary, 'Settle Three', '3.md', 'settlement three');
 
     const result = runFederatedSearch(primary, [], 'settlement', { siblings: [] }, 2);
     expect(result.groups[0].results).toHaveLength(2);
@@ -97,7 +97,7 @@ describe('runFederatedSearch', () => {
 
   it('RE-THROWS an invalid-query (fails identically for every group) instead of a fabricated empty (M1)', () => {
     const primary = makeDb('client');
-    addDoc(primary, 'Client Settlement Notes', '/client/settlement.md', 'settlement in the client');
+    addDoc(primary, 'Client Settlement Notes', 'docs/settlement.md', 'settlement in the client');
     // `nosuchcol:term` is a FTS5 no-such-column QUERY error — it fails identically for main AND every
     // sibling, so swallowing it would fabricate an all-empty answer. The union must surface it.
     let refusal: unknown;
@@ -115,8 +115,8 @@ describe('runFederatedSearch', () => {
   it('degrades a sibling with a missing FTS table (fts-unavailable) to an empty group, not a throw (M1)', () => {
     const primary = makeDb('client');
     const kernel = makeDb('kernel');
-    addDoc(primary, 'Client Settlement Notes', '/client/settlement.md', 'settlement in the client');
-    addDoc(kernel, 'Kernel Settlement Engine', '/kernel/engine.md', 'settlement engine internals');
+    addDoc(primary, 'Client Settlement Notes', 'docs/settlement.md', 'settlement in the client');
+    addDoc(kernel, 'Kernel Settlement Engine', 'docs/engine.md', 'settlement engine internals');
     // Drop the kernel's FTS table out from under the open handle → its next MATCH raises
     // fts-unavailable at execution, which safeSearch degrades (repo-level fault), not re-throws.
     const kernelDbPath = join(root, 'kernel', '.lux', 'lux.db');

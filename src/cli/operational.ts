@@ -365,12 +365,11 @@ function dedupeBoundaries(boundaries: OperationalBoundary[]): OperationalBoundar
 
 function resolveBoundary(
   db: LuxDatabase,
-  repoRoot: string,
   query: string,
   kinds?: OperationalBoundaryKind[]
 ): BoundaryResolution {
   const boundaries = db
-    .getOperationalBoundariesByRepoRoot(repoRoot)
+    .getOperationalBoundaries()
     .filter((boundary) => !kinds || kinds.includes(boundary.kind));
   const normalizedQuery = normalize(query);
   if (!normalizedQuery) return { status: 'unresolved', candidates: [] };
@@ -973,7 +972,6 @@ function executeOperationalAsk(
   const targetText = options.target ?? extractTargetQuestionFragment(question, intent);
   const resolution = resolveBoundary(
     db,
-    options.corpusPath,
     targetText,
     preferredKindsForIntent(intent, options.kind, targetText)
   );

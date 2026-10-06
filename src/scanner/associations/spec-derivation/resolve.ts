@@ -121,13 +121,12 @@ function classifyOperationalMatches(
 
 function resolveOperationalBoundary(
   db: LuxDatabase,
-  corpusPath: string,
   identifier: string,
   targetKind: Extract<SpecDerivationTargetKind, 'job' | 'command'>,
   boundaryKind: OperationalBoundaryKind
 ): ResolvedSpecDerivationTarget {
   const boundaries = db
-    .getOperationalBoundariesByRepoRoot(corpusPath)
+    .getOperationalBoundaries()
     .filter((boundary) => boundary.kind === boundaryKind);
   const query = normalize(identifier);
   if (!query) {
@@ -302,15 +301,9 @@ function resolveHandlerByFeaturePathProvider(
   };
 }
 
-function resolveListenerTarget(
-  db: LuxDatabase,
-  corpusPath: string,
-  identifier: string
-): ResolvedSpecDerivationTarget {
+function resolveListenerTarget(db: LuxDatabase, identifier: string): ResolvedSpecDerivationTarget {
   const query = normalize(identifier);
-  const events = db
-    .getOperationalBoundariesByRepoRoot(corpusPath)
-    .filter((boundary) => boundary.kind === 'event');
+  const events = db.getOperationalBoundaries().filter((boundary) => boundary.kind === 'event');
   const matches: Array<{
     eventBoundary: OperationalBoundary;
     handlerNode: StructuralNode | null;
@@ -397,10 +390,10 @@ export function resolveSpecDerivationTarget(
     return resolveRouteTarget(db, input.identifier, input.kind);
   }
   if (input.kind === 'job') {
-    return resolveOperationalBoundary(db, input.corpusPath, input.identifier, 'job', 'job');
+    return resolveOperationalBoundary(db, input.identifier, 'job', 'job');
   }
   if (input.kind === 'command') {
-    return resolveOperationalBoundary(db, input.corpusPath, input.identifier, 'command', 'command');
+    return resolveOperationalBoundary(db, input.identifier, 'command', 'command');
   }
-  return resolveListenerTarget(db, input.corpusPath, input.identifier);
+  return resolveListenerTarget(db, input.identifier);
 }

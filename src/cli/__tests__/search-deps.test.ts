@@ -126,7 +126,7 @@ describe('Search source-code annotation (CLI)', () => {
     db.insertKnowledgeEntry({
       type: 'source-code',
       title: 'UserService',
-      file_path: servicePath,
+      file_path: 'src/Module/Users/UserService.php',
       content: 'settlement clearing netting',
     });
     // Invoicing depends ON Users → the branch prints "Depended on by: Invoicing (3 refs)".

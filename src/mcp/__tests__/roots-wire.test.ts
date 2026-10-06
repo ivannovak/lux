@@ -21,7 +21,7 @@ function makeFixture(parent: string, name: string, token: string): string {
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: `${name} knowledge`,
-    file_path: join(corpus, `${name}.md`),
+    file_path: `${name}.md`,
     content: token,
   });
   db.close();
