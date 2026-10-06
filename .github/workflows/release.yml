@@ -45,7 +45,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test -- --maxWorkers=1 --no-file-parallelism
+        run: npm test
 
       - name: Architecture lint
         run: npm run lint:architecture
