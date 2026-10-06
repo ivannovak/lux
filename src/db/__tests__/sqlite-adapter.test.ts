@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setDbNoticeHandler } from '../notices.js';
-import { LuxSqlite } from '../sqlite-adapter.js';
+import { busyTimeoutMs, LuxSqlite } from '../sqlite-adapter.js';
 
 /** A PID that is guaranteed dead: spawn a node that exits immediately, then reuse its PID. */
 function deadPid(): number {
@@ -188,5 +188,29 @@ describe('LuxSqlite adapter', () => {
       expect(existsSync(`${dbPath}.owners/${pid}`)).toBe(true);
       expect(notices.join('\n')).toMatch(message);
     });
+  });
+});
+
+describe('busyTimeoutMs', () => {
+  it('is 30 s unless LUX_BUSY_TIMEOUT_MS is a whole number of milliseconds', () => {
+    expect(busyTimeoutMs({})).toBe(30_000);
+    expect(busyTimeoutMs({ LUX_BUSY_TIMEOUT_MS: '200' })).toBe(200);
+    expect(busyTimeoutMs({ LUX_BUSY_TIMEOUT_MS: '0' })).toBe(0);
+    for (const invalid of ['', 'soon', '-5', '1.5', '2s']) {
+      expect(busyTimeoutMs({ LUX_BUSY_TIMEOUT_MS: invalid })).toBe(30_000);
+    }
+  });
+
+  it('is the timeout a new connection waits on a locked index', () => {
+    const before = process.env.LUX_BUSY_TIMEOUT_MS;
+    process.env.LUX_BUSY_TIMEOUT_MS = '1234';
+    try {
+      const db = new LuxSqlite(':memory:');
+      expect(db.get('PRAGMA busy_timeout')).toEqual({ timeout: 1234 });
+      db.close();
+    } finally {
+      if (before === undefined) delete process.env.LUX_BUSY_TIMEOUT_MS;
+      else process.env.LUX_BUSY_TIMEOUT_MS = before;
+    }
   });
 });

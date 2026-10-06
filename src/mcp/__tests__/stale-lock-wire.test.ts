@@ -63,7 +63,14 @@ async function search(fx: {
     command: process.execPath,
     args: [DIST_SERVER],
     cwd: REPO_ROOT,
-    env: { ...getDefaultEnvironment(), LUX_CORPUS_PATH: fx.corpus, LUX_DB_PATH: fx.dbPath },
+    env: {
+      ...getDefaultEnvironment(),
+      LUX_CORPUS_PATH: fx.corpus,
+      LUX_DB_PATH: fx.dbPath,
+      // The refusals below come after the busy timeout; they are the same after 200 ms as after
+      // the default 30 s.
+      LUX_BUSY_TIMEOUT_MS: '200',
+    },
     stderr: 'pipe',
   });
   let stderr = '';
@@ -88,7 +95,6 @@ describe('MCP open path with a leftover lock (over the wire)', () => {
     expect(existsSync(`${fx.dbPath}.lock`)).toBe(false);
   }, 60000);
 
-  // Both refusals wait out the 30 s busy timeout, so they run side by side.
   it('leaves a live or foreign owner’s lock in place', async () => {
     const live = lockedIndex(process.pid, hostname()); // this test process is alive
     const foreign = lockedIndex(DEAD_PID, `not-${hostname()}`); // dead here, unknowable there
