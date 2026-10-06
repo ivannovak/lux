@@ -3,11 +3,17 @@ import { defineConfig } from 'vitest/config';
 const TESTS = 'src/**/__tests__/**/*.test.ts';
 
 /**
- * Test files that measure real time against a process they have just started, with limits of tens
- * of milliseconds. They pass on an idle machine and fail when other test files are using every
- * core, so they run on their own, one at a time, after everything else.
+ * Test files that run one at a time, after everything else, because they cannot share the machine:
+ *
+ * - request-queueing measures real time against a process it has just started, with limits of tens
+ *   of milliseconds, and fails when other test files are using every core.
+ * - lock-contention starts 48 CLI processes at once to contend for one lock. Beside other files it
+ *   takes every core for as long as it runs, and the CLI tests next to it time out.
  */
-const REAL_CLOCK_TESTS = ['src/scanner/lsp/__tests__/request-queueing.test.ts'];
+const EXCLUSIVE_TESTS = [
+  'src/scanner/lsp/__tests__/request-queueing.test.ts',
+  'src/cli/__tests__/lock-contention.test.ts',
+];
 
 export default defineConfig({
   test: {
@@ -30,15 +36,15 @@ export default defineConfig({
         test: {
           name: 'parallel',
           include: [TESTS],
-          exclude: REAL_CLOCK_TESTS,
+          exclude: EXCLUSIVE_TESTS,
           sequence: { groupOrder: 0 },
         },
       },
       {
         extends: true,
         test: {
-          name: 'real-clock',
-          include: REAL_CLOCK_TESTS,
+          name: 'exclusive',
+          include: EXCLUSIVE_TESTS,
           fileParallelism: false,
           sequence: { groupOrder: 1 },
         },

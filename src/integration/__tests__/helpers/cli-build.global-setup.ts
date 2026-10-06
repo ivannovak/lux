@@ -20,12 +20,21 @@ function removeAbandonedBuilds(): void {
   }
 }
 
+/** The process that made the current build: vitest runs this setup once for each of its projects. */
+const BUILD_OWNER_ENV = 'LUX_TEST_BUILD_OWNER';
+
 export default function setup(project: TestProject): () => void {
+  const existing = process.env[TEST_BUILD_ENV];
+  if (existing !== undefined && process.env[BUILD_OWNER_ENV] === String(process.pid)) {
+    project.onTestsRerun(() => buildTestTree(existing));
+    return () => {};
+  }
   removeAbandonedBuilds();
   // Beside `src`, so the build resolves `node_modules` and `package.json` exactly as `dist` does.
   const buildDir = mkdtempSync(join(PROJECT_ROOT, TEST_BUILD_PREFIX));
   buildTestTree(buildDir);
   process.env[TEST_BUILD_ENV] = buildDir;
+  process.env[BUILD_OWNER_ENV] = String(process.pid);
   // Watch mode re-runs tests after an edit without running this setup again: rebuild first.
   project.onTestsRerun(() => buildTestTree(buildDir));
   // Compiled-code cache for the spawned CLIs: they all load the same modules.
