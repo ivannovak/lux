@@ -13,23 +13,20 @@ import { getHeadCommit } from '../../git.js';
 import { inspectOverlayTrustState, persistRefreshTrustState } from '../../overlay-trust-state.js';
 import { refreshOverlayScoped, type ChangedFile } from '../overlay-refresh.js';
 import type { StructuralEdge } from '../../../db/types.js';
+import { builtCli } from '../../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // src/scanner/associations/__tests__ → project root (four levels up).
 const PROJECT_ROOT = join(__dirname, '..', '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 /** Run the real CLI against a repo + db (mirrors the mark-only CLI test harness). */
 function runCli(repo: string, dbPath: string, args: string[]) {
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+  });
 }
 
 const roots: string[] = [];

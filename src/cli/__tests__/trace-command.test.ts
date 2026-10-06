@@ -7,21 +7,18 @@ import { spawnSync } from 'child_process';
 import { LuxDatabase } from '../../db/index.js';
 import type { TraceResult } from '../../scanner/associations/trace.js';
 import type { TraversalResultV1 } from '../../scanner/associations/traversal/index.js';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 function runCli(repoPath: string, dbPath: string, args: string[]) {
-  return spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args],
-    {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf-8',
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    }
-  );
+  return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repoPath, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+  });
 }
 
 /** Seed a small C(local) → A(local) → B(vendor) graph the CLI can trace. */

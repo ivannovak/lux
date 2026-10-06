@@ -1,7 +1,7 @@
 // Test-only preload that breaks the parts of the pipeline named in LUX_TEST_FAULTS (comma-separated),
-// so a CLI subprocess can be driven through failures no fixture repository produces. Load it after
-// tsx: `node --import tsx --import <this file> …`, or through NODE_OPTIONS for a process the test
-// does not start itself (the post-commit hook's `lux`).
+// so a CLI subprocess can be driven through failures no fixture repository produces. Load its
+// compiled copy (`built()` in src/__tests__/helpers/built-cli.ts) with `node --import <file> …`, or
+// through NODE_OPTIONS for a process the test does not start itself (the post-commit hook's `lux`).
 //
 //   laravel-detector — the Laravel HTTP surface detector throws on every run.
 //   embedder         — the API embedder cannot be constructed (pair with LUX_EMBEDDING_TOKEN).

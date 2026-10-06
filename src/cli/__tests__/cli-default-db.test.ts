@@ -4,10 +4,11 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 describe('cli default db path', () => {
   let repoDir: string;
@@ -25,7 +26,7 @@ describe('cli default db path', () => {
   it('refuses an absent repo-local db without creating it when --db is omitted', () => {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', CLI_ENTRY, '--corpus', repoDir, 'index', 'status'],
+      [CLI_ENTRY, '--corpus', repoDir, 'index', 'status'],
       {
         cwd: PROJECT_ROOT,
         encoding: 'utf-8',

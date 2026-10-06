@@ -4,11 +4,11 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
-const TSX_LOADER = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs');
+const CLI_ENTRY = builtCli();
 
 function git(repoPath: string, command: string): string {
   return execSync(command, {
@@ -19,7 +19,7 @@ function git(repoPath: string, command: string): string {
 }
 
 function runCli(cwd: string, args: string[]) {
-  return spawnSync(process.execPath, ['--import', TSX_LOADER, CLI_ENTRY, ...args], {
+  return spawnSync(process.execPath, [CLI_ENTRY, ...args], {
     cwd,
     encoding: 'utf-8',
     env: {

@@ -29,3 +29,6 @@ src/**/.lux/
 
 # Local validation notes
 docs/validation/release-validation-*.md
+
+# The compiled copy of src that a test run spawns the CLI from
+.test-build-*/

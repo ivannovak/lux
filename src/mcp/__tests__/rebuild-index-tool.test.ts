@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
@@ -16,9 +16,10 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
 const roots: string[] = [];
 
@@ -117,7 +118,7 @@ afterEach(() => {
   }
 });
 
-describe.skipIf(!existsSync(DIST_SERVER))('MCP lux_rebuild_index — module dependencies', () => {
+describe('MCP lux_rebuild_index — module dependencies', () => {
   it('persists the dependencies the rebuild computed', async () => {
     const { corpus, dbPath } = makeCorpus();
 

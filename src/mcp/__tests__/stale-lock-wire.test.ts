@@ -15,9 +15,10 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LuxDatabase } from '../../db/index.js';
+import { built } from '../../__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
 /** A PID that is not running. 2^22 is above the default macOS/Linux pid_max. */
 const DEAD_PID = 4194303;
@@ -77,31 +78,28 @@ async function search(fx: {
   return { isError: res.isError === true, text: res.content[0]?.text ?? '', stderr };
 }
 
-describe.skipIf(!existsSync(DIST_SERVER))(
-  'MCP open path with a leftover lock (over the wire)',
-  () => {
-    it('reclaims a lock whose owner is provably dead and answers the read', async () => {
-      const fx = lockedIndex(DEAD_PID, hostname());
-      const res = await search(fx);
-      expect(res.text).not.toContain('db-unreadable');
-      expect(res.isError).toBe(false);
-      expect(res.text).toContain('docs/settlement.md');
-      expect(existsSync(`${fx.dbPath}.lock`)).toBe(false);
-    }, 60000);
+describe('MCP open path with a leftover lock (over the wire)', () => {
+  it('reclaims a lock whose owner is provably dead and answers the read', async () => {
+    const fx = lockedIndex(DEAD_PID, hostname());
+    const res = await search(fx);
+    expect(res.text).not.toContain('db-unreadable');
+    expect(res.isError).toBe(false);
+    expect(res.text).toContain('docs/settlement.md');
+    expect(existsSync(`${fx.dbPath}.lock`)).toBe(false);
+  }, 60000);
 
-    // Both refusals wait out the 30 s busy timeout, so they run side by side.
-    it('leaves a live or foreign owner’s lock in place', async () => {
-      const live = lockedIndex(process.pid, hostname()); // this test process is alive
-      const foreign = lockedIndex(DEAD_PID, `not-${hostname()}`); // dead here, unknowable there
-      const [liveRes, foreignRes] = await Promise.all([search(live), search(foreign)]);
+  // Both refusals wait out the 30 s busy timeout, so they run side by side.
+  it('leaves a live or foreign owner’s lock in place', async () => {
+    const live = lockedIndex(process.pid, hostname()); // this test process is alive
+    const foreign = lockedIndex(DEAD_PID, `not-${hostname()}`); // dead here, unknowable there
+    const [liveRes, foreignRes] = await Promise.all([search(live), search(foreign)]);
 
-      expect(liveRes.isError).toBe(true);
-      expect(readdirSync(`${live.dbPath}.lock`)).toHaveLength(1);
-      expect(liveRes.text).toContain(`owner pid ${process.pid} is alive`);
+    expect(liveRes.isError).toBe(true);
+    expect(readdirSync(`${live.dbPath}.lock`)).toHaveLength(1);
+    expect(liveRes.text).toContain(`owner pid ${process.pid} is alive`);
 
-      expect(foreignRes.isError).toBe(true);
-      expect(readdirSync(`${foreign.dbPath}.lock`)).toHaveLength(1);
-      expect(foreignRes.text).toContain(`owner pid ${DEAD_PID} is on another host`);
-    }, 120000);
-  }
-);
+    expect(foreignRes.isError).toBe(true);
+    expect(readdirSync(`${foreign.dbPath}.lock`)).toHaveLength(1);
+    expect(foreignRes.text).toContain(`owner pid ${DEAD_PID} is on another host`);
+  }, 120000);
+});

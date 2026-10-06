@@ -10,11 +10,12 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const HOOK = join(PROJECT_ROOT, 'bin', 'post-commit-hook.sh');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 const STUB_CLI = join(__dirname, 'fixtures', 'hook-cli', 'stub-lux.sh');
 const SOURCE_CLI = join(__dirname, 'fixtures', 'hook-cli', 'lux-from-source.sh');
 
@@ -88,6 +89,7 @@ function runHook(repo: string, luxCli: string, env: Record<string, string> = {})
       ...env,
       LUX_CLI: luxCli,
       LUX_TEST_NODE: process.execPath,
+      LUX_TEST_CLI_ENTRY: CLI_ENTRY,
       LUX_SKIP_SYNC: '',
       FORCE_COLOR: '0',
       NO_COLOR: '1',
@@ -154,18 +156,7 @@ describe('post-commit hook — sync outcome reporting', () => {
       const dbPath = join(repo, '.lux', 'lux.db');
       const rebuild = spawnSync(
         process.execPath,
-        [
-          '--import',
-          'tsx',
-          CLI_ENTRY,
-          '--db',
-          dbPath,
-          '--corpus',
-          repo,
-          'index',
-          'rebuild',
-          '--quiet',
-        ],
+        [CLI_ENTRY, '--db', dbPath, '--corpus', repo, 'index', 'rebuild', '--quiet'],
         { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: CALL_TIMEOUT_MS }
       );
       expect(rebuild.status, rebuild.stderr).toBe(0);

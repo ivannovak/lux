@@ -2,17 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { LuxDatabase } from '../../db/index.js';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
-const TSX_LOADER = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs');
+const CLI_ENTRY = builtCli();
 
 function runCli(cwd: string, args: string[]) {
-  return spawnSync(process.execPath, ['--import', TSX_LOADER, CLI_ENTRY, ...args], {
+  return spawnSync(process.execPath, [CLI_ENTRY, ...args], {
     cwd,
     encoding: 'utf-8',
     env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },

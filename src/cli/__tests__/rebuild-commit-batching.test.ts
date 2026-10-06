@@ -16,10 +16,11 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 const JOURNAL_COUNTER = join(__dirname, 'fixtures', 'count-sqlite-journals.mjs');
 
 const SMALL = 2;
@@ -129,18 +130,7 @@ function runCountingCli(repo: string, dbPath: string, args: string[]): JournalCo
   const countFile = join(dirname(dbPath), `journals-${args.join('-')}.json`);
   const result = spawnSync(
     process.execPath,
-    [
-      '--import',
-      'tsx',
-      '--import',
-      JOURNAL_COUNTER,
-      CLI_ENTRY,
-      '--db',
-      dbPath,
-      '--corpus',
-      repo,
-      ...args,
-    ],
+    ['--import', JOURNAL_COUNTER, CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',

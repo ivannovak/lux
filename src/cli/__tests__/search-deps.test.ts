@@ -5,13 +5,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'node:os';
 import { LuxDatabase } from '../../db/index.js';
 import { detectModuleBoundaries, resolveModule } from '../../scanner/imports/module-boundary.js';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
-const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
-const TSX_LOADER = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs');
+const CLI_ENTRY = builtCli();
 
 function runCli(corpus: string, args: string[]) {
-  return spawnSync(process.execPath, ['--import', TSX_LOADER, CLI_ENTRY, ...args], {
+  return spawnSync(process.execPath, [CLI_ENTRY, ...args], {
     cwd: corpus,
     encoding: 'utf-8',
     env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },

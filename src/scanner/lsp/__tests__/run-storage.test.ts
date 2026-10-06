@@ -9,8 +9,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRunStorage, removeRunStorage, sweepRunStorage } from '../run-storage.js';
+import { built } from '../../../__tests__/helpers/built-cli.js';
 
-const MODULE = join(dirname(fileURLToPath(import.meta.url)), '..', 'run-storage.ts');
+const MODULE = built(join(dirname(fileURLToPath(import.meta.url)), '..', 'run-storage.ts'));
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const bases: string[] = [];
 
@@ -38,14 +39,10 @@ describe('per-run server storage', () => {
     const script =
       `import { createRunStorage } from ${JSON.stringify(MODULE)};` +
       `createRunStorage('srv-', ${JSON.stringify(root)}); process.exit(3);`;
-    const run = spawnSync(
-      process.execPath,
-      ['--import', 'tsx', '--input-type=module', '-e', script],
-      {
-        cwd: PROJECT_ROOT,
-        encoding: 'utf-8',
-      }
-    );
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf-8',
+    });
     expect(run.status, run.stderr).toBe(3);
     expect(readdirSync(root)).toEqual([]);
   });

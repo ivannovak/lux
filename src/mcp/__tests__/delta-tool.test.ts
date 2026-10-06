@@ -17,12 +17,13 @@ import {
 import { LuxDatabase } from '../../db/index.js';
 import { computeDelta } from '../../scanner/delta/run.js';
 import type { DeltaOptions } from '../../scanner/delta/types.js';
+import { built } from '../../__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 // The wire test drives the BUILT server (plain node, negligible startup) rather than compiling it
 // on-spawn via tsx — the latter's CPU spike starved the parallel WASM-SQLite fixtures. The gate
 // builds before testing, so dist is always present there; a bare `npm test` (no build) skips it.
-const DIST_SERVER = join(REPO_ROOT, 'dist', 'mcp', 'server.js');
+const DIST_SERVER = built('src/mcp/server.ts');
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -125,99 +126,96 @@ describe('lux_delta MCP tool — computeDelta contract (spec 16 / Decision 17)',
   });
 });
 
-describe.skipIf(!existsSync(DIST_SERVER))(
-  'lux_delta MCP tool — over the wire (ListTools + CallTool, SC-8)',
-  () => {
-    let root: string;
-    let corpus: string;
-    let dbPath: string;
-    let client: Client;
+describe('lux_delta MCP tool — over the wire (ListTools + CallTool, SC-8)', () => {
+  let root: string;
+  let corpus: string;
+  let dbPath: string;
+  let client: Client;
 
-    beforeAll(async () => {
-      root = mkdtempSync(join(tmpdir(), 'lux-delta-mcp-wire-'));
-      const fx = makeFixture(root);
-      corpus = fx.corpus;
-      dbPath = fx.dbPath;
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), 'lux-delta-mcp-wire-'));
+    const fx = makeFixture(root);
+    corpus = fx.corpus;
+    dbPath = fx.dbPath;
 
-      client = new Client({ name: 'delta-tool-test', version: '0.0.0' }, { capabilities: {} });
-      const transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [DIST_SERVER],
-        cwd: REPO_ROOT,
-        env: { ...getDefaultEnvironment(), LUX_CORPUS_PATH: corpus, LUX_DB_PATH: dbPath },
-        stderr: 'ignore',
-      });
-      await client.connect(transport);
-    }, 60000);
-
-    afterAll(async () => {
-      await client.close();
-      rmSync(root, { recursive: true, force: true });
+    client = new Client({ name: 'delta-tool-test', version: '0.0.0' }, { capabilities: {} });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [DIST_SERVER],
+      cwd: REPO_ROOT,
+      env: { ...getDefaultEnvironment(), LUX_CORPUS_PATH: corpus, LUX_DB_PATH: dbPath },
+      stderr: 'ignore',
     });
+    await client.connect(transport);
+  }, 60000);
 
-    it('lists lux_delta with the documented input schema (incl. the against cross-repo param)', async () => {
-      const { tools } = await client.listTools();
-      const delta = tools.find((t) => t.name === 'lux_delta');
-      expect(delta).toBeDefined();
-      const props = (delta!.inputSchema.properties ?? {}) as Record<string, unknown>;
-      for (const key of [
-        'base',
-        'committed_only',
-        'depth',
-        'max_nodes',
-        'min_confidence',
-        'against',
-      ]) {
-        expect(props[key]).toBeDefined();
-      }
-    });
+  afterAll(async () => {
+    await client.close();
+    rmSync(root, { recursive: true, force: true });
+  });
 
-    it('CallTool with against:[ghost] returns crossRepoImpact with the sibling attached:false (never dropped, SC-8)', async () => {
-      const res = await client.callTool({
-        name: 'lux_delta',
-        arguments: { against: ['ghost'] },
-      });
-      const content = (res.content as Array<{ type: string; text: string }>)[0];
-      const payload = JSON.parse(content.text) as {
-        schemaVersion?: number;
-        crossRepoImpact?: { siblings: Array<{ name: string; attached: boolean }> };
-      };
-      expect(payload.schemaVersion).toBe(1); // additive — no bump (SC-9)
-      const ghost = payload.crossRepoImpact?.siblings.find((s) => s.name === 'ghost');
-      expect(ghost).toMatchObject({ name: 'ghost', attached: false });
-    });
+  it('lists lux_delta with the documented input schema (incl. the against cross-repo param)', async () => {
+    const { tools } = await client.listTools();
+    const delta = tools.find((t) => t.name === 'lux_delta');
+    expect(delta).toBeDefined();
+    const props = (delta!.inputSchema.properties ?? {}) as Record<string, unknown>;
+    for (const key of [
+      'base',
+      'committed_only',
+      'depth',
+      'max_nodes',
+      'min_confidence',
+      'against',
+    ]) {
+      expect(props[key]).toBeDefined();
+    }
+  });
 
-    it('CallTool with a benign base returns a parseable schemaVersion:1 envelope', async () => {
-      const res = await client.callTool({ name: 'lux_delta', arguments: {} });
-      const content = (res.content as Array<{ type: string; text: string }>)[0];
-      const payload = JSON.parse(content.text) as Record<string, unknown>;
-      expect(payload.schemaVersion).toBe(1);
-      expect(payload.surface).toBe('delta');
+  it('CallTool with against:[ghost] returns crossRepoImpact with the sibling attached:false (never dropped, SC-8)', async () => {
+    const res = await client.callTool({
+      name: 'lux_delta',
+      arguments: { against: ['ghost'] },
     });
+    const content = (res.content as Array<{ type: string; text: string }>)[0];
+    const payload = JSON.parse(content.text) as {
+      schemaVersion?: number;
+      crossRepoImpact?: { siblings: Array<{ name: string; attached: boolean }> };
+    };
+    expect(payload.schemaVersion).toBe(1); // additive — no bump (SC-9)
+    const ghost = payload.crossRepoImpact?.siblings.find((s) => s.name === 'ghost');
+    expect(ghost).toMatchObject({ name: 'ghost', attached: false });
+  });
 
-    it('CallTool with an injection base never spawns a shell / writes the probe (Decision 17)', async () => {
-      const probe = join(root, 'WIRE_INJECTION_PROBE');
-      expect(existsSync(probe)).toBe(false);
-      const res = await client.callTool({
-        name: 'lux_delta',
-        arguments: { base: `--output=${probe}` },
-      });
-      const content = (res.content as Array<{ type: string; text: string }>)[0];
-      // Analysis-mode MCP surface: the unsafe base degrades to a warned empty report; the load-bearing
-      // invariant is that git was never invoked with the injection → the probe file does not exist.
-      const payload = JSON.parse(content.text) as {
-        schemaVersion?: number;
-        trust?: { warnings?: string[] };
-        error?: { reason?: string };
-      };
-      const refusedOrWarned =
-        payload.error?.reason === 'baseline-unavailable' ||
-        (payload.trust?.warnings ?? []).some((w) => w.includes('not a valid ref'));
-      expect(refusedOrWarned).toBe(true);
-      expect(existsSync(probe)).toBe(false);
+  it('CallTool with a benign base returns a parseable schemaVersion:1 envelope', async () => {
+    const res = await client.callTool({ name: 'lux_delta', arguments: {} });
+    const content = (res.content as Array<{ type: string; text: string }>)[0];
+    const payload = JSON.parse(content.text) as Record<string, unknown>;
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.surface).toBe('delta');
+  });
+
+  it('CallTool with an injection base never spawns a shell / writes the probe (Decision 17)', async () => {
+    const probe = join(root, 'WIRE_INJECTION_PROBE');
+    expect(existsSync(probe)).toBe(false);
+    const res = await client.callTool({
+      name: 'lux_delta',
+      arguments: { base: `--output=${probe}` },
     });
-  }
-);
+    const content = (res.content as Array<{ type: string; text: string }>)[0];
+    // Analysis-mode MCP surface: the unsafe base degrades to a warned empty report; the load-bearing
+    // invariant is that git was never invoked with the injection → the probe file does not exist.
+    const payload = JSON.parse(content.text) as {
+      schemaVersion?: number;
+      trust?: { warnings?: string[] };
+      error?: { reason?: string };
+    };
+    const refusedOrWarned =
+      payload.error?.reason === 'baseline-unavailable' ||
+      (payload.trust?.warnings ?? []).some((w) => w.includes('not a valid ref'));
+    expect(refusedOrWarned).toBe(true);
+    expect(existsSync(probe)).toBe(false);
+  });
+});
 
 // Fix #1: the MCP `lux_delta` handler must validate `min_confidence` against the ConfidenceClass
 // enum and fall back to the CLI default on an out-of-enum value. Without the guard, "high" is cast
@@ -269,50 +267,47 @@ function makeReachableFixture(root: string): { corpus: string; dbPath: string } 
   return { corpus, dbPath };
 }
 
-describe.skipIf(!existsSync(DIST_SERVER))(
-  'lux_delta MCP tool — min_confidence enum guard over the wire (fix)',
-  () => {
-    let root: string;
-    let client: Client;
+describe('lux_delta MCP tool — min_confidence enum guard over the wire (fix)', () => {
+  let root: string;
+  let client: Client;
 
-    beforeAll(async () => {
-      root = mkdtempSync(join(tmpdir(), 'lux-delta-mcp-minconf-'));
-      const fx = makeReachableFixture(root);
-      client = new Client({ name: 'delta-minconf-test', version: '0.0.0' }, { capabilities: {} });
-      const transport = new StdioClientTransport({
-        command: process.execPath,
-        args: [DIST_SERVER],
-        cwd: REPO_ROOT,
-        env: { ...getDefaultEnvironment(), LUX_CORPUS_PATH: fx.corpus, LUX_DB_PATH: fx.dbPath },
-        stderr: 'ignore',
-      });
-      await client.connect(transport);
-    }, 60000);
-
-    afterAll(async () => {
-      await client.close();
-      rmSync(root, { recursive: true, force: true });
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), 'lux-delta-mcp-minconf-'));
+    const fx = makeReachableFixture(root);
+    client = new Client({ name: 'delta-minconf-test', version: '0.0.0' }, { capabilities: {} });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [DIST_SERVER],
+      cwd: REPO_ROOT,
+      env: { ...getDefaultEnvironment(), LUX_CORPUS_PATH: fx.corpus, LUX_DB_PATH: fx.dbPath },
+      stderr: 'ignore',
     });
+    await client.connect(transport);
+  }, 60000);
 
-    async function surfaceIds(min_confidence?: string): Promise<string[]> {
-      const args = min_confidence === undefined ? {} : { min_confidence };
-      const res = await client.callTool({ name: 'lux_delta', arguments: args });
-      const content = (res.content as Array<{ type: string; text: string }>)[0];
-      const payload = JSON.parse(content.text) as {
-        downstream?: { entrySurfaces?: Array<{ id: string }> };
-      };
-      return (payload.downstream?.entrySurfaces ?? []).map((s) => s.id);
-    }
+  afterAll(async () => {
+    await client.close();
+    rmSync(root, { recursive: true, force: true });
+  });
 
-    it('honors a valid stricter min_confidence: proven drops the framework-inferred surface (control)', async () => {
-      // Proves min_confidence is actually applied — so finding the surface below is meaningful.
-      expect(await surfaceIds('proven')).not.toContain('surface:http:GET:/svc');
-    });
-
-    it('an out-of-enum min_confidence ("high") falls back to the default — NOT a confidently-wrong empty', async () => {
-      // If "high" leaked through as an unknown class, the floor would be undefined and the surface
-      // would be dropped (empty). Finding it proves the guard normalized "high" to the default floor.
-      expect(await surfaceIds('high')).toContain('surface:http:GET:/svc');
-    });
+  async function surfaceIds(min_confidence?: string): Promise<string[]> {
+    const args = min_confidence === undefined ? {} : { min_confidence };
+    const res = await client.callTool({ name: 'lux_delta', arguments: args });
+    const content = (res.content as Array<{ type: string; text: string }>)[0];
+    const payload = JSON.parse(content.text) as {
+      downstream?: { entrySurfaces?: Array<{ id: string }> };
+    };
+    return (payload.downstream?.entrySurfaces ?? []).map((s) => s.id);
   }
-);
+
+  it('honors a valid stricter min_confidence: proven drops the framework-inferred surface (control)', async () => {
+    // Proves min_confidence is actually applied — so finding the surface below is meaningful.
+    expect(await surfaceIds('proven')).not.toContain('surface:http:GET:/svc');
+  });
+
+  it('an out-of-enum min_confidence ("high") falls back to the default — NOT a confidently-wrong empty', async () => {
+    // If "high" leaked through as an unknown class, the floor would be undefined and the surface
+    // would be dropped (empty). Finding it proves the guard normalized "high" to the default floor.
+    expect(await surfaceIds('high')).toContain('surface:http:GET:/svc');
+  });
+});

@@ -9,9 +9,10 @@ import type { LuxDatabase } from '../../../db/index.js';
 import type { EdgeType, StructuralEdge, StructuralNode } from '../../../db/types.js';
 import { LuxSqlite } from '../../../db/sqlite-adapter.js';
 import { SCAN_ORDER_SEED_ENV } from '../../../scanner/scan-order.js';
+import { builtCli } from '../../../__tests__/helpers/built-cli.js';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 /** Columns that hold wall-clock time; they are the only values allowed to differ between runs. */
 const TIMESTAMP_COLUMNS = new Set([
@@ -305,11 +306,11 @@ export function runLux(
   };
   delete env[SCAN_ORDER_SEED_ENV];
   if (seed !== undefined) env[SCAN_ORDER_SEED_ENV] = seed;
-  const result = spawnSync(
-    process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', db, '--corpus', corpus, ...args],
-    { cwd: PROJECT_ROOT, encoding: 'utf-8', env }
-  );
+  const result = spawnSync(process.execPath, [CLI_ENTRY, '--db', db, '--corpus', corpus, ...args], {
+    cwd: PROJECT_ROOT,
+    encoding: 'utf-8',
+    env,
+  });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 

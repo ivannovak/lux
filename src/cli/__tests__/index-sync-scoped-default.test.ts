@@ -17,10 +17,11 @@ import { LuxDatabase } from '../../db/index.js';
 import { rebuildWithOverlay } from '../../scanner/rebuild-orchestrator.js';
 import { persistRebuildTrustState } from '../../scanner/overlay-trust-state.js';
 import { persistStructuralConfigFingerprint } from '../../scanner/config-fingerprint.js';
+import { builtCli } from '../../__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+const CLI_ENTRY = builtCli();
 
 const roots: string[] = [];
 
@@ -39,7 +40,7 @@ function commitAll(repo: string, msg: string): string {
 function runSync(repo: string, dbPath: string, extra: string[] = []) {
   return spawnSync(
     process.execPath,
-    ['--import', 'tsx', CLI_ENTRY, '--db', dbPath, '--corpus', repo, 'index', 'sync', ...extra],
+    [CLI_ENTRY, '--db', dbPath, '--corpus', repo, 'index', 'sync', ...extra],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',
