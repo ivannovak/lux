@@ -5,8 +5,7 @@
 // MCP tool must not fork this query logic. The CLI keeps its own text/JSON rendering; this module
 // only produces the structural `ImpactData` (or reports an unresolvable file).
 
-import type { LuxDatabase } from '../db/index.js';
-import { relative } from 'path';
+import { toStoredPath, type LuxDatabase } from '../db/index.js';
 import { resolveModule, detectModuleBoundaries } from '../scanner/imports/module-boundary.js';
 
 export interface DependentModuleImpact {
@@ -45,7 +44,9 @@ export function computeImpact(db: LuxDatabase, corpusPath: string, filePath: str
   const dependents = db.getModuleDependencies(sourceModule, 'target');
 
   const impact: ImpactData = {
-    file: relative(corpusPath, filePath) || filePath,
+    // Corpus-relative, like every path Lux reports. A relative argument already is: resolving it
+    // against the working directory would report a path that depends on where the command ran.
+    file: toStoredPath(corpusPath, filePath) || filePath,
     module: sourceModule,
     dependentModules: dependents.map((d) => ({
       module: d.source_module,

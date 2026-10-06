@@ -103,14 +103,19 @@ function consumer(module: string, name: string, uses: Array<[string, string]>): 
  *    registered by two providers, one command name declared by two classes, a scheduled command
  *    and a job that two sites dispatch over different transports.
  */
-export function writeDeterminismFixture(root: string): void {
+export function writeDeterminismFixture(
+  root: string,
+  options: { pinWorkspaceRoot?: boolean } = {}
+): void {
   write(
     root,
     'lux.yaml',
     [
       'lsp:',
       '  enabled: false',
-      `  workspace_root: ${root}`,
+      // An absolute path in the config is indexed as file content, so a caller comparing raw
+      // content across checkouts leaves it out.
+      ...(options.pinWorkspaceRoot === false ? [] : [`  workspace_root: ${root}`]),
       'deps:',
       '  enabled: true',
       '  module_boundary: "src/Module/{name}"',
@@ -308,11 +313,12 @@ export function runLux(
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function replaceRoot(value: string, root: string): string {
-  return value.split(root).join('<ROOT>');
+/** `root === null` leaves every path as it is: the comparison is then of the raw values. */
+function replaceRoot(value: string, root: string | null): string {
+  return root === null ? value : value.split(root).join('<ROOT>');
 }
 
-function normalizeJson(value: unknown, root: string): unknown {
+function normalizeJson(value: unknown, root: string | null): unknown {
   if (typeof value === 'string') return replaceRoot(value, root);
   if (Array.isArray(value)) return value.map((item) => normalizeJson(item, root));
   if (value && typeof value === 'object') {
@@ -328,7 +334,7 @@ function normalizeJson(value: unknown, root: string): unknown {
 }
 
 /** A text value that holds JSON is normalized as JSON, so embedded timestamps are masked too. */
-function normalizeCell(value: unknown, root: string): unknown {
+function normalizeCell(value: unknown, root: string | null): unknown {
   if (typeof value !== 'string')
     return value instanceof Uint8Array ? Buffer.from(value).toString('hex') : value;
   const trimmed = value.trimStart();
@@ -344,9 +350,10 @@ function normalizeCell(value: unknown, root: string): unknown {
 
 /**
  * Dump every rebuild-written table as sorted lines. Dropped: wall-clock columns and INTEGER
- * autoincrement ids (insertion-order artifacts). The clone root is replaced by `<ROOT>`.
+ * autoincrement ids (insertion-order artifacts). The clone root is replaced by `<ROOT>`, unless
+ * `root` is null, in which case stored paths are compared exactly as written.
  */
-export function dumpTables(dbPath: string, root: string): Record<string, string[]> {
+export function dumpTables(dbPath: string, root: string | null): Record<string, string[]> {
   const db = new LuxSqlite(dbPath, { readonly: true });
   try {
     const out: Record<string, string[]> = {};
@@ -386,14 +393,56 @@ export function runBattery(corpus: string, db: string, home: string): Record<str
 
 /** One battery command: its exit code plus its normalized, key-sorted output. */
 export function runCommand(corpus: string, db: string, home: string, name: string): string {
-  const run = runLux(corpus, db, home, DETERMINISM_COMMANDS[name]);
+  return formatRun(runLux(corpus, db, home, DETERMINISM_COMMANDS[name]), corpus);
+}
+
+function formatRun(run: CliRun, root: string | null): string {
   let body: string;
   try {
-    body = JSON.stringify(normalizeJson(JSON.parse(run.stdout), corpus), null, 1);
+    body = JSON.stringify(normalizeJson(JSON.parse(run.stdout), root), null, 1);
   } catch {
-    body = `<non-json stdout>\n${replaceRoot(run.stdout, corpus)}`;
+    body = `<non-json stdout>\n${replaceRoot(run.stdout, root)}`;
   }
   return `exit=${run.status}\n${body}`;
+}
+
+/**
+ * The fields of --json output that state where this invocation ran. They are facts about the
+ * machine, not about the index, and are the only path-valued fields allowed to differ between
+ * checkouts. Each is a full key path, so a path appearing anywhere else is still compared.
+ */
+export const INVOCATION_PATH_FIELDS = [
+  'runtime.corpusPath',
+  'runtime.dbPath',
+  'overlay.repoPath',
+  'status.runtime.corpusPath',
+  'status.runtime.dbPath',
+  'status.overlay.repoPath',
+];
+
+function maskFields(value: unknown, fields: string[], prefix = ''): unknown {
+  if (Array.isArray(value)) return value.map((item) => maskFields(item, fields, prefix));
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    out[key] = fields.includes(path) ? '<INVOCATION PATH>' : maskFields(child, fields, path);
+  }
+  return out;
+}
+
+/**
+ * Run one command and return its output with NO path substitution: timestamps and the
+ * INVOCATION_PATH_FIELDS are masked by name, and every other value is compared as printed.
+ */
+export function runCommandRaw(corpus: string, db: string, home: string, args: string[]): string {
+  const run = runLux(corpus, db, home, args);
+  try {
+    const masked = maskFields(JSON.parse(run.stdout), INVOCATION_PATH_FIELDS);
+    return formatRun({ ...run, stdout: JSON.stringify(masked) }, null);
+  } catch {
+    return formatRun(run, null);
+  }
 }
 
 /** Line-level differences between two dumps, for a readable assertion message. */

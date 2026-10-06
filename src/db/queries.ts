@@ -86,7 +86,7 @@ export class PreparedQueries {
   readonly upsertOperationalBoundary: Stmt;
   readonly getOperationalBoundary: Stmt;
   readonly getOperationalBoundariesByKind: Stmt;
-  readonly getOperationalBoundariesByRepoRoot: Stmt;
+  readonly getOperationalBoundaries: Stmt;
   readonly upsertOperationalHandler: Stmt;
   readonly getOperationalHandlersForBoundary: Stmt;
   readonly upsertOperationalEdge: Stmt;
@@ -436,8 +436,8 @@ export class PreparedQueries {
       SELECT * FROM operational_boundaries WHERE kind = ? ORDER BY name ASC
     `);
 
-    this.getOperationalBoundariesByRepoRoot = db.prepare(`
-      SELECT * FROM operational_boundaries WHERE repo_root = ? ORDER BY kind ASC, name ASC
+    this.getOperationalBoundaries = db.prepare(`
+      SELECT * FROM operational_boundaries ORDER BY kind ASC, name ASC
     `);
 
     this.upsertOperationalHandler = db.prepare(`

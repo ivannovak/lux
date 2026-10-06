@@ -20,13 +20,13 @@ describe('Deps Command', () => {
       source_module: 'Users',
       target_module: 'Orders',
       reference_count: 10,
-      sample_files: JSON.stringify(['/src/Module/Users/UserService.php']),
+      sample_files: JSON.stringify(['src/Module/Users/UserService.php']),
     });
     db.insertModuleDependency({
       source_module: 'Users',
       target_module: 'Auth',
       reference_count: 5,
-      sample_files: JSON.stringify(['/src/Module/Users/AuthCheck.php']),
+      sample_files: JSON.stringify(['src/Module/Users/AuthCheck.php']),
     });
     db.insertModuleDependency({
       source_module: 'Orders',

@@ -82,13 +82,13 @@ function buildFixture(corpus: string): void {
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Offer Service Guide',
-    file_path: '/corpus/docs/offer-service.md',
+    file_path: 'docs/offer-service.md',
     content: 'The offer service resolves offers and dispatches settlement jobs.',
   });
   db.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Settlement Runbook',
-    file_path: '/corpus/docs/settlement.md',
+    file_path: 'docs/settlement.md',
     content: 'Settlement dispatches a job to the queue worker for each offer.',
   });
   db.close();
@@ -132,8 +132,8 @@ describe('byte-identical single-repo regression (no --with)', () => {
     // Real entryType from the row (not the old unified 'document'), with a bm25 rank suffix.
     expect(out).toContain('[documentation] Settlement Runbook  (rank ');
     expect(out).toContain('[documentation] Offer Service Guide  (rank ');
-    expect(out).toContain('  Path: /corpus/docs/settlement.md');
-    expect(out).toContain('  Path: /corpus/docs/offer-service.md');
+    expect(out).toContain('  Path: docs/settlement.md');
+    expect(out).toContain('  Path: docs/offer-service.md');
     // bm25 orders the term-dense settlement doc ahead of the incidental mention.
     expect(out.indexOf('Settlement Runbook')).toBeLessThan(out.indexOf('Offer Service Guide'));
   });

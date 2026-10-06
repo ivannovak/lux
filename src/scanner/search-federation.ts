@@ -1,6 +1,6 @@
 // Federated search — a per-sibling FTS result union with repo attribution (Decision 5). No id joins
-// (unlike trace): knowledge_entries.file_path is already absolute, so results are actionable without
-// path translation. bm25 ranks are corpus-relative → grouped by repo, not interleaved (OQ5). Opt-in
+// (unlike trace). Each result's path is relative to the root of the repo its group names, as stored
+// in that repo's index. bm25 ranks are corpus-relative → grouped by repo, not interleaved (OQ5). Opt-in
 // only (--with); the single-repo path is untouched (byte-identical).
 
 import { SearchRefusalError, type LuxDatabase } from '../db/index.js';

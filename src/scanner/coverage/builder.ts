@@ -101,7 +101,7 @@ export function buildCoverage(
   options: BuildCoverageOptions = {}
 ): CoveragePayload {
   const trust = inspectOverlayTrustState(db);
-  const corpusPath = (options.corpusPath ?? trust.state?.repoPath) || undefined;
+  const corpusPath = options.corpusPath || undefined;
   const config = corpusPath ? (options.loadConfig ?? loadLspConfig)(corpusPath) : null;
   const producerRuns = loadCoverageProducerRuns(db);
   const candidates = collectCandidates(db.getAllKnowledgeEntries(), corpusPath);

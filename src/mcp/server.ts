@@ -8,7 +8,7 @@ import {
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { TOOLS } from './tool-defs.js';
-import { SearchRefusalError, coerceSearchLimit } from '../db/index.js';
+import { SearchRefusalError, coerceSearchLimit, resolveStoredPath } from '../db/index.js';
 import { buildSearchReport, buildSearchRefusalReport } from '../cli/search-envelope.js';
 import { GeneralScanner } from '../scanner/index.js';
 import { attachEnrichment } from '../scanner/general.js';
@@ -281,7 +281,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { file_path } = args as { file_path: string };
 
         try {
-          const content = readFileSync(file_path, 'utf-8');
+          // Lux reports corpus-relative paths, so a relative path names a file under the corpus root.
+          const content = readFileSync(resolveStoredPath(corpusPath, file_path), 'utf-8');
           return {
             content: [{ type: 'text', text: content }],
           };

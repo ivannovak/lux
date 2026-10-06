@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { existsSync } from 'fs';
-import { LuxDatabase } from '../db/index.js';
+import { LuxDatabase, toStoredPath } from '../db/index.js';
 import { LuxSqlite } from '../db/sqlite-adapter.js';
 import { GeneralScanner } from '../scanner/index.js';
 import { attachEnrichment } from '../scanner/general.js';
@@ -730,12 +730,14 @@ indexCmd
             const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
             const contentDb = db; // const so the narrowed (non-undefined) type survives into the closure
             contentDb.transaction(() => {
-              for (const p of plan.toDelete) contentDb.deleteKnowledgeEntryByPath(p);
+              for (const p of plan.toDelete) {
+                contentDb.deleteKnowledgeEntryByPath(toStoredPath(corpusPath, p));
+              }
               for (const entry of plan.toIndex) {
                 contentDb.insertKnowledgeEntry({
                   type: entry.type,
                   title: entry.title,
-                  file_path: entry.filePath,
+                  file_path: toStoredPath(corpusPath, entry.filePath),
                   tags: entry.tags,
                   metadata: entry.frontmatter,
                   content: entry.content,
@@ -908,7 +910,7 @@ indexCmd
         const deletingDb = db; // const so the narrowed (non-undefined) type survives into the closure
         deletingDb.transaction(() => {
           for (const filePath of plan.toDelete) {
-            deletingDb.deleteKnowledgeEntryByPath(filePath);
+            deletingDb.deleteKnowledgeEntryByPath(toStoredPath(corpusPath, filePath));
           }
         });
 
@@ -1034,7 +1036,7 @@ indexCmd
               database.insertKnowledgeEntry({
                 type: entry.type,
                 title: entry.title,
-                file_path: entry.filePath,
+                file_path: toStoredPath(corpusPath, entry.filePath),
                 tags: entry.tags,
                 metadata: entry.frontmatter,
                 content: entry.content,

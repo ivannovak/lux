@@ -166,7 +166,7 @@ describe('index sync CLI', () => {
 
     const db = new LuxDatabase(dbPath);
     const trustState = loadOverlayTrustState(db);
-    const entry = db.getKnowledgeEntryByPath(join(repoDir, 'docs', 'guide.md'));
+    const entry = db.getKnowledgeEntryByPath('docs/guide.md');
     db.close();
 
     expect(trustState).not.toBeNull();

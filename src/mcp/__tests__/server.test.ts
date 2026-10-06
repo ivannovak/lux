@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
-import { LuxDatabase } from '../../db/index.js';
+import { LuxDatabase, resolveStoredPath } from '../../db/index.js';
 import { GeneralScanner } from '../../scanner/index.js';
 
 /**
@@ -296,7 +296,7 @@ A newly added process document.
       const entry1 = db.insertKnowledgeEntry({
         type: 'general',
         title: 'Test Entry',
-        file_path: '/unique/path/test.md',
+        file_path: 'unique/path/test.md',
       });
       expect(entry1).toBeGreaterThan(0);
     });
@@ -308,8 +308,12 @@ A newly added process document.
       const searchResults = db.searchDocumentsRanked('Testing', { limit: 20 });
       expect(searchResults).toHaveLength(1);
 
-      // 2. Read the file
-      const content = readFileSync(searchResults[0].filePath, 'utf-8');
+      // 2. Read the file: the stored path is relative to the corpus root
+      expect(searchResults[0].filePath).toBe('knowledge/20_methodology/testing.md');
+      const content = readFileSync(
+        resolveStoredPath(contentDir, searchResults[0].filePath),
+        'utf-8'
+      );
       expect(content).toContain('Testing Methodology');
     });
   });

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { existsSync } from 'fs';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { LuxDatabase } from '../db/index.js';
 import { computeClusters } from '../scanner/imports/clustering.js';
 import { detectModuleBoundaries } from '../scanner/imports/module-boundary.js';
@@ -118,7 +118,7 @@ export function addDepsCommand(program: Command) {
             console.log(`    ${dep.module} (${dep.referenceCount} refs)`);
             if (dep.sampleFiles.length > 0) {
               for (const f of dep.sampleFiles.slice(0, 3)) {
-                console.log(`      - ${relative(corpusPath, f) || f}`);
+                console.log(`      - ${f}`); // stored corpus-relative
               }
             }
           }

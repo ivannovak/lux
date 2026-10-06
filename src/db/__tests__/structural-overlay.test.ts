@@ -361,7 +361,7 @@ describe('operational boundary intelligence — persistence', () => {
     });
 
     expect(db.getOperationalBoundary('opb:command:invoices.sync')?.name).toBe('invoices:sync');
-    expect(db.getOperationalBoundariesByRepoRoot('/app')).toHaveLength(2);
+    expect(db.getOperationalBoundaries()).toHaveLength(2);
     expect(db.getOperationalBoundariesByKind('command')).toHaveLength(1);
   });
 
@@ -445,7 +445,7 @@ describe('operational boundary intelligence — persistence', () => {
 
     db.clearOverlay();
 
-    expect(db.getOperationalBoundariesByRepoRoot('/app')).toEqual([]);
+    expect(db.getOperationalBoundaries()).toEqual([]);
     expect(db.getOperationalHandlersForBoundary('opb:schedule:nightly-sync')).toEqual([]);
     expect(db.getOperationalEdgesForSource('opb:schedule:nightly-sync')).toEqual([]);
     expect(db.getOperationalContractsForBoundary('opb:schedule:nightly-sync')).toEqual([]);

@@ -44,6 +44,10 @@ independently-ranked result groups plus a per-sibling freshness block.
 }
 ```
 
+Each result's `filePath` is relative to the corpus root (`docs/settlement.md`); with `with`, a
+result's `path` is relative to the root of the repo its group names. Pass a `filePath` to
+`lux_get_file` as it is.
+
 Only `query` is required. `limit` is coerced by the shared search-limit rule before it can reach the
 SQL `LIMIT` (a negative, zero, or non-integer limit is neutralized rather than dumping unbounded rows
 or hard-aborting WASM). The response is the `buildSearchReport` envelope (query echo + ranked results).
@@ -83,7 +87,8 @@ Read and return the raw content of a file by path. The returned text is the file
 }
 ```
 
-`file_path` may be absolute or relative. **Error behavior:** an unreadable/missing path returns
+`file_path` may be absolute, or relative to the corpus root, which is the form Lux reports paths
+in (for example `filePath` in `lux_search` results). **Error behavior:** an unreadable/missing path returns
 `isError: true` with the text `Error reading file: <reason>`.
 
 ## `lux_rebuild_index`

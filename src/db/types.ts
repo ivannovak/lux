@@ -72,7 +72,7 @@ export interface RankedSearchResult {
   /** knowledge_entries.type — 'source-code' | 'general' | 'architecture' | 'spec' | … */
   entryType: string;
   title: string;
-  /** absolute, as stored in knowledge_entries.file_path */
+  /** corpus-relative, as stored in knowledge_entries.file_path (see stored-path.ts) */
   filePath: string;
   /** raw bm25 (or weighted bm25 once L1 candidate 2 ships) */
   rank: number;

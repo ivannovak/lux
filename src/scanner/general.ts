@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, basename, extname } from 'path';
 import { glob, globSync } from 'glob';
 import type { Frontmatter, ScannedKnowledge, ScanResult } from './types.js';
-import { ROWS_PER_COMMIT, writeInChunks, type LuxDatabase } from '../db/index.js';
+import { ROWS_PER_COMMIT, toStoredPath, writeInChunks, type LuxDatabase } from '../db/index.js';
 import {
   loadLspConfig,
   type LuxLspConfig,
@@ -378,6 +378,10 @@ export class GeneralScanner {
       return Promise.reject(new Error('Invalid scan result: knowledge must be an array'));
     }
 
+    // Entries carry absolute paths for reading; the index stores them corpus-relative. Without a
+    // root, an entry must already be relative: the database refuses an absolute path.
+    const rootPath = this.rootPath;
+
     const indexedCounts = { knowledge: 0 };
 
     try {
@@ -401,7 +405,7 @@ export class GeneralScanner {
           db.insertKnowledgeEntry({
             type: entry.type,
             title: entry.title,
-            file_path: entry.filePath,
+            file_path: rootPath ? toStoredPath(rootPath, entry.filePath) : entry.filePath,
             tags: entry.tags,
             metadata: entry.frontmatter,
             content: entry.content,
@@ -1107,7 +1111,11 @@ function parseDependencies(
       source_module,
       target_module,
       reference_count: val.count,
-      sample_files: [...val.files].sort(compareCodeUnits).slice(0, MODULE_DEPENDENCY_SAMPLE_SIZE),
+      // Stored corpus-relative, and sorted in that form so the sample does not depend on the root.
+      sample_files: [...val.files]
+        .map((file) => toStoredPath(rootPath, file))
+        .sort(compareCodeUnits)
+        .slice(0, MODULE_DEPENDENCY_SAMPLE_SIZE),
     };
   });
 }

@@ -10,7 +10,7 @@ describe('GeneralScanner', () => {
 
   describe('constructor', () => {
     it('should create scanner with root path', () => {
-      const scanner = new GeneralScanner('/test/path');
+      const scanner = new GeneralScanner('test/path');
       expect(scanner).toBeInstanceOf(GeneralScanner);
     });
 
@@ -202,7 +202,7 @@ describe('GeneralScanner', () => {
           {
             type: 'methodology',
             title: 'Test Knowledge',
-            filePath: '/test/knowledge.md',
+            filePath: 'test/knowledge.md',
             content: 'Knowledge content',
           },
         ],
@@ -249,7 +249,7 @@ describe('GeneralScanner', () => {
           {
             type: '',
             title: 'Test',
-            filePath: '/test',
+            filePath: 'test',
           },
         ],
       };
@@ -266,7 +266,7 @@ describe('GeneralScanner', () => {
           {
             type: 'methodology',
             title: '',
-            filePath: '/test',
+            filePath: 'test',
           },
         ],
       };
@@ -298,13 +298,13 @@ describe('GeneralScanner', () => {
           {
             type: 'methodology',
             title: 'First Entry',
-            filePath: '/test/first.md',
+            filePath: 'test/first.md',
             content: 'First',
           },
           {
             type: 'methodology',
             title: 'Second Entry',
-            filePath: '/test/second.md',
+            filePath: 'test/second.md',
             content: 'Second',
           },
         ],
@@ -335,9 +335,9 @@ describe('GeneralScanner', () => {
       const transaction = vi.spyOn(db, 'transaction');
       const result: ScanResult = {
         knowledge: [
-          { type: 'methodology', title: 'First', filePath: '/test/first.md', content: 'First' },
-          { type: 'methodology', title: 'Second', filePath: '/test/second.md', content: 'Second' },
-          { type: 'methodology', title: '', filePath: '/test/untitled.md', content: 'Untitled' },
+          { type: 'methodology', title: 'First', filePath: 'test/first.md', content: 'First' },
+          { type: 'methodology', title: 'Second', filePath: 'test/second.md', content: 'Second' },
+          { type: 'methodology', title: '', filePath: 'test/untitled.md', content: 'Untitled' },
         ],
       };
 
@@ -372,7 +372,7 @@ describe('GeneralScanner', () => {
           knowledge: ['First', 'Second', 'Third', 'Fourth'].map((title) => ({
             type: 'methodology',
             title,
-            filePath: `/test/${title}.md`,
+            filePath: `test/${title}.md`,
             content: title,
           })),
         };
@@ -407,7 +407,7 @@ describe('GeneralScanner', () => {
           {
             type: 'methodology',
             title: 'Test Knowledge',
-            filePath: '/test/knowledge.md',
+            filePath: 'test/knowledge.md',
             tags: ['tag1', 'tag2'],
             frontmatter: { title: 'Test Knowledge', custom: 'value' },
             content: 'Test content',
@@ -420,7 +420,7 @@ describe('GeneralScanner', () => {
       expect(mockDb.insertKnowledgeEntry).toHaveBeenCalledWith({
         type: 'methodology',
         title: 'Test Knowledge',
-        file_path: '/test/knowledge.md',
+        file_path: 'test/knowledge.md',
         tags: ['tag1', 'tag2'],
         metadata: { title: 'Test Knowledge', custom: 'value' },
         content: 'Test content',

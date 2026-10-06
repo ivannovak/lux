@@ -264,6 +264,19 @@ What the rebuild guarantees itself:
 - Float aggregates (boundary weights) are summed in a fixed order; samples
   (`module_dependencies.sample_files`, boundary `samplePaths`) are taken in path order, not by
   which file was reached first.
+- **Stored paths are relative to the corpus root.** `knowledge_entries.file_path` and
+  `module_dependencies.sample_files` hold `src/Module/Users/readme.md`, never
+  `/home/me/repo/src/…`, the overlay trust state no longer records where the repository was, and
+  `operational_boundaries.repo_root` holds `.` (an index describes one repository).
+  Two checkouts of one commit therefore store the same rows, and an index can be moved or shipped.
+  Output follows: `filePath` in `search --json` and `sampleFiles` in `deps impact --json` are
+  corpus-relative, and in federated search each result's path is relative to the repo its group
+  names. The only path-valued output fields that still name this machine say where the command
+  ran: `runtime.corpusPath`, `runtime.dbPath` and `overlay.repoPath` in `index status`,
+  `overlay status` and `doctor` (`repoPath` is now filled from the running corpus path, not read
+  from the index). An index written before this (schema 15 or older) is not read: reads refuse it
+  as `schema-too-old`, and migrating clears it, with a notice, so the next `lux index rebuild` or
+  `lux index sync` rebuilds it in full.
 - `structural_config_fingerprint` does not include the checkout's location: the root path in
   `lux.yaml` (e.g. an absolute `lsp.workspace_root`) is masked before hashing.
 - **Symbol ids are unique by construction.** PHP symbol ids are not file-qualified

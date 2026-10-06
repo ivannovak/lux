@@ -66,7 +66,7 @@ function makeFixture(root: string): { corpus: string; dbPath: string; siblingDbP
   primary.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Client Settlement Notes',
-    file_path: '/client/settlement.md',
+    file_path: 'docs/settlement.md',
     content: 'settlement in the client',
   });
   primary.close();
@@ -81,7 +81,7 @@ function makeFixture(root: string): { corpus: string; dbPath: string; siblingDbP
   sibling.insertKnowledgeEntry({
     type: 'documentation',
     title: 'Kernel Settlement Engine',
-    file_path: '/kernel/engine.md',
+    file_path: 'docs/engine.md',
     content: 'settlement engine internals',
   });
   sibling.close();
@@ -261,7 +261,7 @@ describe.skipIf(!existsSync(DIST_SERVER))(
         federation: { siblings: Array<{ name: string; attached: boolean }> };
       };
       expect(payload.groups.map((g) => g.repo)).toEqual(['main', 'core']);
-      expect(payload.groups[1].results[0].path).toBe('/kernel/engine.md');
+      expect(payload.groups[1].results[0].path).toBe('docs/engine.md');
       expect(payload.federation.siblings[0]).toMatchObject({ name: 'core', attached: true });
     });
 

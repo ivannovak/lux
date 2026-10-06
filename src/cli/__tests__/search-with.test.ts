@@ -37,13 +37,13 @@ beforeEach(() => {
   mkdirSync(corpus, { recursive: true });
 
   const primary = new LuxDatabase(join(corpus, '.lux', 'lux.db'));
-  addDoc(primary, 'Client Settlement Notes', '/client/settlement.md', 'settlement in the client');
+  addDoc(primary, 'Client Settlement Notes', 'docs/settlement.md', 'settlement in the client');
   primary.close();
 
   const kernelDir = join(root, 'core');
   const siblingDbPath = join(kernelDir, '.lux', 'lux.db');
   const kernel = new LuxDatabase(siblingDbPath);
-  addDoc(kernel, 'Kernel Settlement Engine', '/kernel/engine.md', 'settlement engine internals');
+  addDoc(kernel, 'Kernel Settlement Engine', 'docs/engine.md', 'settlement engine internals');
   kernel.close();
 
   writeFileSync(join(corpus, 'lux.yaml'), `siblings:\n  core:\n    db: ${siblingDbPath}\n`);
@@ -67,8 +67,8 @@ describe('lux search --with', () => {
       federation: { siblings: Array<{ name: string; attached: boolean }> };
     };
     expect(result.groups.map((g) => g.repo)).toEqual(['main', 'core']);
-    expect(result.groups[0].results[0].path).toBe('/client/settlement.md');
-    expect(result.groups[1].results[0].path).toBe('/kernel/engine.md');
+    expect(result.groups[0].results[0].path).toBe('docs/settlement.md');
+    expect(result.groups[1].results[0].path).toBe('docs/engine.md');
     expect(result.federation.siblings[0]).toMatchObject({ name: 'core', attached: true });
   });
 
@@ -77,7 +77,7 @@ describe('lux search --with', () => {
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('[main]');
     expect(res.stdout).toContain('[core]');
-    expect(res.stdout).toContain('/kernel/engine.md');
+    expect(res.stdout).toContain('docs/engine.md');
   });
 
   it('warns on an unresolvable sibling and still answers the main group (Decision 6)', () => {
@@ -119,7 +119,7 @@ describe('lux search --with', () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.surface).toBe('search');
     expect(report.refusal).toBeUndefined();
-    const hitRow = report.results.find((r) => r.filePath === '/client/settlement.md');
+    const hitRow = report.results.find((r) => r.filePath === 'docs/settlement.md');
     expect(hitRow).toMatchObject({ entryType: 'documentation', title: 'Client Settlement Notes' });
     expect(hitRow!.rank).toBeLessThan(0); // real bm25, not the old rank:0 lie
 
