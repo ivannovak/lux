@@ -351,17 +351,19 @@ function classifyResult(
 }
 
 /**
- * Example Dashboardcile the surface total against the provider-kind breakdown.
+ * Reconcile the surface total against the provider-kind breakdown.
  *
- * These were sourced differently — the total from the detector's in-run tally,
- * the breakdown from the rows actually persisted — and printed together as a
- * total and its parts. When a detected surface did not become a distinct row
- * the two disagreed and nothing said so.
+ * The two are sourced differently: the total from the distinct surface ids the
+ * detectors declared in this run, the breakdown from the rows persisted. Both
+ * count nodes, so they agree whenever every declared surface became a row. A
+ * route several files declare is one id per file by then (detectors qualify
+ * it), and a detector that still emits one id for two declarations is named in
+ * its own warning by runDetectors, so neither reaches this check.
  *
  * The persisted rows win, because they are what a reader can go and count. A
  * divergence in either direction is reported rather than absorbed: a tally
- * above the rows means surfaces collapsed on insert, and one below means rows
- * exist that no detector claims to have produced.
+ * above the rows means a declared surface was not stored, and one below means
+ * rows exist that no detector claims to have produced.
  */
 export function reconcileSurfaceCounts(input: {
   surfacesDetected: number;

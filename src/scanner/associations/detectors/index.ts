@@ -17,6 +17,7 @@ import { silentReporter, type Reporter } from '../../reporter.js';
 // ---------------------------------------------------------------------------
 
 export interface DetectorRunResult {
+  /** Distinct surface ids the detectors declared: the number of nodes they asked to have stored. */
   surfacesDetected: number;
   surfaceEdgesStored: number;
 }
@@ -54,7 +55,11 @@ export async function runDetectors(
   sourceCommit?: string
 ): Promise<DetectorRunResult> {
   const pack = detectors ?? createDefaultDetectors();
-  let surfacesDetected = 0;
+  // The declaration stored for each surface id. A detector qualifies an id that several files
+  // declare, so one id arriving from two files is a detector fault: one node cannot hold both.
+  // The declaration in the first file by path is stored, whatever order they arrived in, and the
+  // run warns with the id and its files.
+  const stored = new Map<string, CapabilitySurfaceNode>();
   let surfaceEdgesStored = 0;
 
   for (const detector of pack) {
@@ -73,11 +78,29 @@ export async function runDetectors(
     }
 
     // Persist surface nodes in one transaction (a commit per node is a journal round-trip each).
+    const declaringFiles = new Map<string, Set<string>>();
+    for (const surface of batch.surfaces) {
+      const current = stored.get(surface.id);
+      if (!current) {
+        stored.set(surface.id, surface);
+        continue;
+      }
+      if (declaringFile(current) === declaringFile(surface)) continue;
+      const files = declaringFiles.get(surface.id) ?? new Set([declaringFile(current)]);
+      declaringFiles.set(surface.id, files.add(declaringFile(surface)));
+      if (declaringFile(surface) < declaringFile(current)) stored.set(surface.id, surface);
+    }
+    for (const id of [...declaringFiles.keys()].sort()) {
+      const files = [...declaringFiles.get(id)!].sort();
+      reporter.warn(
+        `detector "${detector.name}" declared ${id} in ${files.length} files (${files.join(', ')}); ` +
+          `one node cannot hold both, the declaration in ${declaringFile(stored.get(id)!)} is stored.`,
+        `detector:${detector.name}`
+      );
+    }
     db.transaction(() => {
-      for (const surface of batch.surfaces) {
-        const node = capabilitySurfaceToStructuralNode(surface);
-        db.upsertStructuralNode(node);
-        surfacesDetected++;
+      for (const id of new Set(batch.surfaces.map((surface) => surface.id))) {
+        db.upsertStructuralNode(capabilitySurfaceToStructuralNode(stored.get(id)!));
       }
     });
 
@@ -95,12 +118,16 @@ export async function runDetectors(
     }
   }
 
-  return { surfacesDetected, surfaceEdgesStored };
+  return { surfacesDetected: stored.size, surfaceEdgesStored };
 }
 
 // ---------------------------------------------------------------------------
 // Conversion helpers
 // ---------------------------------------------------------------------------
+
+function declaringFile(surface: CapabilitySurfaceNode): string {
+  return surface.file_path ?? '(no file)';
+}
 
 /**
  * Convert a CapabilitySurfaceNode (in-memory) to a StructuralNode (DB shape).

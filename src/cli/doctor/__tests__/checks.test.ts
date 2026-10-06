@@ -32,6 +32,7 @@ function payload(languages: IndexStatusPayload['coverage']['languages']): IndexS
     overlay: {} as IndexStatusPayload['overlay'],
     coverage: { languages },
     lspEnrichmentFailures: [],
+    surfaceIdCollisions: { collidingIds: 0, ids: [] },
     symbolIdCollisions: { collidingIds: 0, edgesToAmbiguousIds: 0, droppedAmbiguousReferences: 0 },
   };
 }

@@ -319,7 +319,8 @@ export function contractNodeId(schemaName?: string, routeKey?: string): string {
 /**
  * Build a stable HTTP capability-surface node ID.
  *
- * Format: `surface:http:METHOD:/canonical/path`
+ * Format: `surface:http:METHOD:/canonical/path`. A route that more than one file declares is
+ * stored once per file, under this id file-qualified (identity/file-qualified-id.ts).
  *
  * @param method - HTTP verb in any case (will be uppercased).
  * @param path - The canonical route path (e.g. "/api/invoices").

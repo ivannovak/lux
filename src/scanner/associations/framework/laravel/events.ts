@@ -10,6 +10,10 @@ import {
 } from '../../operational/types.js';
 import { extractAssignedArray, getLaravelPhpEntries, resolvePhpClassReference } from './shared.js';
 import { phpSymbolNodeId } from '../../types.js';
+import { compareCodeUnits } from '../../../scan-order.js';
+
+/** Listener classes registered for each event class, per registering file, in declaration order. */
+type EventRegistrations = Map<string, Map<string, string[]>>;
 
 const EVENT_CLASS_LITERAL_RE = /([A-Za-z_\\][A-Za-z0-9_\\]*)::class/g;
 const EVENT_LISTEN_CALL_RE =
@@ -30,11 +34,14 @@ export class LaravelEventListenerExtractor implements OperationalExtractor {
   extract(context: AssociationContext): Promise<OperationalExtractionBatch> {
     const batch = emptyOperationalBatch();
     const entries = getLaravelPhpEntries(context);
+    // Collect every file's registrations before any row is built: an event that several
+    // providers register is one boundary holding all of them (operational/declaration-rules.ts).
+    const registrations: EventRegistrations = new Map();
 
     for (const entry of entries) {
       const listenArray = extractAssignedArray(entry.content, 'listen');
       if (listenArray) {
-        extractListenArray(batch, context.rootPath, entry, listenArray, entries);
+        extractListenArray(registrations, entry, listenArray);
       }
 
       EVENT_LISTEN_CALL_RE.lastIndex = 0;
@@ -42,28 +49,33 @@ export class LaravelEventListenerExtractor implements OperationalExtractor {
       while ((match = EVENT_LISTEN_CALL_RE.exec(entry.content)) !== null) {
         const eventClass = resolvePhpClassReference(match[1], entry);
         const listenerClasses = extractListenerRefs(match[2], entry);
-        addEventListeners(
-          batch,
-          context.rootPath,
-          entry.filePath,
-          eventClass,
-          listenerClasses,
-          5,
-          entries
-        );
+        register(registrations, entry.filePath, eventClass, listenerClasses);
       }
+    }
+
+    for (const eventClass of [...registrations.keys()].sort(compareCodeUnits)) {
+      addEvent(batch, context.rootPath, eventClass, registrations.get(eventClass)!, entries);
     }
 
     return Promise.resolve(batch);
   }
 }
 
+function register(
+  registrations: EventRegistrations,
+  filePath: string,
+  eventClass: string,
+  listenerClasses: string[]
+): void {
+  const byFile = registrations.get(eventClass) ?? new Map<string, string[]>();
+  registrations.set(eventClass, byFile);
+  byFile.set(filePath, [...(byFile.get(filePath) ?? []), ...listenerClasses]);
+}
+
 function extractListenArray(
-  batch: OperationalExtractionBatch,
-  repoRoot: string,
+  registrations: EventRegistrations,
   entry: ReturnType<typeof getLaravelPhpEntries>[number],
-  listenArray: string,
-  entries: ReturnType<typeof getLaravelPhpEntries>
+  listenArray: string
 ): void {
   const eventEntryRe = /([A-Za-z_\\][A-Za-z0-9_\\]*)::class\s*=>\s*\[([\s\S]*?)\](?:,|$)/g;
   let match: RegExpExecArray | null;
@@ -71,7 +83,7 @@ function extractListenArray(
   while ((match = eventEntryRe.exec(listenArray)) !== null) {
     const eventClass = resolvePhpClassReference(match[1], entry);
     const listenerClasses = extractListenerRefs(match[2], entry);
-    addEventListeners(batch, repoRoot, entry.filePath, eventClass, listenerClasses, 5, entries);
+    register(registrations, entry.filePath, eventClass, listenerClasses);
   }
 }
 
@@ -90,15 +102,20 @@ function extractListenerRefs(
   return listeners;
 }
 
-function addEventListeners(
+/**
+ * One event's rows from every file that registers listeners for it. Files are taken in path order
+ * and listeners in declaration order within a file, each listener once.
+ */
+function addEvent(
   batch: OperationalExtractionBatch,
   repoRoot: string,
-  filePath: string,
   eventClass: string,
-  listenerClasses: string[],
-  trustTier: 5,
+  byFile: Map<string, string[]>,
   entries: ReturnType<typeof getLaravelPhpEntries>
 ): void {
+  const trustTier = 5;
+  const registeredIn = [...byFile.keys()].sort(compareCodeUnits);
+  const listenerClasses = [...new Set(registeredIn.flatMap((file) => byFile.get(file)!))];
   const eventBoundaryId = operationalBoundaryId('event', eventClass);
   const payloadHints = inferEventPayloadHints(eventClass, entries);
 
@@ -108,7 +125,7 @@ function addEventListeners(
     kind: 'event',
     name: eventClass,
     trust_tier: trustTier,
-    file_path: filePath,
+    file_path: registeredIn[0],
   });
   batch.contracts.push({
     id: operationalContractId(eventBoundaryId, 'event'),
@@ -118,6 +135,7 @@ function addEventListeners(
       eventShortName: eventClass.split('\\').pop(),
       listenerCount: listenerClasses.length,
       listenerClasses,
+      registeredIn,
       payloadHints,
     }),
     trust_tier: trustTier,
@@ -150,9 +168,10 @@ function inferEventPayloadHints(
   constructorParameters?: Array<{ name: string; type?: string; optional: boolean }>;
   publicProperties?: Array<{ name: string; type?: string }>;
 } {
-  const eventEntry = entries.find((entry) =>
-    entry.classes.some((phpClass) => phpClass.qualifiedName === eventClass)
-  );
+  // A class two files declare: read the first file by path, not the first one processed.
+  const eventEntry = entries
+    .filter((entry) => entry.classes.some((phpClass) => phpClass.qualifiedName === eventClass))
+    .sort((a, b) => compareCodeUnits(a.filePath, b.filePath))[0];
   if (!eventEntry) return {};
 
   const eventClassDef = eventEntry.classes.find(

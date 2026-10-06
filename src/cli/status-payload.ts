@@ -66,6 +66,11 @@ export interface IndexStatusPayload {
   lspEnrichmentFailures: LspEnrichmentFailure[];
   /** Symbol ids more than one file declares, and the references and edges they leave unresolved. */
   symbolIdCollisions: SymbolIdCollisionStatus;
+  /**
+   * HTTP routes more than one file declares. Each declaration is its own surface, stored under
+   * `<id>#file:<path>`; no surface has the bare id listed here.
+   */
+  surfaceIdCollisions: { collidingIds: number; ids: Array<{ id: string; files: string[] }> };
   runtime?: RuntimeStatusPayload;
   freshness?: FreshnessStatusPayload;
 }
@@ -124,7 +129,13 @@ export function buildIndexStatusPayload(
     coverage: buildCoverage(db, { corpusPath: runtime?.corpusPath }),
     lspEnrichmentFailures: loadLspEnrichmentFailures(db),
     symbolIdCollisions: loadSymbolIdCollisionStatus(db),
+    surfaceIdCollisions: surfaceIdCollisions(db),
     ...(runtime ? { runtime: buildRuntimeStatusPayload(runtime) } : {}),
     ...(runtime ? { freshness: buildFreshnessPayload(db, runtime.corpusPath) } : {}),
   };
+}
+
+function surfaceIdCollisions(db: LuxDatabase): IndexStatusPayload['surfaceIdCollisions'] {
+  const ids = db.getSharedSurfaceIds();
+  return { collidingIds: ids.length, ids };
 }

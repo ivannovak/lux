@@ -1,12 +1,7 @@
 import type { LuxDatabase } from '../../../db/index.js';
 import type { AssociationContext } from '../types.js';
 import type { OperationalExtractionBatch, OperationalExtractor } from './types.js';
-import {
-  type OperationalBoundaryDescriptor,
-  type OperationalContractDescriptor,
-  type OperationalEdgeDescriptor,
-  type OperationalHandlerDescriptor,
-} from './types.js';
+import { OperationalRows } from './declaration-rules.js';
 import { LaravelCommandExtractor } from '../framework/laravel/commands.js';
 import { LaravelSchedulerExtractor } from '../framework/laravel/scheduler.js';
 import { LaravelJobDispatchExtractor } from '../framework/laravel/jobs.js';
@@ -71,10 +66,10 @@ export async function runOperationalExtractors(
   reporter: Reporter = silentReporter
 ): Promise<OperationalExtractionResult> {
   const pack = extractors ?? createDefaultOperationalExtractors();
-  const boundaries = new Map<string, OperationalBoundaryDescriptor>();
-  const handlers = new Map<string, OperationalHandlerDescriptor>();
-  const edges = new Map<string, OperationalEdgeDescriptor>();
-  const contracts = new Map<string, OperationalContractDescriptor>();
+  // One id can arrive from several files and several extractors; declaration-rules.ts decides
+  // which row is stored, independent of arrival order.
+  const rows = new OperationalRows();
+  const { boundaries, handlers, edges, contracts } = rows;
   let extractorsRun = 0;
 
   for (const extractor of pack) {
@@ -95,10 +90,10 @@ export async function runOperationalExtractors(
       continue;
     }
 
-    for (const boundary of batch.boundaries) boundaries.set(boundary.id, boundary);
-    for (const handler of batch.handlers) handlers.set(handler.id, handler);
-    for (const edge of batch.edges) edges.set(edge.id, edge);
-    for (const contract of batch.contracts) contracts.set(contract.id, contract);
+    for (const boundary of batch.boundaries) rows.addBoundary(boundary, extractor.name);
+    for (const handler of batch.handlers) rows.addHandler(handler);
+    for (const edge of batch.edges) rows.addEdge(edge);
+    for (const contract of batch.contracts) rows.addContract(contract, extractor.name);
 
     if (
       batch.boundaries.length > 0 ||
@@ -113,6 +108,8 @@ export async function runOperationalExtractors(
       );
     }
   }
+
+  rows.reportConflicts(reporter);
 
   // One transaction for every operational row (a commit per row is a journal round-trip each).
   db.transaction(() => {

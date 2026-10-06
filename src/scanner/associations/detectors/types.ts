@@ -29,7 +29,11 @@ import type {
  * Evidence is embedded in each edge's provenance field and extracted at persist time.
  */
 export interface DetectedSurfaceBatch {
-  /** Normalized surface nodes to upsert into structural_nodes. */
+  /**
+   * Normalized surface nodes to upsert into structural_nodes: one id per declaration. A surface
+   * that several files declare is file-qualified by the detector (identity/file-qualified-id.ts);
+   * runDetectors warns about an id that still arrives from two files.
+   */
   surfaces: CapabilitySurfaceNode[];
   /**
    * Explicit boundary edges only.

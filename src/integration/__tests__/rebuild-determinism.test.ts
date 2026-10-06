@@ -106,6 +106,56 @@ describe('cold index rebuild determinism', () => {
     expect(deps.every((dep) => dep.reference_count > dep.sample_files.length)).toBe(true);
   });
 
+  it('plants one fact in two files for each kind of declaration (issue #13)', () => {
+    const [run] = runs;
+    const surfaces = run.tables.structural_nodes
+      .map((row) => JSON.parse(row) as { id: string; node_type: string; file_path: string })
+      .filter((node) => node.node_type === 'capability-surface' && node.id.includes(':GET:/#'));
+    expect(surfaces.map((node) => [node.id, node.file_path])).toEqual([
+      ['surface:http:GET:/#file:routes/web.php', 'routes/web.php'],
+      ['surface:http:GET:/#file:workbench/routes/web.php', 'workbench/routes/web.php'],
+    ]);
+
+    const boundaries = Object.fromEntries(
+      run.tables.operational_boundaries
+        .map((row) => JSON.parse(row) as { id: string; file_path: string | null })
+        .map((boundary) => [boundary.id, boundary.file_path])
+    );
+    expect(boundaries).toMatchObject({
+      'opb:event:App\\Events\\ReportRequested': 'src/Module/Alpha/ServiceProvider.php',
+      'opb:command:report:send': null,
+      'opb:command:report:send#file:src/Module/Alpha/Console/SendReport.php':
+        'src/Module/Alpha/Console/SendReport.php',
+      'opb:command:report:send#file:src/Module/Beta/Console/SendReport.php':
+        'src/Module/Beta/Console/SendReport.php',
+      'opb:command:cache:warm': 'src/Module/Gamma/Console/WarmCache.php',
+      'opb:job:App\\Jobs\\Prune': null,
+    });
+
+    const eventContract = run.tables.operational_contracts
+      .map((row) => JSON.parse(row) as { id: string; payload_schema: Record<string, unknown> })
+      .find((contract) => contract.id.startsWith('opc:opb:event:'))!;
+    expect(eventContract.payload_schema).toMatchObject({
+      listenerClasses: [
+        'App\\Module\\Alpha\\Listeners\\AlphaListener',
+        'App\\Module\\Beta\\Listeners\\BetaListener',
+      ],
+      registeredIn: ['src/Module/Alpha/ServiceProvider.php', 'src/Module/Beta/ServiceProvider.php'],
+    });
+
+    const status = JSON.parse(run.battery['index-status'].split('\n').slice(1).join('\n')) as {
+      surfaceIdCollisions: unknown;
+    };
+    expect(status.surfaceIdCollisions).toEqual({
+      collidingIds: 1,
+      ids: [{ id: 'surface:http:GET:/', files: ['routes/web.php', 'workbench/routes/web.php'] }],
+    });
+  });
+
+  it('closes the rebuild without a surface count mismatch', () => {
+    for (const run of runs) expect(run.rebuild.stderr).not.toContain('Surface count mismatch');
+  });
+
   it('writes the same normalized tables', () => {
     expect(diffDumps(runs[0].tables, runs[1].tables)).toEqual([]);
   });

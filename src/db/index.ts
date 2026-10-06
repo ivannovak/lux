@@ -1375,13 +1375,14 @@ export class LuxDatabase {
   }
 
   /**
-   * Ids more than one file declares (stored file-qualified as `<id>#file:<path>`), and the edges
-   * that still point at such an id's bare form. Those edges name an ambiguous target and resolve to
-   * no node (identity/symbol-collisions.ts).
+   * Symbol ids more than one file declares (stored file-qualified as `<id>#file:<path>`), and the
+   * edges that still point at such an id's bare form. Those edges name an ambiguous target and
+   * resolve to no node (identity/symbol-collisions.ts).
    */
   getSymbolIdCollisionCounts(): { collidingIds: number; edgesToAmbiguousIds: number } {
     const ambiguous = `SELECT DISTINCT substr(id, 1, instr(id, '#file:') - 1) AS bare
-      FROM structural_nodes WHERE origin = 'local' AND instr(id, '#file:') > 0`;
+      FROM structural_nodes
+      WHERE origin = 'local' AND node_type = 'symbol' AND instr(id, '#file:') > 0`;
     const row = this.db.get(
       `SELECT (SELECT COUNT(*) FROM (${ambiguous})) AS ids,
               (SELECT COUNT(*) FROM structural_edges WHERE target_node_id IN (${ambiguous})) AS edges`
@@ -1418,6 +1419,23 @@ export class LuxDatabase {
   /**
    * Return all capability-surface nodes, most recently updated first.
    */
+  /**
+   * Capability-surface ids more than one file declares, in their bare form, each with the files
+   * that declare it. Each declaration is stored under `<id>#file:<path>`
+   * (identity/file-qualified-id.ts).
+   */
+  getSharedSurfaceIds(): Array<{ id: string; files: string[] }> {
+    const rows = this.db.all(
+      `SELECT substr(id, 1, instr(id, '#file:') - 1) AS bare, file_path
+         FROM structural_nodes
+        WHERE node_type = 'capability-surface' AND instr(id, '#file:') > 0
+        ORDER BY bare, file_path`
+    ) as Array<{ bare: string; file_path: string }>;
+    const shared = new Map<string, string[]>();
+    for (const row of rows) shared.set(row.bare, [...(shared.get(row.bare) ?? []), row.file_path]);
+    return [...shared].map(([id, files]) => ({ id, files }));
+  }
+
   getCapabilitySurfaces(): StructuralNode[] {
     return this.getQueries().getCapabilitySurfaces.all() as StructuralNode[];
   }
