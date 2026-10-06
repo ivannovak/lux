@@ -44,13 +44,21 @@ interface SourceFile {
  */
 const COMPILED_TEST_FIXTURES = ['cli/__tests__/fixtures/faults/inject.ts'];
 
+/** Where a build comes from. Tests of the build itself point this at a scratch tree. */
+export interface BuildSource {
+  root: string;
+  fixtures: readonly string[];
+}
+
+const PROJECT_SOURCE: BuildSource = { root: SOURCE_ROOT, fixtures: COMPILED_TEST_FIXTURES };
+
 /** Every file that goes into the build: `src` without its `__tests__` directories, plus the above. */
-function sourceFiles(): SourceFile[] {
+function sourceFiles(source: BuildSource): SourceFile[] {
   const found: SourceFile[] = [];
   const add = (full: string): void => {
     const stat = statSync(full);
     found.push({
-      path: relative(SOURCE_ROOT, full).split(sep).join('/'),
+      path: relative(source.root, full).split(sep).join('/'),
       size: stat.size,
       mtimeMs: stat.mtimeMs,
     });
@@ -64,15 +72,15 @@ function sourceFiles(): SourceFile[] {
       }
     }
   };
-  walk(SOURCE_ROOT);
-  for (const fixture of COMPILED_TEST_FIXTURES) add(join(SOURCE_ROOT, fixture));
+  walk(source.root);
+  for (const fixture of source.fixtures) add(join(source.root, fixture));
   return found;
 }
 
 /** A digest of the build's inputs: any edit, addition or removal under `src` changes it. */
-export function sourceFingerprint(): string {
+export function sourceFingerprint(source: BuildSource = PROJECT_SOURCE): string {
   const hash = createHash('sha256');
-  for (const file of sourceFiles().sort((a, b) => (a.path < b.path ? -1 : 1))) {
+  for (const file of sourceFiles(source).sort((a, b) => (a.path < b.path ? -1 : 1))) {
     hash.update(`${file.path}\0${file.size}\0${file.mtimeMs}\n`);
   }
   return hash.digest('hex');
@@ -83,10 +91,10 @@ export function sourceFingerprint(): string {
  * own to a `.js` beside the others (the sources already run per-file under tsx), every other file
  * copied. The fingerprint is taken before compiling, so an edit made during the build shows as stale.
  */
-export function buildTestTree(outDir: string): void {
-  const fingerprint = sourceFingerprint();
-  for (const file of sourceFiles()) {
-    const from = join(SOURCE_ROOT, file.path);
+export function buildTestTree(outDir: string, source: BuildSource = PROJECT_SOURCE): void {
+  const fingerprint = sourceFingerprint(source);
+  for (const file of sourceFiles(source)) {
+    const from = join(source.root, file.path);
     const to = join(outDir, file.path);
     mkdirSync(dirname(to), { recursive: true });
     if (!file.path.endsWith('.ts') || file.path.endsWith('.d.ts')) {
@@ -116,7 +124,10 @@ export function builtFingerprint(buildDir: string): string | undefined {
  * The directory of this run's build, after checking it was made from the sources now on disk.
  * Throws rather than return a missing or stale build.
  */
-export function testBuildDir(buildDir = process.env[TEST_BUILD_ENV]): string {
+export function testBuildDir(
+  buildDir = process.env[TEST_BUILD_ENV],
+  source: BuildSource = PROJECT_SOURCE
+): string {
   if (!buildDir) {
     throw new Error(
       `${TEST_BUILD_ENV} is not set: CLI tests need the build vitest's global setup makes. ` +
@@ -125,7 +136,7 @@ export function testBuildDir(buildDir = process.env[TEST_BUILD_ENV]): string {
   }
   const built = builtFingerprint(buildDir);
   if (built === undefined) throw new Error(`No finished test build in ${buildDir}.`);
-  if (built !== sourceFingerprint()) {
+  if (built !== sourceFingerprint(source)) {
     throw new Error(
       `The test build in ${buildDir} is stale: src has changed since it was made. Re-run vitest.`
     );

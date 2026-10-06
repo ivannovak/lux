@@ -4,6 +4,7 @@
 import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestProject } from 'vitest/node';
 import { buildTestTree, PROJECT_ROOT, TEST_BUILD_ENV, TEST_BUILD_PREFIX } from './test-build.js';
 
 const ABANDONED_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -19,12 +20,14 @@ function removeAbandonedBuilds(): void {
   }
 }
 
-export default function setup(): () => void {
+export default function setup(project: TestProject): () => void {
   removeAbandonedBuilds();
   // Beside `src`, so the build resolves `node_modules` and `package.json` exactly as `dist` does.
   const buildDir = mkdtempSync(join(PROJECT_ROOT, TEST_BUILD_PREFIX));
   buildTestTree(buildDir);
   process.env[TEST_BUILD_ENV] = buildDir;
+  // Watch mode re-runs tests after an edit without running this setup again: rebuild first.
+  project.onTestsRerun(() => buildTestTree(buildDir));
   // Compiled-code cache for the spawned CLIs: they all load the same modules.
   process.env.NODE_COMPILE_CACHE ??= mkdtempSync(join(tmpdir(), 'lux-test-compile-cache-'));
   return () => rmSync(buildDir, { recursive: true, force: true });
