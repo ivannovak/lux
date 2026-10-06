@@ -16,6 +16,7 @@ import {
   type ResponseMessage,
   type NotificationMessage,
 } from 'vscode-languageserver-protocol';
+import { lspTrace, type LspTrace } from './trace.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,7 +91,7 @@ export class LspResponseError extends Error {
  */
 export class LspTransientError extends Error {
   constructor(
-    readonly kind: 'timeout' | 'transport' | 'unresponsive',
+    readonly kind: 'timeout' | 'transport' | 'unresponsive' | 'empty',
     message: string
   ) {
     super(message);
@@ -199,6 +200,7 @@ export class LspClient {
   private process: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
+  private trace: LspTrace | undefined;
   private readonly abandoned = new Map<number, AbandonedRequest>();
   private readonly semaphore: Semaphore;
   private readonly openDocSemaphore: Semaphore;
@@ -414,6 +416,7 @@ export class LspClient {
   // -------------------------------------------------------------------------
 
   private spawnServer(): void {
+    this.trace = lspTrace(this.options.serverLabel ?? this.options.serverCommand);
     const env = this.options.env ? { ...process.env, ...this.options.env } : process.env;
 
     this.process = spawn(this.options.serverCommand, this.options.serverArgs ?? [], {
@@ -519,6 +522,7 @@ export class LspClient {
   }
 
   private handleMessage(message: ResponseMessage): void {
+    this.trace?.('receive', message);
     if (message.id === undefined || message.id === null) {
       const notification = message as unknown as NotificationMessage;
       if (typeof notification.method === 'string') {
@@ -695,6 +699,7 @@ export class LspClient {
   }
 
   private writeMessage(message: RequestMessage | NotificationMessage): void {
+    this.trace?.('send', message);
     const body = JSON.stringify(message);
     const header = `Content-Length: ${Buffer.byteLength(body, 'utf-8')}\r\n\r\n`;
     this.process!.stdin!.write(header + body, 'utf-8');

@@ -160,6 +160,12 @@ export interface LspEnricher {
    */
   drainRequestIssues?(): LspRequestIssue[];
 
+  /** Files whose answer was not believable and were asked again, and how many that settled. */
+  readonly emptyAnswers?: { reasked: number; recovered: number };
+
+  /** Empty references answers asked for again, and how many then had references. */
+  readonly emptyReferences?: { reasked: number; recovered: number };
+
   /**
    * Resolve the definition location of the token at a 0-based (line, character).
    * Optional — enrichers that support on-demand definition queries implement it.

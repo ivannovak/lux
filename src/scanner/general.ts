@@ -899,6 +899,18 @@ export async function generalScan(
 
   // 9. Shut down LSP enrichers (kept alive through the overlay + typed-receiver pass).
   if (activeRegistry) {
+    // How often an answer was not believable and asked again: the evidence the check is live.
+    for (const enricher of activeRegistry.getAll()) {
+      const visits = enricher.emptyAnswers;
+      const refs = enricher.emptyReferences;
+      if (visits || refs) {
+        report(
+          `${enricher.languageId}: ${visits?.reasked ?? 0} visit(s) re-run after an empty answer ` +
+            `(${visits?.recovered ?? 0} then answered); ${refs?.reasked ?? 0} empty references ` +
+            `answer(s) asked again (${refs?.recovered ?? 0} then had references).`
+        );
+      }
+    }
     report('Shutting down LSP enrichers...');
     try {
       await activeRegistry.shutdownAll();
