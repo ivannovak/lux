@@ -406,12 +406,23 @@ describe('the downstream walk', () => {
     expect(report.downstream.entrySurfaces).toMatchObject([{ id: SURFACE, hops: 2 }]);
   });
 
-  it('still reaches a surface handled by the class of a changed method', async () => {
-    const direct = 'surface:http:GET:/billing';
-    db.upsertStructuralNode({ id: direct, node_type: 'capability-surface', updated_at: 1 });
-    edge(direct, CLASS, 'handled_by');
+  it('reaches a route that names the changed method, and not one that names another', async () => {
+    for (const [id, controllerMethod] of [
+      ['surface:http:GET:/tax', 'tax'],
+      ['surface:http:GET:/total', 'total'],
+    ]) {
+      db.upsertStructuralNode({
+        id,
+        node_type: 'capability-surface',
+        metadata: JSON.stringify({ controllerMethod }),
+        updated_at: 1,
+      });
+      edge(id, CLASS, 'handled_by');
+    }
     const report = await afterEditing((source) => source.replace('return 2;', 'return 20;'));
 
-    expect(report.downstream.entrySurfaces).toMatchObject([{ id: direct, hops: 1 }]);
+    expect(report.downstream.entrySurfaces).toMatchObject([
+      { id: 'surface:http:GET:/tax', hops: 1 },
+    ]);
   });
 });

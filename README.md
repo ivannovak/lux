@@ -73,7 +73,7 @@ Two symbol sets are reported, and they answer different questions:
   code is its declaration and body without nested symbols, so editing a method does not list its
   class, and editing a property does. Comment, docblock, blank-line and indentation changes alter
   no symbol. This is the set to intersect with your own symbols, and where the downstream walk
-  starts (together with the class around a changed method).
+  starts.
 - `touched.symbolIds` — every symbol declared in a changed file, changed or not. Unchanged in
   meaning from earlier releases; `touched.symbols` is its length.
 
@@ -81,6 +81,28 @@ Two symbol sets are reported, and they answer different questions:
 file-level statements, route declarations), `cosmeticOnly`, `renamedOnly` (a pure rename changes
 no symbol), and `fileLevelOnly` (no grammar for the file, e.g. `.vue` and `.blade.php`: all of its
 indexed symbols are listed, as `file-level`, because none can be ruled out).
+
+`downstream.entrySurfaces` is what the change can reach: the walk follows callers and referrers
+upward from each changed symbol, within `--depth` and `--max-nodes` (`budget.truncated` says when
+it stopped early). A route is handled by a controller class while calls come from methods, so
+three rules cross between the two:
+
+- A reached method reaches the routes of its class that name it (`[C::class, 'show']` for
+  `C::show`; a route to `C::class` alone for `C::__invoke`), and the job, command or listener its
+  class handles when it is the entry method (`handle`, `__invoke`). A schedule is reached through
+  the command or job it triggers.
+- A method nothing in the application calls explicitly (a resource's `toArray`, a policy method)
+  is taken to be invoked through its class, so the walk continues to whatever references the
+  class. A method with an explicit caller is reached through its callers only. Calls from tests
+  do not count, and framework hooks (`handle`, `toArray`, `rules`, `authorize`, `render`, magic
+  methods, …) are taken to be invoked through their class whatever else calls them.
+- A class reached as a whole (its own code or its constructor changed) reaches every route and
+  boundary it handles.
+
+Each HTTP entry carries `hops` (edges on the path; crossing from a method to its class is not
+one), `weakestConfidence` (a path that crossed by the second rule is `framework-inferred` at
+best) and `via`, the node ids from the changed symbol to the handler. Not reached: routes guarded
+by a changed middleware, policy or provider-declared route group (issue #43).
 
 `--check` turns it into a CI gate: exit nonzero on a gate violation or degraded overlay, exit 0
 otherwise. Gate categories come from `--fail-on <comma-list>`, else `lux.yaml delta.gates`, else the

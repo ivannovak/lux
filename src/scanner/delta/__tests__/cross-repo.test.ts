@@ -139,9 +139,8 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
     const s = cri!.siblings[0];
     expect(s.name).toBe('res');
     expect(s.attached).toBe(true);
-    // The changed method and the class around it; the bare-name helper changed too but is
-    // repo-local, not a seed.
-    expect(s.seedsTotal).toBe(2);
+    // Only the changed method; the bare-name helper changed too but is repo-local, not a seed.
+    expect(s.seedsTotal).toBe(1);
     expect(s.seedsMatched).toBe(1);
     expect(s.entrySurfaces).toEqual([
       {
@@ -150,6 +149,7 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
         resolvedVia: 'structural-walk',
         hops: 2,
         weakestConfidence: 'artifact-backed',
+        via: [FQCN, CTRL],
       },
     ]);
     expect(s.budget).toEqual({ depth: 6, maxNodes: 2000, truncated: false });
@@ -160,7 +160,7 @@ describe('cross-repo delta — SC-6: a kernel diff reaches a sibling route surfa
     // text render (analysis default) surfaces the cross-repo impact, not only --json
     const text = renderDeltaText(result.report);
     expect(text).toContain('cross-repo impact');
-    expect(text).toContain('res: 1/2 seed(s) matched');
+    expect(text).toContain('res: 1/1 seed(s) matched');
     expect(text).toContain(ROUTE);
   });
 });

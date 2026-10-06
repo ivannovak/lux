@@ -38,9 +38,9 @@ export interface ChangedSymbols {
   changes: SymbolChange[];
   precision: TouchPrecision;
   /**
-   * Where the downstream walk starts: the changed symbols, the class around a changed method
-   * (its body changed, and routes are handled by the class), and the file node of a file whose
-   * code changed outside any symbol.
+   * Where the downstream walk starts: the changed symbols, and the file node of a file whose
+   * code changed outside any symbol. The walk itself crosses from a method to its class
+   * (delta/downstream.ts).
    */
   seeds: string[];
 }
@@ -48,8 +48,6 @@ export interface ChangedSymbols {
 /** One declaration on one side of the diff. */
 interface Declared {
   id: string;
-  /** The id of the class a method belongs to. */
-  containerId?: string;
   /** Normalized own code: the declaration's lines minus nested declarations, comments, blanks. */
   code: string;
   /** The id of the declaration this one is nested in, for sibling order ('' at file level). */
@@ -116,8 +114,6 @@ export async function resolveChangedSymbols(
       const stored = storedId(db, id, head ? file.path : basePath);
       changes.push({ id: stored, change, path: file.path });
       seeds.add(stored);
-      const containerId = (head ?? base)!.containerId;
-      if (containerId) seeds.add(storedId(db, containerId, head ? file.path : basePath));
     }
 
     const outsideChanged = sides.base.outside !== sides.head.outside;
@@ -291,18 +287,12 @@ function parseSide(
     (at === undefined ? outside : own[at]).push(lines[line - 1]);
   }
 
-  const classIds = new Map<string, string>();
-  defs.forEach((def, index) => {
-    if (def.type === 'class') classIds.set(def.name, ids[index]);
-  });
-
   const declared = new Map<string, Declared>();
-  defs.forEach((def, index) => {
+  defs.forEach((_def, index) => {
     const id = ids[index];
     if (declared.has(id)) return; // a name declared twice in one file: the first stands for it
     declared.set(id, {
       id,
-      containerId: def.type === 'method' && def.container ? classIds.get(def.container) : undefined,
       code: codeOf(own[index], lang),
       parent: parent[index] === undefined ? '' : ids[parent[index]],
     });
