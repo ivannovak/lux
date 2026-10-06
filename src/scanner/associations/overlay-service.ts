@@ -92,6 +92,11 @@ export interface OverlayRebuildResult {
   sharedExtractions?: SharedExtractions;
   /** Contract-shaped facts, project context, diagnostics, and producer evidence. */
   programAnalysis?: ProgramAnalysisV1;
+  /**
+   * Phases that failed without aborting the overlay, each with how far it got and why. Their
+   * partial writes are on disk, so the counts above do not describe the index; read it instead.
+   */
+  phaseFailures?: string[];
 }
 
 /**
@@ -168,6 +173,7 @@ export async function rebuildStructuralOverlay(
   // 3b. AST symbol tier (default on) — supplies symbols without LSP. Isolated:
   // a tree-sitter/WASM failure here must degrade only this tier, not abort the
   // whole overlay (surfaces, propagation) for a feature the user didn't opt into.
+  const phaseFailures: string[] = [];
   if (options.astEnabled) {
     report('Materializing AST symbol nodes...');
     try {
@@ -182,9 +188,9 @@ export async function rebuildStructuralOverlay(
       symbolNodes += astNodes;
       report(`Materialized ${astNodes} AST symbol node(s).`);
     } catch (error) {
-      report(
-        `Warning: AST symbol materialization failed — ${error instanceof Error ? error.message : String(error)}`
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      report(`Warning: AST symbol materialization failed — ${message}`);
+      phaseFailures.push(message);
     }
   }
 
@@ -483,6 +489,7 @@ export async function rebuildStructuralOverlay(
     propagationEdgesAdded,
     sharedExtractions,
     programAnalysis,
+    ...(phaseFailures.length > 0 ? { phaseFailures } : {}),
   };
 }
 

@@ -3,7 +3,7 @@ import { join, basename, extname } from 'path';
 import { glob, globSync } from 'glob';
 import matter from 'gray-matter';
 import type { Frontmatter, ScannedKnowledge, ScanResult } from './types.js';
-import type { LuxDatabase } from '../db/index.js';
+import { ROWS_PER_COMMIT, writeInChunks, type LuxDatabase } from '../db/index.js';
 import {
   loadLspConfig,
   type LuxLspConfig,
@@ -366,11 +366,13 @@ export class GeneralScanner {
       return Promise.reject(new Error('Invalid scan result: knowledge must be an array'));
     }
 
-    let indexedCounts = { knowledge: 0 };
+    const indexedCounts = { knowledge: 0 };
 
     try {
-      // Index knowledge entries
-      for (const entry of scanResult.knowledge) {
+      // Index knowledge entries in bounded transactions (issue #15: a commit per entry costs a
+      // rollback-journal create/sync/delete each). A failing entry stops the run; the partial index
+      // reported below counts exactly the entries that committed.
+      const result = writeInChunks(db, scanResult.knowledge, ROWS_PER_COMMIT, (entry) => {
         // Validate knowledge data
         if (!entry.type || typeof entry.type !== 'string') {
           throw new Error(
@@ -392,7 +394,6 @@ export class GeneralScanner {
             metadata: entry.frontmatter,
             content: entry.content,
           });
-          indexedCounts.knowledge++;
         } catch (error) {
           throw new Error(
             `Failed to insert knowledge entry "${entry.title}" (${entry.filePath}): ${
@@ -401,7 +402,9 @@ export class GeneralScanner {
             { cause: error }
           );
         }
-      }
+      });
+      indexedCounts.knowledge = result.committed;
+      if (result.error) throw result.error;
 
       return Promise.resolve(indexedCounts);
     } catch (error) {
@@ -449,6 +452,8 @@ export interface GeneralScanResult {
   };
   /** Structural overlay rebuild result (only present when overlayEnabled=true). */
   overlay?: OverlayRebuildResult;
+  /** Why the overlay rebuild failed, when it was enabled and threw (overlay is then absent). */
+  overlayError?: string;
 }
 
 /** Options for the general scan pipeline. */
@@ -675,6 +680,7 @@ export async function generalScan(
 
   // 8. Optionally rebuild structural overlay
   let overlay: OverlayRebuildResult | undefined;
+  let overlayError: string | undefined;
   if (options?.overlayEnabled && options.db) {
     report('Rebuilding structural overlay...');
     try {
@@ -698,9 +704,8 @@ export async function generalScan(
           `${overlay.edgesStored} edge(s) stored.`
       );
     } catch (error) {
-      report(
-        `Warning: overlay rebuild failed — ${error instanceof Error ? error.message : String(error)}`
-      );
+      overlayError = error instanceof Error ? error.message : String(error);
+      report(`Warning: overlay rebuild failed — ${overlayError}`);
     }
   }
 
@@ -841,6 +846,7 @@ export async function generalScan(
       enrichmentErrors: errors,
     },
     overlay,
+    ...(overlayError !== undefined ? { overlayError } : {}),
   };
 }
 

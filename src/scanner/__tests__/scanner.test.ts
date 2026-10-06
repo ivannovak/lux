@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { GeneralScanner } from '../index.js';
-import type { LuxDatabase } from '../../db/index.js';
+import { LuxDatabase } from '../../db/index.js';
 import type { ScanResult } from '../types.js';
 
 describe('GeneralScanner', () => {
@@ -191,6 +191,8 @@ describe('GeneralScanner', () => {
     beforeEach(() => {
       // Create mock database
       mockDb = {
+        transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => 1),
       } as unknown as LuxDatabase;
 
@@ -277,6 +279,8 @@ describe('GeneralScanner', () => {
     it('should handle database insertion errors gracefully', async () => {
       const scanner = new GeneralScanner();
       const errorDb = {
+        transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           throw new Error('DB constraint violation');
         }),
@@ -308,6 +312,8 @@ describe('GeneralScanner', () => {
 
       let callCount = 0;
       const partialDb = {
+        transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           callCount++;
           if (callCount === 2) throw new Error('Second insertion failed');
@@ -322,6 +328,64 @@ describe('GeneralScanner', () => {
         expect((error as Error).message).toContain('Partial index created: 1 knowledge entries');
       }
     });
+
+    it('commits the entries before a failing one in a single transaction', async () => {
+      const scanner = new GeneralScanner();
+      const db = new LuxDatabase(':memory:');
+      const transaction = vi.spyOn(db, 'transaction');
+      const result: ScanResult = {
+        knowledge: [
+          { type: 'methodology', title: 'First', filePath: '/test/first.md', content: 'First' },
+          { type: 'methodology', title: 'Second', filePath: '/test/second.md', content: 'Second' },
+          { type: 'methodology', title: '', filePath: '/test/untitled.md', content: 'Untitled' },
+        ],
+      };
+
+      await expect(scanner.index(db, result)).rejects.toThrow(
+        'Partial index created: 2 knowledge entries'
+      );
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(db.getAllKnowledgeEntries().map((e) => e.title)).toEqual(['First', 'Second']);
+      db.close();
+    });
+
+    it.each([
+      [
+        'ABORT',
+        'only the failing statement',
+        'Partial index created: 2 knowledge entries',
+        ['First', 'Second'],
+      ],
+      ['ROLLBACK', 'the whole transaction', 'Partial index created: 0 knowledge entries', []],
+    ])(
+      'reports what committed when a RAISE(%s) undoes %s',
+      async (mode, _undone, partial, committed) => {
+        const scanner = new GeneralScanner();
+        const db = new LuxDatabase(':memory:');
+        const sqlite = (db as unknown as { db: { exec(sql: string): void } }).db;
+        sqlite.exec(
+          `CREATE TRIGGER fail_third BEFORE INSERT ON knowledge_entries
+             WHEN (SELECT count(*) FROM knowledge_entries) >= 2
+           BEGIN SELECT RAISE(${mode}, 'injected failure'); END;`
+        );
+        const result: ScanResult = {
+          knowledge: ['First', 'Second', 'Third', 'Fourth'].map((title) => ({
+            type: 'methodology',
+            title,
+            filePath: `/test/${title}.md`,
+            content: title,
+          })),
+        };
+
+        const error = await scanner.index(db, result).catch((e: Error) => e);
+
+        expect((error as Error).message).toContain(partial);
+        expect((error as Error).message).toContain('injected failure');
+        expect((error as Error).message).not.toContain('no transaction is active');
+        expect(db.getAllKnowledgeEntries().map((e) => e.title)).toEqual(committed);
+        db.close();
+      }
+    );
 
     it('should handle empty scan result', async () => {
       const scanner = new GeneralScanner();
@@ -367,6 +431,8 @@ describe('GeneralScanner', () => {
       const scanner = new GeneralScanner();
 
       const errorDb = {
+        transaction: <T>(fn: () => T): T => fn(),
+        inTransaction: () => true,
         insertKnowledgeEntry: vi.fn(() => {
           throw 'String error'; // Non-Error exception
         }),

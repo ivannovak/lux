@@ -265,14 +265,16 @@ export async function refreshOverlayScoped(
   // embeddings, spec 16 Part C) next to the edge deletes. The re-materialisation below re-creates
   // surviving nodes' rows with fresh content; vanished nodes' rows stay deleted. Without this, a
   // NULL-only Phase-3 queue would keep a stale vector behind a live, changed node whose deterministic
-  // id never churned.
-  db.deleteNodeAnchorRowsForNodeIds(victimNodeIds);
+  // id never churned. The clear is one transaction; outside one, each helper commits per chunk of ids.
   let edgesReplaced = 0;
-  edgesReplaced += db.deleteEdgesBySourceNodes(victimNodeIds, { keepLsp });
-  edgesReplaced += db.deleteEdgesByEvidencePaths(R, { keepLsp });
-  if (keepLsp) db.markEdgesStaleLspBySourceNodes(victimNodeIds);
-  db.deleteOperationalForFiles(R);
-  const nodesReplaced = db.deleteStructuralNodesForFiles(R);
+  const nodesReplaced = db.transaction(() => {
+    db.deleteNodeAnchorRowsForNodeIds(victimNodeIds);
+    edgesReplaced += db.deleteEdgesBySourceNodes(victimNodeIds, { keepLsp });
+    edgesReplaced += db.deleteEdgesByEvidencePaths(R, { keepLsp });
+    if (keepLsp) db.markEdgesStaleLspBySourceNodes(victimNodeIds);
+    db.deleteOperationalForFiles(R);
+    return db.deleteStructuralNodesForFiles(R);
+  });
 
   // 4. REMATERIALIZE all of R's nodes BEFORE the single resolver pass (Decision 13 soundness).
   materializeNodes(db, scanR, enrichments, rootPath);

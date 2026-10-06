@@ -6,7 +6,12 @@ import Parser from 'web-tree-sitter';
 import { extractSource, getGrammars, langForFile, type AstLang } from '../ast/extract.js';
 import { extractionToSourceFacts } from '../ast/source-facts.js';
 import type { AdapterOutputV1 } from './types.js';
-import type { AdapterWorkerRequestV1, AdapterWorkerResponseV1 } from './worker-protocol.js';
+import {
+  PARSE_STARTED_MESSAGE,
+  isPersistentWorkerData,
+  type AdapterWorkerRequestV1,
+  type AdapterWorkerResponseV1,
+} from './worker-protocol.js';
 
 type WorkerLanguage = AstLang;
 
@@ -143,16 +148,25 @@ function postBounded(response: AdapterWorkerResponseV1, maxResultBytes: number):
   parentPort?.postMessage(encoded);
 }
 
-async function main(): Promise<void> {
-  const response = validateWire(workerData)
-    ? await parse(workerData)
+async function respond(wire: unknown): Promise<void> {
+  // Load the grammars before the host's parse clock starts (worker-protocol.ts).
+  await getGrammars();
+  parentPort?.postMessage(PARSE_STARTED_MESSAGE);
+  const response = validateWire(wire)
+    ? await parse(wire)
     : responseError('worker-error', 'Parser worker received an invalid request.');
-  const maxResultBytes = validateWire(workerData)
-    ? workerData.request.input.limits.maxResultBytes
-    : 1024;
+  const maxResultBytes = validateWire(wire) ? wire.request.input.limits.maxResultBytes : 1024;
   postBounded(response, maxResultBytes);
 }
 
-void main().catch(() => {
+function fail(): void {
   postBounded(responseError('worker-error', 'Parser worker failed.'), 1024);
-});
+}
+
+// A persistent worker (worker-host.ts's pool) answers one request per message; otherwise the
+// request arrives as workerData and the worker answers it once.
+if (isPersistentWorkerData(workerData)) {
+  parentPort?.on('message', (wire: unknown) => void respond(wire).catch(fail));
+} else {
+  void respond(workerData).catch(fail);
+}

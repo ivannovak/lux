@@ -18,6 +18,7 @@ import type { OverlayRebuildResult } from './associations/overlay-service.js';
 import { loadLspConfig } from './config.js';
 import { resolveFirstPartyRoots } from './pack/first-party.js';
 import { lookupPack } from './pack/cache.js';
+import type { EnricherRegistry } from './lsp/index.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -79,6 +80,8 @@ export interface RebuildOptions {
    * explicit path forces that pack; `null` forces an app-only rebuild (no merge).
    */
   vendorPackPath?: string | null;
+  /** Inject a pre-built enricher registry (generalScan's DI seam, for tests and embedding). */
+  enricherRegistry?: EnricherRegistry;
 }
 
 /**
@@ -148,6 +151,7 @@ export async function rebuildWithOverlay(
     db,
     vendorPackPath,
     firstPartyRoots,
+    enricherRegistry: options.enricherRegistry,
   });
 
   const result = classifyResult(rootPath, scanResult, db, 'overlay', config.lsp.enabled);
@@ -223,26 +227,46 @@ function classifyResult(
   const overlay = scanResult.overlay;
 
   if (!overlay) {
+    // Bulk writes commit in chunks, so a rebuild that failed part-way leaves what it wrote on
+    // disk. Report the index as it is, and why the rebuild stopped.
+    const persisted = countPersistedOverlay(db);
+    const kinds = countProviderKinds(db);
     return {
       mode: 'degraded-overlay',
       repoPath: rootPath,
       configSource: 'lux.yaml',
       configLspEnabled,
-      surfaceCount: 0,
+      surfaceCount:
+        kinds.controllerBackedCount + kinds.closureBackedCount + kinds.unknownProviderKindCount,
       detectorEdgeCount: 0,
       propagatedEdgeCount: 0,
-      fileNodeCount: 0,
-      symbolNodeCount: 0,
-      controllerBackedCount: 0,
-      closureBackedCount: 0,
-      unknownProviderKindCount: 0,
+      fileNodeCount: persisted.fileNodes,
+      symbolNodeCount: persisted.symbolNodes,
+      ...kinds,
       enrichmentStatus: scanResult.stats.activeEnrichers > 0 ? 'active' : 'inactive',
       propagationStatus: 'skipped',
-      warnings: ['Overlay rebuild did not produce a result — structural overlay state is absent.'],
+      warnings: [
+        scanResult.overlayError !== undefined
+          ? `Overlay rebuild failed: ${scanResult.overlayError}. ${persisted.fileNodes} file ` +
+            `node(s) and ${persisted.symbolNodes} symbol node(s) were persisted before it stopped.`
+          : 'Overlay rebuild did not produce a result — structural overlay state is absent.',
+      ],
     };
   }
 
-  const warnings = collectWarnings(overlay, scanResult.stats.activeEnrichers);
+  // A phase that failed part-way left its partial writes behind, so the in-run tallies no longer
+  // describe the index; count it instead.
+  const phaseFailures = overlay.phaseFailures ?? [];
+  const persisted =
+    phaseFailures.length > 0
+      ? countPersistedOverlay(db)
+      : { fileNodes: overlay.fileNodes, symbolNodes: overlay.symbolNodes };
+  const warnings = collectWarnings(
+    overlay,
+    persisted.symbolNodes,
+    scanResult.stats.activeEnrichers
+  );
+  warnings.push(...phaseFailures);
   const mode: RebuildMode = warnings.length > 0 ? 'degraded-overlay' : 'overlay-complete';
 
   const { controllerBackedCount, closureBackedCount, unknownProviderKindCount } =
@@ -267,8 +291,8 @@ function classifyResult(
     surfaceCount: surfaces.surfaceCount,
     detectorEdgeCount: overlay.surfaceEdgesStored,
     propagatedEdgeCount: overlay.propagationEdgesAdded,
-    fileNodeCount: overlay.fileNodes,
-    symbolNodeCount: overlay.symbolNodes,
+    fileNodeCount: persisted.fileNodes,
+    symbolNodeCount: persisted.symbolNodes,
     controllerBackedCount,
     closureBackedCount,
     unknownProviderKindCount,
@@ -312,11 +336,24 @@ export function reconcileSurfaceCounts(input: {
   return { surfaceCount, warnings };
 }
 
+/** Project file and symbol nodes on disk. */
+function countPersistedOverlay(db: LuxDatabase | null): { fileNodes: number; symbolNodes: number } {
+  if (!db) return { fileNodes: 0, symbolNodes: 0 };
+  return {
+    fileNodes: db.countLocalStructuralNodesByType('file'),
+    symbolNodes: db.countLocalStructuralNodesByType('symbol'),
+  };
+}
+
 /** Collect trust-relevant warnings from an overlay rebuild result. */
-function collectWarnings(overlay: OverlayRebuildResult, activeEnrichers: number): string[] {
+function collectWarnings(
+  overlay: OverlayRebuildResult,
+  symbolNodes: number,
+  activeEnrichers: number
+): string[] {
   const warnings: string[] = [];
 
-  if (overlay.symbolNodes === 0) {
+  if (symbolNodes === 0) {
     warnings.push(
       'No symbol nodes were materialized — provider propagation trust is reduced. ' +
         (activeEnrichers === 0

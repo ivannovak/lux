@@ -16,3 +16,30 @@ export type AdapterWorkerResponseV1 =
         message: string;
       };
     };
+
+/**
+ * Posted by a parser worker once it is loaded and about to parse. The host's time limit covers the
+ * parse from this point, so a parse gets the same budget in a fresh worker as in a warm one.
+ */
+export const PARSE_STARTED_MESSAGE = { schemaVersion: 1, parseStarted: true } as const;
+
+export function isParseStartedMessage(value: unknown): boolean {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    (value as { parseStarted?: unknown }).parseStarted === true &&
+    (value as { schemaVersion?: unknown }).schemaVersion === 1
+  );
+}
+
+/** workerData that starts a parser worker in persistent mode: it serves one request per message. */
+export const PERSISTENT_WORKER_DATA = { schemaVersion: 1, persistent: true } as const;
+
+export function isPersistentWorkerData(value: unknown): boolean {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    (value as { persistent?: unknown }).persistent === true &&
+    (value as { schemaVersion?: unknown }).schemaVersion === 1
+  );
+}

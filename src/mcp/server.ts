@@ -301,15 +301,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         await scanner.index(db, indexedScan);
         if (scanResult.dependencies.length > 0) {
-          db.clearModuleDependencies();
-          for (const dep of scanResult.dependencies) {
-            db.insertModuleDependency({
-              source_module: dep.source_module,
-              target_module: dep.target_module,
-              reference_count: dep.reference_count,
-              sample_files: JSON.stringify(dep.sample_files),
-            });
-          }
+          db.transaction(() => {
+            db.clearModuleDependencies();
+            for (const dep of scanResult.dependencies) {
+              db.insertModuleDependency({
+                source_module: dep.source_module,
+                target_module: dep.target_module,
+                reference_count: dep.reference_count,
+                sample_files: JSON.stringify(dep.sample_files),
+              });
+            }
+          });
         }
 
         const headCommit = isGitRepository(corpusPath) ? getHeadCommit(corpusPath) : null;

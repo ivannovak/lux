@@ -115,32 +115,36 @@ export async function runNodeEmbedPass(
       // the BGE query prefix — that is `embedQuery`'s job on the read path (spec 11).
       const vectors = await embedder.embed(rows.map((r) => r.prepared));
 
-      for (let i = 0; i < rows.length; i++) {
-        db.upsertNodeEmbedding({
-          node_id: rows[i].node_id,
-          model,
-          dims: ANCHOR_EMBED_DIMS,
-          vector: encodeVector(vectors[i]),
-          // Re-key R2 — COPY the persisted texts-hash straight through; do NOT recompute it. The
-          // vector records the exact structural_node_texts.content_hash it was computed against, so on
-          // the next sync the queue's `e.content_hash <> t.content_hash` arm re-queues this node iff
-          // its prepared text later changes under a stable id. Recomputing here (as the primitive did
-          // with prepHash) is both unnecessary — the hash is already on disk — and WRONG, because it
-          // would hash the same bytes twice and could never diverge from t.content_hash.
-          content_hash: rows[i].content_hash,
-        });
-        embedded++;
-      }
+      // One transaction per batch: the batch commits once instead of once per vector, and a budget
+      // stop between batches still keeps every batch committed before it.
+      db.transaction(() => {
+        for (let i = 0; i < rows.length; i++) {
+          db.upsertNodeEmbedding({
+            node_id: rows[i].node_id,
+            model,
+            dims: ANCHOR_EMBED_DIMS,
+            vector: encodeVector(vectors[i]),
+            // Re-key R2 — COPY the persisted texts-hash straight through; do NOT recompute it. The
+            // vector records the exact structural_node_texts.content_hash it was computed against, so on
+            // the next sync the queue's `e.content_hash <> t.content_hash` arm re-queues this node iff
+            // its prepared text later changes under a stable id. Recomputing here (as the primitive did
+            // with prepHash) is both unnecessary — the hash is already on disk — and WRONG, because it
+            // would hash the same bytes twice and could never diverge from t.content_hash.
+            content_hash: rows[i].content_hash,
+          });
+        }
+      });
+      embedded += rows.length;
 
       if (Date.now() > deadline) throw new Error('anchor-embed-budget');
     }
   } catch (error) {
     // One catch, one degrade path (Decision 5): the deadline sentinel and a genuinely unexpected
     // failure both land here and are handled identically — stop, mark budgetHit, report once, never
-    // rethrow to the caller. `embedded` already reflects every row upserted before the failure;
-    // nothing is rolled back (each upsert is its own committed statement, not part of one pass-wide
-    // transaction), so partial progress within a budget-limited pass is the intended behaviour — the
-    // queue naturally excludes what was already embedded on the next run.
+    // rethrow to the caller. `embedded` already reflects every row committed before the failure;
+    // each batch is its own committed transaction, not part of one pass-wide transaction, so partial
+    // progress within a budget-limited pass is the intended behaviour — the queue naturally excludes
+    // what was already embedded on the next run.
     budgetHit = true;
     const reason = error instanceof Error ? error.message : String(error);
     report(

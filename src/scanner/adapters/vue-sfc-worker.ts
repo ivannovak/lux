@@ -1,9 +1,15 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { relative, sep, win32 } from 'node:path';
 
+import { getGrammars } from '../ast/extract.js';
 import { extractVueSfc } from '../vue/sfc-extract.js';
 import type { AdapterOutputV1 } from './types.js';
-import type { AdapterWorkerRequestV1, AdapterWorkerResponseV1 } from './worker-protocol.js';
+import {
+  PARSE_STARTED_MESSAGE,
+  isPersistentWorkerData,
+  type AdapterWorkerRequestV1,
+  type AdapterWorkerResponseV1,
+} from './worker-protocol.js';
 
 interface WorkerWireRequestV1 {
   schemaVersion: 1;
@@ -72,13 +78,24 @@ async function execute(wire: WorkerWireRequestV1): Promise<AdapterWorkerResponse
   }
 }
 
-async function main(): Promise<void> {
-  const response = validWire(workerData)
-    ? await execute(workerData)
+async function respond(wire: unknown): Promise<void> {
+  // Load the grammars before the host's parse clock starts (worker-protocol.ts).
+  await getGrammars();
+  parentPort?.postMessage(PARSE_STARTED_MESSAGE);
+  const response = validWire(wire)
+    ? await execute(wire)
     : refusal('worker-error', 'Vue worker received an invalid request.');
   parentPort?.postMessage(JSON.stringify(response));
 }
 
-void main().catch(() => {
+function fail(): void {
   parentPort?.postMessage(JSON.stringify(refusal('worker-error', 'Vue worker failed.')));
-});
+}
+
+// A persistent worker (worker-host.ts's pool) answers one request per message; otherwise the
+// request arrives as workerData and the worker answers it once.
+if (isPersistentWorkerData(workerData)) {
+  parentPort?.on('message', (wire: unknown) => void respond(wire).catch(fail));
+} else {
+  void respond(workerData).catch(fail);
+}
