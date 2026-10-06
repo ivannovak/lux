@@ -198,8 +198,8 @@ describe('LSP enrichment failure record', () => {
       'LSP output incomplete — init: vue (timeout)',
       'LSP output incomplete — index: php (timeout)',
       'LSP output incomplete — capability: php textDocument/prepareTypeHierarchy (response)',
-      'LSP output incomplete — symbols: 1 file(s) (response)',
-      'LSP output incomplete — calls: 2 file(s) (timeout, transport)',
+      'LSP output incomplete — symbols: 1 file(s) (response), e.g. a.php',
+      'LSP output incomplete — calls: 2 file(s) (timeout, transport), e.g. a.php, b.php',
     ]);
     expect(summarizeLspFailures([])).toEqual([]);
   });

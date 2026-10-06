@@ -31,7 +31,7 @@ import { resolveTypedReceiverEdges } from './ast/lsp-resolve.js';
 import { makeExternalTargetResolver } from './pack/external-resolve.js';
 import { resolveFacadeAndHelperEdges } from './pack/facade-resolve.js';
 import { classifyHandlerOwnership, resolveAppNamespace } from './associations/ownership.js';
-import { failureSummary, WarningLog, warnSink, type WarnFn } from './reporter.js';
+import { WarningLog, warnSink, type WarnFn } from './reporter.js';
 import { parseMarkdownSource, unreadableWarning } from './markdown.js';
 import { canonicalScanOrder, compareCodeUnits } from './scan-order.js';
 import {
@@ -713,14 +713,6 @@ export async function generalScan(
   }
 
   report(`Enrichment complete: ${enrichments.size} files enriched, ${errors.length} errors.`);
-  if (errors.length > 0) {
-    warn(
-      failureSummary(
-        'LSP enrichment',
-        errors.map((e) => ({ item: e.filePath, error: e.error }))
-      )
-    );
-  }
 
   // 8. Optionally rebuild structural overlay
   let overlay: OverlayRebuildResult | undefined;

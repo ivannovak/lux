@@ -75,11 +75,15 @@ describe('rebuild orchestrator — module dependencies', () => {
       const { result, scanResult } = await rebuildWithOverlay(db, repo);
 
       expect(scanResult.dependencies.length).toBe(2);
+      // Compared as sets: the query returns rows in its own total order, not the scan's.
       const rows = db
         .getAllModuleDependencies()
-        .map((d) => [d.source_module, d.target_module, d.reference_count]);
+        .map((d) => [d.source_module, d.target_module, d.reference_count].join('|'))
+        .sort();
       expect(rows).toEqual(
-        scanResult.dependencies.map((d) => [d.source_module, d.target_module, d.reference_count])
+        scanResult.dependencies
+          .map((d) => [d.source_module, d.target_module, d.reference_count].join('|'))
+          .sort()
       );
       expect(result.warnings.some((w) => FAILURE.test(w))).toBe(false);
     } finally {

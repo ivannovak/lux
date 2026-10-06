@@ -172,7 +172,7 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
     const reasons = [...new Set(entries.map((entry) => entry.reason))].sort().join(', ');
     const detail =
       stage === 'symbols' || stage === 'calls'
-        ? `${new Set(entries.map((entry) => entry.filePath)).size} file(s) (${reasons})`
+        ? fileStageDetail(entries, reasons)
         : [
             ...new Set(
               entries.map((entry) =>
@@ -187,4 +187,11 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
     );
   }
   return lines;
+}
+
+/** `N file(s) (reasons), e.g. a.php, b.php, c.php` — a count, and enough paths to start looking. */
+function fileStageDetail(entries: readonly LspEnrichmentFailure[], reasons: string): string {
+  const files = [...new Set(entries.map((entry) => entry.filePath))];
+  const more = files.length > 3 ? ', …' : '';
+  return `${files.length} file(s) (${reasons}), e.g. ${files.slice(0, 3).join(', ')}${more}`;
 }

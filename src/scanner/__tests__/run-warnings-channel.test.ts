@@ -81,7 +81,9 @@ describe('scanner degradations reach the warnings channel', () => {
   it('per-file enrichment failures, as one summary', async () => {
     const result = await scanWith(mockEnricher({ enrichFails: true }));
     expect(result.warnings).toEqual([
-      expect.stringMatching(/^LSP enrichment failed for 1 item\(s\) — .*a\.ts: request timed out$/),
+      expect.stringMatching(
+        /^LSP output incomplete — symbols: 1 file\(s\) \(timeout\), e\.g\. a\.ts;/
+      ),
     ]);
   });
 

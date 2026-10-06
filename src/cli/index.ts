@@ -26,8 +26,14 @@ import type { ScopedDecision } from '../scanner/sync-escalation.js';
 import { persistStructuralConfigFingerprint } from '../scanner/config-fingerprint.js';
 import { buildIndexStatusPayload } from './status-payload.js';
 import {
+  classifyLspEnrichmentError,
+  failedStartFailure,
+  incompleteIndexFailure,
   loadLspEnrichmentFailures,
+  mergeLspEnrichmentFailures,
+  requestIssueFailures,
   summarizeLspFailures,
+  type LspEnrichmentFailure,
 } from '../scanner/lsp/enrichment-failures.js';
 import {
   persistCoverageProducerRuns,
@@ -917,7 +923,6 @@ indexCmd
           try {
             const { loadLspConfig } = await import('../scanner/config.js');
             const { buildRegistry } = await import('../scanner/general.js');
-            const { failureSummary } = await import('../scanner/reporter.js');
 
             const config = loadLspConfig(corpusPath);
 
@@ -932,15 +937,19 @@ indexCmd
                 syncCommandWarnings.push(message);
               });
               const registry = buildRegistry(config.lsp.enrichers, warn);
+              const lspFailures: LspEnrichmentFailure[] = [];
 
               const workspaceRoot = config.lsp.workspaceRoot ?? corpusPath;
               for (const enricher of registry.getAll()) {
                 try {
                   await enricher.initialize(workspaceRoot);
+                  if (enricher.indexIncomplete) {
+                    lspFailures.push(incompleteIndexFailure(enricher.languageId));
+                  }
                 } catch (error) {
-                  warn(
-                    `Failed to initialize ${enricher.languageId} enricher: ${error instanceof Error ? error.message : String(error)}`
-                  );
+                  const message = error instanceof Error ? error.message : String(error);
+                  lspFailures.push(failedStartFailure(enricher.languageId, message));
+                  warn(`Failed to initialize ${enricher.languageId} enricher: ${message}`);
                 }
               }
 
@@ -950,7 +959,11 @@ indexCmd
                 string,
                 import('../scanner/lsp/index.js').EnrichmentResult
               >();
-              const enrichFailures: Array<{ item: string; error: string }> = [];
+              // What the servers left missing for the changed files, recorded like a rebuild's.
+              const toRelative = (absolutePath: string): string =>
+                absolutePath.startsWith(corpusPath + '/')
+                  ? absolutePath.slice(corpusPath.length + 1)
+                  : absolutePath;
 
               for (const filePath of sourceFilesToEnrich) {
                 const ext = path.extname(filePath);
@@ -960,13 +973,18 @@ indexCmd
                   const result = await enricher.enrich(filePath);
                   if (result) enrichmentMap.set(filePath, result);
                 } catch (error) {
-                  enrichFailures.push({
-                    item: filePath,
-                    error: error instanceof Error ? error.message : String(error),
+                  lspFailures.push({
+                    filePath: toRelative(filePath),
+                    stage: 'symbols',
+                    reason: classifyLspEnrichmentError(
+                      error instanceof Error ? error.message : String(error)
+                    ),
                   });
                 }
               }
-              if (enrichFailures.length > 0) warn(failureSummary('LSP enrichment', enrichFailures));
+              lspFailures.push(...requestIssueFailures(registry.drainRequestIssues(), toRelative));
+              mergeLspEnrichmentFailures(db, sourceFilesToEnrich.map(toRelative), lspFailures);
+              for (const line of summarizeLspFailures(loadLspEnrichmentFailures(db))) warn(line);
 
               try {
                 await registry.shutdownAll();

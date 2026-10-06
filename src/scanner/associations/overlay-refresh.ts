@@ -61,7 +61,7 @@ import {
 } from '../lsp/enrichment-failures.js';
 import { buildEntry } from '../incremental.js';
 import { detectModuleBoundaries, resolveModule } from '../imports/module-boundary.js';
-import { failureSummary, WarningLog, type Reporter, type WarnFn } from '../reporter.js';
+import { WarningLog, type Reporter, type WarnFn } from '../reporter.js';
 
 export interface ChangedFile {
   relPath: string;
@@ -654,7 +654,6 @@ async function runLspTier(
     }
     if (active === 0) return unavailable;
 
-    const enrichFailures: Array<{ item: string; error: string }> = [];
     for (const k of scanR.knowledge) {
       if (Date.now() > deadline) throw new Error('lsp-budget');
       if (k.type !== 'source-code' || !k.content) continue;
@@ -667,7 +666,6 @@ async function runLspTier(
       } catch (error) {
         // Isolated: the file stays unenriched, and is recorded as such.
         const message = error instanceof Error ? error.message : String(error);
-        enrichFailures.push({ item: k.filePath, error: message });
         failures.push({
           stage: 'symbols',
           filePath: toRelative(k.filePath),
@@ -675,7 +673,6 @@ async function runLspTier(
         });
       }
     }
-    if (enrichFailures.length > 0) reporter.warn(failureSummary('LSP enrichment', enrichFailures));
 
     if (Date.now() > deadline) throw new Error('lsp-budget');
     const reg = registry;
