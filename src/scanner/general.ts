@@ -930,6 +930,17 @@ export async function generalScan(
 export function buildRegistry(entries: LspEnricherEntry[], warn?: WarnFn): EnricherRegistry {
   const registry = new EnricherRegistry();
 
+  const unusedSetting = entries
+    .filter((entry) => entry.enabled !== false && entry.maxConcurrency !== undefined)
+    .map((entry) => entry.languageId);
+  if (unusedSetting.length > 0) {
+    warn?.(
+      `max_concurrency is no longer used (${unusedSetting.join(', ')}); remove it from lux.yaml. ` +
+        'Requests are sent to a language server one at a time, so that request_timeout_ms ' +
+        "measures the server's work on a request and not the time it spent queued."
+    );
+  }
+
   for (const entry of entries) {
     if (entry.enabled === false) continue;
 
@@ -943,14 +954,6 @@ export function buildRegistry(entries: LspEnricherEntry[], warn?: WarnFn): Enric
           `skipped. Supported language ids: ${Object.keys(ENRICHER_FACTORIES).sort().join(', ')}.`
       );
       continue;
-    }
-
-    if (entry.maxConcurrency !== undefined) {
-      warn?.(
-        `lsp.enrichers "${entry.languageId}": max_concurrency is no longer used and can be removed. ` +
-          'Requests are sent to a language server one at a time, so that request_timeout_ms ' +
-          "measures the server's work on a request and not the time it spent queued."
-      );
     }
 
     try {

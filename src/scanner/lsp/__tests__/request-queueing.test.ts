@@ -5,6 +5,9 @@
 // again, and does not send the next request while the server is still on a cancelled one.
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { LspClient } from '../client.js';
 
 // A server that works on one request at a time, like intelephense.
@@ -13,10 +16,14 @@ import { LspClient } from '../client.js';
 //               LATE ms after its cancellation arrives
 //   test/flaky  is "test/hang" the first time and answers "fresh" after that, FRESH ms later
 //   test/boot   costs BOOT ms the first time it is asked and nothing after that
+//   test/quota  is answered for the first QUOTA requests and never after that; every arrival is
+//               appended to the file ARRIVALS, since a silent server cannot be asked for its log
 //   test/log    answers with every message received so far, as "method:id" strings, plus
 //               "answered:<id>" for each late answer written
 const SERIAL_SERVER = String.raw`
-const [COST, LATE, FRESH, BOOT] = process.argv.slice(1).map(Number);
+const [COST, LATE, FRESH, BOOT, QUOTA] = process.argv.slice(1, 6).map(Number);
+const ARRIVALS = process.argv[6];
+let quotaSeen = 0;
 let buffer = Buffer.alloc(0);
 const queue = [];
 const log = [];
@@ -64,6 +71,11 @@ const handle = (message) => {
     booted = true;
     return void setTimeout(() => send({ jsonrpc: '2.0', id: message.id, result: 'up' }), delay);
   }
+  if (message.method === 'test/quota') {
+    require('fs').appendFileSync(ARRIVALS, message.params.n + '\n');
+    if (quotaSeen++ < QUOTA) return send({ jsonrpc: '2.0', id: message.id, result: 'ok' });
+    return;
+  }
   if (message.method === 'test/log') return send({ jsonrpc: '2.0', id: message.id, result: log });
   if (message.method === 'test/flaky' && flakySeen) {
     return void setTimeout(() => send({ jsonrpc: '2.0', id: message.id, result: 'fresh' }), FRESH);
@@ -86,9 +98,11 @@ process.stdin.on('data', (chunk) => {
 `;
 
 const clients: LspClient[] = [];
+const scratch: string[] = [];
 
 afterEach(async () => {
   while (clients.length) await clients.pop()!.shutdown();
+  while (scratch.length) rmSync(scratch.pop()!, { recursive: true, force: true });
 });
 
 async function startClient(options: {
@@ -97,6 +111,8 @@ async function startClient(options: {
   freshMs?: number;
   bootMs?: number;
   initTimeoutMs?: number;
+  quota?: number;
+  arrivals?: string;
   requestTimeoutMs: number;
 }): Promise<LspClient> {
   const client = new LspClient({
@@ -108,9 +124,12 @@ async function startClient(options: {
       String(options.lateMs ?? -1),
       String(options.freshMs ?? 0),
       String(options.bootMs ?? 0),
+      String(options.quota ?? 0),
+      options.arrivals ?? '',
     ],
     requestTimeoutMs: options.requestTimeoutMs,
     initTimeoutMs: options.initTimeoutMs ?? options.requestTimeoutMs,
+    serverLabel: 'stub',
   });
   clients.push(client);
   await client.initialize({ processId: process.pid, rootUri: null, capabilities: {} });
@@ -192,5 +211,58 @@ describe('requests to a server that answers one at a time', () => {
     await expect(client.request<string[]>('test/log', {})).resolves.toContain('cancel:2');
     // The slot is held for one more timeout period, not indefinitely.
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe('a server that stops answering', () => {
+  it('is given up on after two requests and their retries, however many files remain', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lux-lsp-silent-'));
+    scratch.push(dir);
+    const arrivals = join(dir, 'arrivals');
+    const timeoutMs = 100;
+    const client = await startClient({ quota: 5, arrivals, requestTimeoutMs: timeoutMs });
+
+    const started = Date.now();
+    const results = await Promise.allSettled(
+      Array.from({ length: 60 }, (_, n) => client.request('test/quota', { n }))
+    );
+    const elapsed = Date.now() - started;
+
+    expect(results.slice(0, 5).every((result) => result.status === 'fulfilled')).toBe(true);
+    const reasons = results
+      .slice(5)
+      .map((result) => String((result as PromiseRejectedResult).reason));
+    expect(new Set(reasons)).toEqual(
+      new Set([
+        'LspTransientError: stub language server stopped answering: no response to 4 request attempts in a row',
+      ])
+    );
+    // Four attempts, each a timeout and the wait for the cancelled request: 8 timeout periods.
+    // Left to run, the 55 unanswered files would take 55 × 4 periods = 22 s.
+    expect(elapsed).toBeGreaterThanOrEqual(8 * timeoutMs);
+    expect(elapsed).toBeLessThan(8 * timeoutMs + 700);
+    // The server saw the five it answered and the four attempts that went unanswered; nothing else.
+    expect(readFileSync(arrivals, 'utf-8').trim().split('\n')).toHaveLength(9);
+    // Nothing more is sent, and the caller is told at once.
+    const again = Date.now();
+    await expect(client.request('test/quota', { n: 99 })).rejects.toThrow(/stopped answering/);
+    expect(Date.now() - again).toBeLessThan(50);
+    expect(readFileSync(arrivals, 'utf-8').trim().split('\n')).toHaveLength(9);
+  });
+
+  it('is not given up on for single requests it never answers between ones it does', async () => {
+    const client = await startClient({ requestTimeoutMs: 60 });
+    for (let round = 0; round < 3; round++) {
+      await expect(client.request('test/hang', {})).rejects.toThrow(/timed out/);
+      await expect(client.request('test/boot', {})).resolves.toBe('up');
+    }
+  });
+
+  it('is not given up on while it still acknowledges what it could not answer in time', async () => {
+    // Every attempt times out, and each is answered 20 ms after its cancellation.
+    const client = await startClient({ lateMs: 20, requestTimeoutMs: 60 });
+    for (let round = 0; round < 4; round++) {
+      await expect(client.request('test/hang', {})).rejects.toThrow(/timed out/);
+    }
   });
 });

@@ -9,6 +9,7 @@ import { persistCoverageProducerRuns } from '../../coverage/producer-runs.js';
 import { writeFileSync } from 'node:fs';
 import {
   classifyLspEnrichmentError,
+  fileFailure,
   incompleteIndexFailure,
   summarizeLspFailures,
   loadLspEnrichmentFailures,
@@ -29,6 +30,52 @@ function makeDb(): LuxDatabase {
 }
 
 describe('LSP enrichment failure record', () => {
+  it('records the files a server that stopped answering left behind as one count per stage', () => {
+    const db = makeDb();
+    const stopped =
+      'php language server stopped answering: no response to 4 request attempts in a row';
+    expect(classifyLspEnrichmentError(stopped)).toBe('unresponsive');
+    persistLspEnrichmentFailures(db, [
+      { filePath: 'src/Slow.php', stage: 'symbols', reason: 'timeout' },
+      fileFailure('src/A.php', 'symbols', stopped),
+      fileFailure('src/B.php', 'symbols', stopped),
+      fileFailure('src/B.php', 'symbols', stopped),
+      fileFailure('src/A.php', 'calls', stopped),
+    ]);
+    const stored = loadLspEnrichmentFailures(db);
+    expect(stored).toEqual([
+      { filePath: '.', stage: 'calls', reason: 'unresponsive', languageId: 'php', fileCount: 1 },
+      { filePath: '.', stage: 'symbols', reason: 'unresponsive', languageId: 'php', fileCount: 2 },
+      { filePath: 'src/Slow.php', stage: 'symbols', reason: 'timeout' },
+    ]);
+    // Stored again, a count stays what it is.
+    persistLspEnrichmentFailures(db, stored);
+    expect(loadLspEnrichmentFailures(db)).toEqual(stored);
+    expect(summarizeLspFailures(stored)).toEqual([
+      expect.stringContaining(
+        'symbols: the php language server stopped answering and was not asked about 2 file(s);'
+      ),
+      expect.stringContaining('symbols: 1 file(s) (timeout), e.g. src/Slow.php;'),
+      expect.stringContaining(
+        'calls: the php language server stopped answering and was not asked about 1 file(s);'
+      ),
+    ]);
+    db.close();
+  });
+
+  it('keeps that count through a scoped run, which asks about only a few of those files', () => {
+    const db = makeDb();
+    persistLspEnrichmentFailures(db, [
+      { filePath: '.', stage: 'symbols', reason: 'unresponsive', languageId: 'php', fileCount: 40 },
+      { filePath: '.', stage: 'init', reason: 'timeout', languageId: 'vue' },
+    ]);
+    mergeLspEnrichmentFailures(db, ['src/A.php'], []);
+    expect(loadLspEnrichmentFailures(db)).toEqual([
+      { filePath: '.', stage: 'symbols', reason: 'unresponsive', languageId: 'php', fileCount: 40 },
+    ]);
+    db.close();
+  });
+
   it('classifies without keeping the per-run request id', () => {
     expect(
       classifyLspEnrichmentError(

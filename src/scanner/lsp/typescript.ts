@@ -99,6 +99,7 @@ export class TypeScriptLspEnricher implements LspEnricher {
 
     this.client = new LspClient({
       serverCommand: this.config.serverCommand,
+      serverLabel: this.languageId,
       serverArgs: this.config.serverArgs,
       cwd: workspaceRoot,
       requestTimeoutMs: this.config.requestTimeoutMs,

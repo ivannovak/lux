@@ -204,6 +204,9 @@ environmental inputs below are pinned:
     once for the language, at stage `init`;
   - `response` — the server answered a request with an error; the entry carries the `method` and
     `code`;
+  - `unresponsive` — the server stopped answering part-way through. Nothing more was sent to it;
+    one entry per stage, with `filePath: "."` and `fileCount`, the number of files that stage
+    could not complete (see "Language-server requests" below);
   - `error` — anything else that was thrown (a Lux defect, or a failure the three above do not
     name); the entry carries the `message`, and the warning line quotes the first one. A
     request for a capability the server did not declare is never sent, and is not a failure. An
@@ -233,7 +236,7 @@ environmental inputs below are pinned:
   sending more at once does not finish sooner, it only makes each request look slower.
 
   - `max_concurrency` under `lsp.enrichers` is therefore no longer used. A `lux.yaml` that still
-    sets it gets a warning saying so; remove the key.
+    sets it gets one warning per run naming the enrichers that do; remove the key.
   - A request that times out is cancelled with `$/cancelRequest` and sent once more under a new
     id. An answer that arrives later for the cancelled id is dropped. The next request is not
     sent until the server has answered the cancelled one or another `request_timeout_ms` has
@@ -241,6 +244,14 @@ environmental inputs below are pinned:
   - A server answers `initialize` before it has finished starting (tsserver is spawned and the
     project loaded on the first request). The first request sent to a server is therefore
     given `init_timeout_ms` (only the first: a server that never answers costs one such wait).
+  - A server that leaves two requests and their retries in a row without a response of any kind
+    — four attempts, each with no answer in its timeout and none to the cancellation in the
+    wait after it, eight timeout periods in all — has stopped answering. Nothing more is sent to
+    it for the rest of the run, it is not restarted (a restart mid-run would make the output
+    depend on when it happened), and the files it leaves are recorded as one `unresponsive`
+    entry per stage. Any response, a late or an error one included, starts the count again, so
+    one pathological file between healthy ones does not lose the language. A scoped
+    `lux index sync` keeps a recorded `unresponsive` count; only a full rebuild clears it.
   - Up to 12 files are still read and opened in the server ahead of their requests; opening a
     document is a notification and is not timed.
 

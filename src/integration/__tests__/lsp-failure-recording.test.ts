@@ -12,11 +12,13 @@ import { runLux } from './helpers/determinism.js';
 //   no-init             never answers initialize
 //   crash-on-definition answers everything, then exits on the first textDocument/definition
 //   silent-definition   never answers textDocument/definition
+//   goes-silent         answers five textDocument/documentSymbol requests, then nothing at all
 //   reject-all          answers every textDocument/* and typeHierarchy/* request with an error
 //   method-not-found    answers prepareTypeHierarchy with MethodNotFound although it declared it
 //   healthy             answers everything
 const FAKE_SERVER = `
 const mode = process.argv[2];
+let symbolsAnswered = 0;
 let buffer = Buffer.alloc(0);
 const send = (message) => {
   const body = Buffer.from(JSON.stringify(message), 'utf-8');
@@ -36,6 +38,8 @@ process.stdin.on('data', (chunk) => {
       if (mode !== 'no-init') send({ jsonrpc: '2.0', id: message.id, result: { capabilities: { documentSymbolProvider: true, definitionProvider: true, referencesProvider: true, typeHierarchyProvider: true } } });
     } else if (message.method === 'initialized') {
       send({ jsonrpc: '2.0', method: 'indexingEnded' });
+    } else if (mode === 'goes-silent' && symbolsAnswered >= 5) {
+      if (message.method === 'exit') process.exit(0);
     } else if (mode === 'reject-all' && /^(textDocument|typeHierarchy)\\//.test(message.method) && message.id !== undefined) {
       send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'internal error' } });
     } else if (mode === 'method-not-found' && message.method === 'textDocument/prepareTypeHierarchy') {
@@ -44,6 +48,7 @@ process.stdin.on('data', (chunk) => {
       if (mode === 'crash-on-definition') process.exit(1);
       if (mode !== 'silent-definition') send({ jsonrpc: '2.0', id: message.id, result: null });
     } else if (message.method === 'textDocument/documentSymbol') {
+      symbolsAnswered++;
       send({ jsonrpc: '2.0', id: message.id, result: [{ name: 'A', kind: 5, range: range(4), selectionRange: range(4) }] });
     } else if (message.method === 'shutdown') {
       send({ jsonrpc: '2.0', id: message.id, result: null });
@@ -63,6 +68,7 @@ interface Failure {
   languageId?: string;
   method?: string;
   code?: number;
+  fileCount?: number;
 }
 
 let base: string;
@@ -71,11 +77,13 @@ const MODES = [
   'no-init',
   'crash-on-definition',
   'silent-definition',
+  'goes-silent',
   'reject-all',
   'method-not-found',
   'healthy',
 ];
 const outputByMode: Record<string, string> = {};
+const elapsedByMode: Record<string, number> = {};
 const CALLERS = Array.from({ length: 20 }, (_, i) => `Caller${String(i).padStart(2, '0')}`);
 
 function writeRepo(root: string, server: string, mode: string): void {
@@ -120,7 +128,9 @@ beforeAll(() => {
     mkdirSync(home, { recursive: true });
     writeRepo(root, server, mode);
     const db = join(root, '.lux', 'lux.db');
+    const started = Date.now();
     const rebuild = runLux(root, db, home, ['index', 'rebuild', '--quiet']);
+    elapsedByMode[mode] = Date.now() - started;
     if (rebuild.status !== 0) throw new Error(`rebuild (${mode}) failed: ${rebuild.stderr}`);
     outputByMode[mode] = `${rebuild.stdout}\n${rebuild.stderr}`;
     const status = runLux(root, db, home, ['index', 'status', '--json']);
@@ -150,10 +160,33 @@ describe('LSP failures reach index status --json', () => {
     expect(calls.every((f) => f.reason === 'transport')).toBe(true);
   });
 
-  it('records the files whose definition requests timed out', () => {
-    const calls = failuresByMode['silent-definition'].filter((f) => f.stage === 'calls');
-    expect(calls.map((f) => f.filePath).sort()).toEqual(CALLERS.map((c) => `src/${c}.php`));
-    expect(calls.every((f) => f.reason === 'timeout')).toBe(true);
+  it('records a server that stopped answering definition requests once, with the file count', () => {
+    // Two requests and their retries go unanswered; the server is then given up on, and the
+    // 20 callers are one entry, not 20.
+    expect(failuresByMode['silent-definition']).toEqual([
+      { filePath: '.', stage: 'calls', reason: 'unresponsive', languageId: 'php', fileCount: 20 },
+    ]);
+    expect(outputByMode['silent-definition']).toMatch(
+      /Warning: LSP output incomplete — calls: the php language server stopped answering and was not asked about 20 file\(s\)/
+    );
+  });
+
+  it('gives up on a server that goes silent part-way, in bounded time, and says so once per stage', () => {
+    expect(failuresByMode['goes-silent']).toEqual([
+      { filePath: '.', stage: 'calls', reason: 'unresponsive', languageId: 'php', fileCount: 20 },
+      { filePath: '.', stage: 'symbols', reason: 'unresponsive', languageId: 'php', fileCount: 21 },
+    ]);
+    const output = outputByMode['goes-silent'];
+    expect(
+      output.match(/LSP output incomplete — symbols: the php language server stopped answering/g)
+    ).toHaveLength(1);
+    expect(
+      output.match(/LSP output incomplete — calls: the php language server stopped answering/g)
+    ).toHaveLength(1);
+    expect(output).toMatch(/⚠ index rebuild complete/);
+    // Giving up costs 8 timeout periods (2.4 s here). Waiting out every file would cost
+    // 4 periods for each of the 16 unanswered files, and again for the 20 callers: 43 s.
+    expect(elapsedByMode['goes-silent'] - elapsedByMode['healthy']).toBeLessThan(10_000);
   });
 
   it('records every file whose requests the server answered with an error, with method and code', () => {

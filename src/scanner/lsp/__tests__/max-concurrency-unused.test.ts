@@ -6,16 +6,20 @@ import { buildRegistry } from '../../general.js';
 import { warnSink } from '../../reporter.js';
 
 describe('lsp.enrichers max_concurrency', () => {
-  it('is reported as unused, once per enricher that sets it', () => {
+  it('is reported as unused in one warning that names the enrichers setting it', () => {
     const warnings: string[] = [];
     buildRegistry(
       [
         { languageId: 'php', maxConcurrency: 8 },
         { languageId: 'typescript' },
-        { languageId: 'vue', enabled: false, maxConcurrency: 4 },
+        { languageId: 'vue', maxConcurrency: 4 },
+        { languageId: 'go', enabled: false, maxConcurrency: 4 },
       ],
       warnSink((message) => void warnings.push(message))
     );
-    expect(warnings).toEqual([expect.stringMatching(/"php": max_concurrency is no longer used/)]);
+    // "go" is disabled, so its setting is not in play; it would otherwise be warned as unsupported.
+    expect(warnings).toEqual([
+      expect.stringMatching(/^max_concurrency is no longer used \(php, vue\); remove it/),
+    ]);
   });
 });
