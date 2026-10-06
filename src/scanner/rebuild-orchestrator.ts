@@ -15,7 +15,7 @@ import type { LuxDatabase } from '../db/index.js';
 import { generalScan } from './general.js';
 import type { GeneralScanResult } from './general.js';
 import type { OverlayRebuildResult } from './associations/overlay-service.js';
-import { loadLspConfig } from './config.js';
+import { loadLspConfig, type LuxLspConfig } from './config.js';
 import { resolveFirstPartyRoots } from './pack/first-party.js';
 import { lookupPack } from './pack/cache.js';
 import type { EnricherRegistry } from './lsp/index.js';
@@ -93,10 +93,16 @@ export interface RebuildOptions {
 
 /**
  * Resolve the cached vendor pack for a project's current `composer.lock`, or null
- * when there is no Composer project or no matching cached pack. Keyed by the
- * lockfile hash, so a dependency bump misses the cache (no stale merge).
+ * when there is no Composer project, no matching cached pack, or lux.yaml sets
+ * `vendorPack.merge: false`. Keyed by the lockfile hash, so a dependency bump
+ * misses the cache (no stale merge).
  */
-function resolveVendorPackPath(rootPath: string, warn?: WarnFn): string | null {
+function resolveVendorPackPath(
+  rootPath: string,
+  config: LuxLspConfig,
+  warn?: WarnFn
+): string | null {
+  if (config.vendorPack?.merge === false) return null;
   try {
     if (!existsSync(join(rootPath, 'composer.lock'))) return null;
     const lookup = lookupPack(rootPath);
@@ -114,8 +120,12 @@ function resolveVendorPackPath(rootPath: string, warn?: WarnFn): string | null {
  * engine (spec 13 Part F). Same composer.lock-keyed cached-pack lookup; `null` ⇒ the facade
  * tier is skipped (`skipped-no-pack`).
  */
-export function resolveVendorPackPathForRefresh(rootPath: string, warn?: WarnFn): string | null {
-  return resolveVendorPackPath(rootPath, warn);
+export function resolveVendorPackPathForRefresh(
+  rootPath: string,
+  config: LuxLspConfig,
+  warn?: WarnFn
+): string | null {
+  return resolveVendorPackPath(rootPath, config, warn);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +162,7 @@ export async function rebuildWithOverlay(
       ? options.vendorPackPath
       : resolveVendorPackPath(
           rootPath,
+          config,
           warnSink((message) => lookupWarnings.push(message))
         );
 

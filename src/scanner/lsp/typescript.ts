@@ -8,13 +8,14 @@ import { readFileSync } from 'fs';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { DocumentSymbol, Location } from 'vscode-languageserver-protocol';
 import { LspClient } from './client.js';
+import { LspRequester, type LspRequestIssue } from './requester.js';
 import type {
   LspEnricher,
   LspEnricherConfig,
   EnrichmentResult,
   EnrichedDefinition,
 } from './index.js';
-import { toEnrichedSymbol } from './index.js';
+import { stableLocationUri, symbolPosition, toEnrichedSymbol } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Options
@@ -33,6 +34,20 @@ export interface TypeScriptLspEnricherOptions {
   /** Initialization timeout in ms (default: 60000). */
   initTimeoutMs?: number;
 }
+
+/**
+ * Server options that make answers a function of the repository alone.
+ * - `useSyntaxServer: 'never'`: by default typescript-language-server answers from a syntax-only
+ *   server while the project is still loading, so whether a definition that needs type
+ *   information (a binding destructured from `vi.hoisted(...)`) resolves depended on load timing.
+ *   Every request now waits for the project.
+ * - `disableAutomaticTypingAcquisition`: type acquisition downloads `@types` packages into a cache
+ *   under HOME in the background; types come from the repository's own node_modules only.
+ */
+const TYPESCRIPT_INITIALIZATION_OPTIONS = {
+  disableAutomaticTypingAcquisition: true,
+  tsserver: { useSyntaxServer: 'never' },
+} as const;
 
 // ---------------------------------------------------------------------------
 // TypeScriptLspEnricher
@@ -55,6 +70,9 @@ export class TypeScriptLspEnricher implements LspEnricher {
   readonly config: LspEnricherConfig;
 
   private client: LspClient | null = null;
+  private requester: LspRequester | null = null;
+  /** Root the server was started on; locations outside it are stored in a stable form. */
+  private workspaceRoot: string | undefined;
   private _isReady = false;
 
   constructor(options?: TypeScriptLspEnricherOptions) {
@@ -67,8 +85,9 @@ export class TypeScriptLspEnricher implements LspEnricher {
     };
   }
 
+  /** False once the server process has died, so callers stop treating it as available. */
   get isReady(): boolean {
-    return this._isReady;
+    return this._isReady && this.client?.initialized === true;
   }
 
   // -------------------------------------------------------------------------
@@ -78,6 +97,7 @@ export class TypeScriptLspEnricher implements LspEnricher {
   async initialize(workspaceRoot: string): Promise<void> {
     if (this._isReady) return;
 
+    this.workspaceRoot = workspaceRoot;
     const rootUri = pathToFileURL(workspaceRoot).toString();
 
     this.client = new LspClient({
@@ -88,6 +108,7 @@ export class TypeScriptLspEnricher implements LspEnricher {
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
     });
+    this.requester = new LspRequester(this.client);
 
     await this.client.initialize({
       processId: process.pid,
@@ -105,9 +126,15 @@ export class TypeScriptLspEnricher implements LspEnricher {
         },
       },
       workspaceFolders: [{ uri: rootUri, name: 'root' }],
+      initializationOptions: TYPESCRIPT_INITIALIZATION_OPTIONS,
     });
 
     this._isReady = true;
+  }
+
+  /** Error answers recorded since the last call (see lsp/requester.ts). */
+  drainRequestIssues(): LspRequestIssue[] {
+    return this.requester?.drain() ?? [];
   }
 
   async shutdown(): Promise<void> {
@@ -117,6 +144,7 @@ export class TypeScriptLspEnricher implements LspEnricher {
       await this.client.shutdown();
     } finally {
       this.client = null;
+      this.requester = null;
       this._isReady = false;
     }
   }
@@ -152,11 +180,11 @@ export class TypeScriptLspEnricher implements LspEnricher {
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
   async enrichOpen(uri: string, filePath: string): Promise<EnrichmentResult | null> {
     // 1. Get document symbols
-    const rawSymbols = await this.getDocumentSymbols(uri);
+    const rawSymbols = await this.getDocumentSymbols(uri, filePath);
     const symbols = rawSymbols.map(toEnrichedSymbol);
 
     // 2. Get definitions for top-level symbols (declaration positions — REQ-5: KEPT)
-    const definitions = await this.getDefinitions(uri, rawSymbols);
+    const definitions = await this.getDefinitions(uri, filePath, rawSymbols);
 
     return {
       filePath,
@@ -197,18 +225,15 @@ export class TypeScriptLspEnricher implements LspEnricher {
     line: number,
     character: number
   ): Promise<{ filePath: string; line: number } | null> {
-    try {
-      const result = await this.client!.request<Location | Location[] | null>(
-        'textDocument/definition',
-        { textDocument: { uri }, position: { line, character } }
-      );
-      const loc = Array.isArray(result) ? result[0] : result;
-      if (!loc) return null;
-      return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return null;
-    }
+    const result = await this.requester!.ask<Location | Location[] | null>(
+      { filePath: fileURLToPath(uri), stage: 'calls' },
+      'textDocument/definition',
+      'definitionProvider',
+      { textDocument: { uri }, position: { line, character } }
+    );
+    const loc = Array.isArray(result) ? result[0] : result;
+    if (!loc) return null;
+    return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
   }
 
   /**
@@ -257,21 +282,19 @@ export class TypeScriptLspEnricher implements LspEnricher {
   // LSP queries
   // -------------------------------------------------------------------------
 
-  private async getDocumentSymbols(uri: string): Promise<DocumentSymbol[]> {
-    try {
-      const result = await this.client!.request<DocumentSymbol[] | null>(
-        'textDocument/documentSymbol',
-        { textDocument: { uri } }
-      );
-      return result ?? [];
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return [];
-    }
+  private async getDocumentSymbols(uri: string, filePath: string): Promise<DocumentSymbol[]> {
+    const result = await this.requester!.ask<DocumentSymbol[] | null>(
+      { filePath, stage: 'symbols' },
+      'textDocument/documentSymbol',
+      'documentSymbolProvider',
+      { textDocument: { uri } }
+    );
+    return result ?? [];
   }
 
   private async getDefinitions(
     uri: string,
+    filePath: string,
     symbols: DocumentSymbol[]
   ): Promise<EnrichedDefinition[]> {
     const definitions: EnrichedDefinition[] = [];
@@ -280,29 +303,27 @@ export class TypeScriptLspEnricher implements LspEnricher {
     const topLevel = symbols.slice(0, 20);
 
     for (const symbol of topLevel) {
-      try {
-        const position = symbol.selectionRange.start;
-        const result = await this.client!.request<Location | Location[] | null>(
-          'textDocument/definition',
-          {
-            textDocument: { uri },
-            position: { line: position.line, character: position.character },
-          }
-        );
+      const position = symbolPosition(symbol);
+      if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
-        if (!result) continue;
-
-        const locations = Array.isArray(result) ? result : [result];
-        for (const loc of locations.slice(0, 5)) {
-          definitions.push({
-            symbolName: symbol.name,
-            targetUri: loc.uri,
-            targetStartLine: loc.range.start.line,
-          });
+      const result = await this.requester!.ask<Location | Location[] | null>(
+        { filePath, stage: 'symbols' },
+        'textDocument/definition',
+        'definitionProvider',
+        {
+          textDocument: { uri },
+          position: { line: position.line, character: position.character },
         }
-      } catch {
-        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-        // Skip symbols that fail definition lookup
+      );
+      if (!result) continue;
+
+      const locations = Array.isArray(result) ? result : [result];
+      for (const loc of locations.slice(0, 5)) {
+        definitions.push({
+          symbolName: symbol.name,
+          targetUri: stableLocationUri(loc.uri, this.workspaceRoot),
+          targetStartLine: loc.range.start.line,
+        });
       }
     }
 

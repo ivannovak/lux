@@ -65,7 +65,12 @@ export class InertiaAssociationResolver implements AssociationResolver {
       const content = entry.metadata?.content;
       const extraction = context.sharedExtractions.get(filePath);
       if (typeof content !== 'string' || !extraction) continue;
-      const facts = extractInertiaFacts({ filePath, content, extraction });
+      const facts = extractInertiaFacts({
+        filePath,
+        content,
+        extraction,
+        collisions: context.symbolCollisions,
+      });
       this.reportDiagnostics(facts);
       for (const fact of facts.pages) {
         const edge = resolveInertiaPageFact(fact, registry, existingNodes, this.name, now);

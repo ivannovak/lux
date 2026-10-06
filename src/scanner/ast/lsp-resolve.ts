@@ -27,6 +27,8 @@ import {
 import type { SharedExtractions } from './extraction-cache.js';
 import { mapWithConcurrency } from '../lsp/pool.js';
 import { astSymbolIdentity } from './symbols.js';
+import { LspTransientError } from '../lsp/client.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 /** On-demand definition resolver: (absFile, 0-based line, 0-based char) -> target. */
 export type ResolveDefinition = (
@@ -77,6 +79,14 @@ export interface TypedReceiverResolveOptions {
    * (ADR-3 / REQ-1). Supplied only when a vendor pack is merged.
    */
   resolveExternalTarget?: ExternalTargetResolver;
+  /** Symbol ids more than one file declares; edge endpoints use their file-qualified form. */
+  symbolCollisions?: SymbolIdCollisions;
+  /**
+   * Called for a file whose definition requests timed out or lost their transport. None of that
+   * file's call edges are emitted (a partial set would differ from run to run); the caller
+   * records the file instead.
+   */
+  onTransientFailure?: (filePath: string, error: LspTransientError) => void;
 }
 
 /** Confidence for LSP-confirmed cross-file edges. */
@@ -151,7 +161,7 @@ export async function resolveTypedReceiverEdges(
     }
     files.push({ relPath, absPath: entry.filePath, lang, extraction });
     const ranges = extraction.nodes.map((def) => ({
-      id: astSymbolIdentity(relPath, def, lang, extraction.namespace).id,
+      id: astSymbolIdentity(relPath, def, lang, extraction.namespace, options?.symbolCollisions).id,
       startByte: def.range.startByte,
       endByte: def.range.endByte,
       startLine: def.range.startLine,
@@ -242,10 +252,17 @@ export async function resolveTypedReceiverEdges(
     }
     if (sites.length === 0) return;
 
-    const locs = await resolveInFile(
-      f.absPath,
-      sites.map((s) => ({ line: s.line, character: s.character }))
-    );
+    let locs: Array<{ filePath: string; line: number } | null>;
+    try {
+      locs = await resolveInFile(
+        f.absPath,
+        sites.map((s) => ({ line: s.line, character: s.character }))
+      );
+    } catch (error) {
+      if (!(error instanceof LspTransientError)) throw error;
+      options?.onTransientFailure?.(f.absPath, error);
+      return;
+    }
 
     // Resolve each call-site to a target id. In-corpus targets map synchronously;
     // an out-of-corpus (vendor) target is resolved to its merged vendor-pack node

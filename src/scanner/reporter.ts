@@ -81,19 +81,3 @@ export class WarningLog {
     };
   }
 }
-
-/**
- * Summarise per-item failures (one file's enrichment, say) as a single warning, so a run that loses
- * hundreds of items reports one line, with enough examples to start from.
- */
-export function failureSummary(
-  what: string,
-  failures: ReadonlyArray<{ item: string; error: string }>
-): string {
-  const examples = failures
-    .slice(0, 3)
-    .map((f) => `${f.item}: ${f.error}`)
-    .join('; ');
-  const more = failures.length > 3 ? `; and ${failures.length - 3} more` : '';
-  return `${what} failed for ${failures.length} item(s) — ${examples}${more}`;
-}

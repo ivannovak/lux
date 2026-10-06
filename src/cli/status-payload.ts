@@ -8,6 +8,14 @@ import {
 } from '../scanner/overlay-trust-state.js';
 import { assessWorkingTreeFreshness, type WorkingTreeFreshness } from '../scanner/freshness.js';
 import { buildCoverage, type CoveragePayload } from '../scanner/coverage/builder.js';
+import {
+  loadSymbolIdCollisionStatus,
+  type SymbolIdCollisionStatus,
+} from '../scanner/coverage/producer-runs.js';
+import {
+  loadLspEnrichmentFailures,
+  type LspEnrichmentFailure,
+} from '../scanner/lsp/enrichment-failures.js';
 
 export interface FreshnessStatusPayload {
   assessment: WorkingTreeFreshness['assessment'];
@@ -54,6 +62,10 @@ export interface IndexStatusPayload {
   stats: ReturnType<LuxDatabase['getStats']>;
   overlay: OverlayTrustPayload;
   coverage: CoveragePayload;
+  /** Files a language server failed to enrich in the last run (timeout, dead transport), by path. */
+  lspEnrichmentFailures: LspEnrichmentFailure[];
+  /** Symbol ids more than one file declares, and the references and edges they leave unresolved. */
+  symbolIdCollisions: SymbolIdCollisionStatus;
   runtime?: RuntimeStatusPayload;
   freshness?: FreshnessStatusPayload;
 }
@@ -110,6 +122,8 @@ export function buildIndexStatusPayload(
     stats: db.getStats(),
     overlay: buildOverlayTrustPayload(db),
     coverage: buildCoverage(db, { corpusPath: runtime?.corpusPath }),
+    lspEnrichmentFailures: loadLspEnrichmentFailures(db),
+    symbolIdCollisions: loadSymbolIdCollisionStatus(db),
     ...(runtime ? { runtime: buildRuntimeStatusPayload(runtime) } : {}),
     ...(runtime ? { freshness: buildFreshnessPayload(db, runtime.corpusPath) } : {}),
   };

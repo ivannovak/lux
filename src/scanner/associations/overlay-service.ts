@@ -3,7 +3,7 @@
 // Single entry point for a complete overlay rebuild cycle:
 //   1. Collect HEAD commit and dirty file state from git
 //   2. Mark stale any fresh edges whose commit baseline has advanced
-//   3. Materialize structural nodes from the scan result
+//   3. Census symbol declarations, then materialize structural nodes from the scan result
 //   4. Assemble AssociationContext from scan entries and enrichments
 //   5. Run AssociationEngine with the enabled resolver pack
 //   6. Run CapabilitySurfaceDetectors to persist surface nodes and boundary edges
@@ -18,6 +18,8 @@ import type { EnrichmentMap } from '../lsp/index.js';
 import { isGitRepository, getHeadCommit, getDirtyFiles } from '../git.js';
 import { materializeNodes } from './materializer.js';
 import { materializeAstSymbols } from '../ast/materialize.js';
+import { buildSymbolIdCollisions } from '../identity/symbol-census.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 import type { SharedExtractions } from '../ast/extraction-cache.js';
 import { analyzeProgram, type ProgramAnalysisV1 } from '../adapters/program-analysis.js';
 import { AstStructuralResolver } from '../ast/resolver.js';
@@ -105,6 +107,8 @@ export interface OverlayRebuildResult {
    * partial writes are on disk, so the counts above do not describe the index; read it instead.
    */
   phaseFailures?: string[];
+  /** Symbol ids more than one file declares; later passes build their node ids with it. */
+  symbolCollisions: SymbolIdCollisions;
 }
 
 /**
@@ -153,17 +157,10 @@ export async function rebuildStructuralOverlay(
     }
   }
 
-  // 3. Materialize structural nodes from scan output
-  report('Materializing structural nodes...');
-  const materialized = materializeNodes(db, scan, enrichments, rootPath);
-  const fileNodes = materialized.fileNodes;
-  let symbolNodes = materialized.symbolNodes;
-  report(`Materialized ${fileNodes} file node(s) and ${symbolNodes} symbol node(s).`);
-
-  // 3a. Build the shared per-rebuild AST extraction cache ONCE (Lever D), so the
-  // materializer, the structural resolver, and the caller's typed-receiver pass
-  // read one Extraction per file instead of re-parsing it three times. Isolated:
-  // a build failure degrades to each consumer parsing on demand (cache absent).
+  // 3. Build the shared per-rebuild AST extraction cache ONCE (Lever D), so the
+  // census, the materializer, the structural resolver, and the caller's typed-receiver
+  // pass read one Extraction per file instead of re-parsing it. Isolated: a build
+  // failure degrades to each consumer parsing on demand (cache absent).
   let sharedExtractions: SharedExtractions | undefined =
     options.programAnalysis?.shared.extractions;
   let programAnalysis: ProgramAnalysisV1 | undefined = options.programAnalysis;
@@ -180,7 +177,28 @@ export async function rebuildStructuralOverlay(
     }
   }
 
-  // 3b. AST symbol tier (default on) — supplies symbols without LSP. Isolated:
+  // 3a. Census every symbol declaration before any node is written: an id declared by more
+  // than one file is file-qualified for all of them (identity/symbol-collisions.ts), so which
+  // file a node belongs to never depends on which file was processed last.
+  const symbolCollisions = await buildSymbolIdCollisions({
+    scan,
+    enrichments,
+    rootPath,
+    astEnabled: options.astEnabled ?? false,
+    extractions: sharedExtractions,
+  });
+  if (symbolCollisions.size > 0) {
+    report(`${symbolCollisions.size} symbol id(s) declared by more than one file: file-qualified.`);
+  }
+
+  // 3b. Materialize structural nodes from scan output
+  report('Materializing structural nodes...');
+  const materialized = materializeNodes(db, scan, enrichments, rootPath, symbolCollisions);
+  const fileNodes = materialized.fileNodes;
+  let symbolNodes = materialized.symbolNodes;
+  report(`Materialized ${fileNodes} file node(s) and ${symbolNodes} symbol node(s).`);
+
+  // 3c. AST symbol tier (default on) — supplies symbols without LSP. Isolated:
   // a tree-sitter/WASM failure here must degrade only this tier, not abort the
   // whole overlay (surfaces, propagation) for a feature the user didn't opt into.
   const phaseFailures: string[] = [];
@@ -193,7 +211,8 @@ export async function rebuildStructuralOverlay(
         rootPath,
         Math.floor(Date.now() / 1000),
         sharedExtractions,
-        reporter.warn
+        reporter.warn,
+        symbolCollisions
       );
       symbolNodes += astNodes;
       report(`Materialized ${astNodes} AST symbol node(s).`);
@@ -207,7 +226,7 @@ export async function rebuildStructuralOverlay(
     }
   }
 
-  // 3c. Vue components must exist before render edges can reference them.
+  // 3d. Vue components must exist before render edges can reference them.
   if (programAnalysis?.vueFacts.length) {
     const vueNodes = buildVueComponentNodes(
       programAnalysis.vueFacts,
@@ -247,6 +266,7 @@ export async function rebuildStructuralOverlay(
     dirtyFiles,
     sharedExtractions,
     programAnalysis,
+    symbolCollisions,
   };
 
   // React relationships target deterministic framework nodes (components, custom hooks, contexts).
@@ -503,6 +523,7 @@ export async function rebuildStructuralOverlay(
     sharedExtractions,
     programAnalysis,
     ...(phaseFailures.length > 0 ? { phaseFailures } : {}),
+    symbolCollisions,
   };
 }
 

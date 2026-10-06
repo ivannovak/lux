@@ -3,7 +3,11 @@
 // LspEnricher is the contract that language-specific enrichers implement.
 // The EnricherRegistry manages enricher discovery and lookup by language ID.
 
+import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { DocumentSymbol, Diagnostic, Location } from 'vscode-languageserver-protocol';
+import { LspTransientError } from './client.js';
+import type { LspRequestIssue } from './requester.js';
 
 // ---------------------------------------------------------------------------
 // Core enrichment result types
@@ -142,6 +146,18 @@ export interface LspEnricher {
   readonly isReady: boolean;
 
   /**
+   * True when the server was still indexing the workspace when its wait bound ran out: its answers
+   * then depend on how far indexing got. Undefined for servers that answer from open documents.
+   */
+  readonly indexIncomplete?: boolean;
+
+  /**
+   * Error answers the server gave since the last call, per file and request (lsp/requester.ts).
+   * The scan drains them after enrichment and after call resolution and records each one.
+   */
+  drainRequestIssues?(): LspRequestIssue[];
+
+  /**
    * Resolve the definition location of the token at a 0-based (line, character).
    * Optional — enrichers that support on-demand definition queries implement it.
    *
@@ -224,7 +240,8 @@ export function toEnrichedSymbol(symbol: DocumentSymbol): EnrichedSymbol {
   // symbols without a `range`; fall back to `selectionRange`, then to 0, so a
   // range-less symbol degrades gracefully instead of throwing and failing the
   // whole file's enrichment.
-  const range = symbol.range ?? symbol.selectionRange;
+  const flat = symbol as unknown as { location?: { range?: DocumentSymbol['range'] } };
+  const range = symbol.range ?? symbol.selectionRange ?? flat.location?.range;
   return {
     name: symbol.name,
     kind: symbol.kind,
@@ -297,6 +314,17 @@ export class EnricherRegistry {
     }
   }
 
+  /** Error answers every enricher recorded since the last call, with the language they came from. */
+  drainRequestIssues(): Array<LspRequestIssue & { languageId: string }> {
+    const drained: Array<LspRequestIssue & { languageId: string }> = [];
+    for (const enricher of this.enrichers.values()) {
+      for (const issue of enricher.drainRequestIssues?.() ?? []) {
+        drained.push({ ...issue, languageId: enricher.languageId });
+      }
+    }
+    return drained;
+  }
+
   /** Route an on-demand definition query to the enricher for the file's language. */
   async resolveDefinition(
     filePath: string,
@@ -307,7 +335,8 @@ export class EnricherRegistry {
     const languageId = this.extensionIndex.get(ext);
     if (!languageId) return null;
     const enricher = this.enrichers.get(languageId);
-    if (!enricher?.isReady || !enricher.resolveDefinition) return null;
+    if (!enricher?.resolveDefinition) return null;
+    assertEnricherRunning(enricher);
     return enricher.resolveDefinition(filePath, line, character);
   }
 
@@ -325,7 +354,8 @@ export class EnricherRegistry {
     const languageId = this.extensionIndex.get(ext);
     if (!languageId) return positions.map(() => null);
     const enricher = this.enrichers.get(languageId);
-    if (!enricher?.isReady) return positions.map(() => null);
+    if (!enricher) return positions.map(() => null);
+    assertEnricherRunning(enricher);
     if (enricher.resolveDefinitionsInFile) {
       return enricher.resolveDefinitionsInFile(filePath, positions);
     }
@@ -418,4 +448,55 @@ export class EnricherRegistry {
       throw new Error(`Failed to shut down enrichers:\n  ${messages.join('\n  ')}`);
     }
   }
+}
+
+/**
+ * The form a location URI is stored in, so index content never embeds a machine path. A location
+ * inside the workspace is stored as `workspace:<path relative to the workspace root>`. One outside
+ * it points into machine state (a tool's cache under HOME, a global install): it is stored as
+ * `external:` plus its path below the last `node_modules/` (e.g. the TypeScript typings cache's
+ * `@types/node/fs.d.ts`), or, failing that, its path with the home directory written as `~`.
+ */
+export function stableLocationUri(uri: string, workspaceRoot: string | undefined): string {
+  if (!uri.startsWith('file:')) return uri;
+  let path: string;
+  try {
+    path = fileURLToPath(uri);
+  } catch {
+    // lux-intentional-swallow: a file: URI that names no local path cannot embed one; it is stored as given.
+    return uri;
+  }
+  if (workspaceRoot && (path === workspaceRoot || path.startsWith(workspaceRoot + '/'))) {
+    return `workspace:${path.slice(workspaceRoot.length + 1)}`;
+  }
+  const marker = '/node_modules/';
+  const at = path.lastIndexOf(marker);
+  if (at !== -1) return `external:node_modules/${path.slice(at + marker.length)}`;
+  const home = homedir();
+  return `external:${path === home || path.startsWith(home + '/') ? '~' + path.slice(home.length) : path}`;
+}
+
+/**
+ * A registered enricher whose server is not running (it failed to start, or died) cannot answer;
+ * saying "no target" for it would present a missing language as an empty result.
+ */
+function assertEnricherRunning(enricher: LspEnricher): void {
+  if (!enricher.isReady) {
+    throw new LspTransientError(
+      'transport',
+      `${enricher.languageId} language server is not running`
+    );
+  }
+}
+
+/**
+ * Where to ask the server about a symbol. A DocumentSymbol carries `selectionRange`; some servers
+ * answer documentSymbol with SymbolInformation instead (intelephense, for scripts and Blade
+ * templates), which has only `location.range`.
+ */
+export function symbolPosition(
+  symbol: DocumentSymbol
+): { line: number; character: number } | undefined {
+  const flat = symbol as unknown as { location?: { range?: DocumentSymbol['range'] } };
+  return (symbol.selectionRange ?? symbol.range ?? flat.location?.range)?.start;
 }

@@ -48,9 +48,21 @@ import { makeExternalTargetResolver } from '../pack/external-resolve.js';
 import { resolveVendorPackPathForRefresh } from '../rebuild-orchestrator.js'; // small export, T3a.1
 import { extractSource, getGrammars, langForFile } from '../ast/extract.js';
 import { buildAstSymbolNodes } from '../ast/symbols.js';
+import { collectSymbolDeclarations } from '../identity/symbol-census.js';
+import { bareSymbolId, SymbolIdCollisions } from '../identity/symbol-collisions.js';
+import {
+  failedStartFailure,
+  fileFailure,
+  incompleteIndexFailure,
+  loadLspEnrichmentFailures,
+  lostServerFailure,
+  requestIssueFailures,
+  summarizeLspFailures,
+  type LspEnrichmentFailure,
+} from '../lsp/enrichment-failures.js';
 import { buildEntry } from '../incremental.js';
 import { detectModuleBoundaries, resolveModule } from '../imports/module-boundary.js';
-import { failureSummary, WarningLog, type Reporter, type WarnFn } from '../reporter.js';
+import { WarningLog, type Reporter, type WarnFn } from '../reporter.js';
 
 export interface ChangedFile {
   relPath: string;
@@ -85,6 +97,8 @@ export interface ScopedRefreshResult {
   warningComponents: Record<string, string>;
   /** Components this refresh ran (`detector:<name>`, `ast-file:<path>`, …), warned or not. */
   componentsRun: string[];
+  refreshedPaths: string[]; // R, repo-relative
+  lspEnrichmentFailures: LspEnrichmentFailure[]; // R's files the LSP tier could not enrich
 }
 
 /**
@@ -110,6 +124,8 @@ export async function computeReverseImportClosure(
   for (const f of changed) {
     if (f.status === 'deleted') continue; // a deletion removes symbols — no growth
     const persisted = new Set(db.getSymbolNodeIdsForFiles([f.relPath]));
+    // Compared in bare form: a persisted id may carry a file qualifier the fresh build lacks.
+    const persistedBare = new Set([...persisted].map(bareSymbolId));
     const entry = buildEntry(rootPath, f.relPath);
     if (!entry || !entry.content) continue;
     const lang = langForFile(entry.filePath);
@@ -129,7 +145,7 @@ export async function computeReverseImportClosure(
     // Growth gate (Decision 14): a symbol was ADDED (an id absent from the persisted set). This is
     // the literal "a symbol was added" test; it is the essential half of strict-superset and is
     // sound (it also covers a rename that introduces a new name — never under-pulls the closure).
-    const grew = newIds.some((id) => !persisted.has(id));
+    const grew = newIds.some((id) => !persistedBare.has(id));
     if (!grew) continue;
 
     const module = resolveModule(f.relPath, rootPath, patterns);
@@ -259,8 +275,28 @@ export async function refreshOverlayScoped(
     );
   }
 
-  const vendorPackPath = resolveVendorPackPathForRefresh(rootPath, reporter.warn); // null ⇒ facade skipped
-  const { enrichments, lspTier, typedReceiverEdges } = await runLspTier(
+  // The symbol census a full rebuild would take (identity/symbol-collisions.ts): R's declarations
+  // fresh, every other file's as persisted. A PHP change pulls every PHP file into R above, so a
+  // PHP id's declarers are all re-censused whenever any of them changes.
+  const inR = new Set(R);
+  const declaredOutsideR = db
+    .getLocalStructuralNodesByType('symbol')
+    .filter((node) => node.file_path && !inR.has(node.file_path))
+    .map((node) => ({ id: bareSymbolId(node.id), relPath: node.file_path! }));
+  const censusFor = async (enrichmentMap: EnrichmentMap): Promise<SymbolIdCollisions> =>
+    SymbolIdCollisions.fromDeclarations([
+      ...declaredOutsideR,
+      ...(await collectSymbolDeclarations({
+        scan: scanR,
+        enrichments: enrichmentMap,
+        rootPath,
+        astEnabled: config.ast?.enabled ?? true,
+        extractions: sharedExtractions,
+      })),
+    ]);
+
+  const vendorPackPath = resolveVendorPackPathForRefresh(rootPath, config, reporter.warn); // null ⇒ facade skipped
+  const lsp = await runLspTier(
     rootPath,
     config,
     scanR,
@@ -269,11 +305,27 @@ export async function refreshOverlayScoped(
     options.lspBudgetMs,
     now,
     reporter,
-    db
+    db,
+    censusFor
   );
+  const { enrichments, lspTier, typedReceiverEdges } = lsp;
+  // What is still missing after this run: its own failures, plus those recorded earlier for files
+  // it did not touch. A run that re-enriched cleanly and leaves nothing recorded retires the
+  // warning; any other run repeats it.
+  const stillRecorded =
+    lspTier === 'ran'
+      ? loadLspEnrichmentFailures(db).filter(
+          (failure) => failure.filePath !== '.' && !inR.has(failure.filePath)
+        )
+      : [];
+  for (const line of summarizeLspFailures([...stillRecorded, ...lsp.failures])) {
+    reporter.warn(line, 'lsp-output');
+  }
+  if (lspTier === 'ran') reporter.ran('lsp-output');
+  const symbolCollisions = lsp.symbolCollisions ?? (await censusFor(enrichments));
   const facadeEdges =
     vendorPackPath && sharedExtractions
-      ? resolveFacadeAndHelperEdges(phpFilesFrom(sharedExtractions), db, now)
+      ? resolveFacadeAndHelperEdges(phpFilesFrom(sharedExtractions), db, now, symbolCollisions)
       : [];
   const facadeTier: ScopedRefreshResult['tiers']['facade'] = vendorPackPath
     ? 'ran'
@@ -299,9 +351,17 @@ export async function refreshOverlayScoped(
   });
 
   // 4. REMATERIALIZE all of R's nodes BEFORE the single resolver pass (Decision 13 soundness).
-  materializeNodes(db, scanR, enrichments, rootPath);
+  materializeNodes(db, scanR, enrichments, rootPath, symbolCollisions);
   if (config.ast?.enabled ?? true) {
-    await materializeAstSymbols(db, scanR, rootPath, now, sharedExtractions, reporter.warn);
+    await materializeAstSymbols(
+      db,
+      scanR,
+      rootPath,
+      now,
+      sharedExtractions,
+      reporter.warn,
+      symbolCollisions
+    );
   }
   if (programAnalysis?.vueFacts.length) {
     db.transaction(() => {
@@ -325,6 +385,7 @@ export async function refreshOverlayScoped(
     dirtyFiles: [],
     sharedExtractions,
     programAnalysis,
+    symbolCollisions,
   };
   const react = await analyzeReactContext(context);
   if (react?.nodes.length) {
@@ -425,6 +486,8 @@ export async function refreshOverlayScoped(
     warnings: log.messages,
     warningComponents: log.components,
     componentsRun: [...log.ran],
+    refreshedPaths: R,
+    lspEnrichmentFailures: lsp.failures,
   };
 }
 
@@ -541,16 +604,33 @@ async function runLspTier(
   lspBudgetMs: number | undefined,
   now: number,
   reporter: Reporter,
-  db: LuxDatabase
+  db: LuxDatabase,
+  censusFor: (enrichments: EnrichmentMap) => Promise<SymbolIdCollisions>
 ): Promise<{
   enrichments: EnrichmentMap;
   lspTier: ScopedRefreshResult['tiers']['lsp'];
   typedReceiverEdges: StructuralRelationEdge[];
+  /** Set when the tier ran far enough to census with its enrichments. */
+  symbolCollisions?: SymbolIdCollisions;
+  /** Files the language server could not enrich (recorded, never silently symbol-less). */
+  failures: LspEnrichmentFailure[];
 }> {
   const enrichments: EnrichmentMap = new Map();
-  if (!config.lsp.enabled) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
+  const failures: LspEnrichmentFailure[] = [];
+  const startedServers = new Set<string>();
+  const toRelative = (absolutePath: string): string =>
+    absolutePath.startsWith(rootPath + '/')
+      ? absolutePath.slice(rootPath.length + 1)
+      : absolutePath;
+  const unavailable = {
+    enrichments,
+    lspTier: 'unavailable' as const,
+    typedReceiverEdges: [],
+    failures,
+  };
+  if (!config.lsp.enabled) return unavailable;
   const registry = buildRegistry(config.lsp.enrichers, reporter.warn);
-  if (registry.size === 0) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
+  if (registry.size === 0) return unavailable;
 
   const budgetMs = lspBudgetMs ?? 30000;
   const deadline = Date.now() + budgetMs;
@@ -562,40 +642,48 @@ async function runLspTier(
       try {
         await e.initialize(workspaceRoot);
         active++;
+        startedServers.add(e.languageId);
         reporter.ran(`enricher:${e.languageId}`);
+        if (e.indexIncomplete) failures.push(incompleteIndexFailure(e.languageId));
       } catch (error) {
+        // Per-enricher isolation: the other languages carry on, and this one is recorded.
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(failedStartFailure(e.languageId, message));
         reporter.warn(
-          `Failed to initialize ${e.languageId} enricher: ${error instanceof Error ? error.message : String(error)}`,
+          `Failed to initialize ${e.languageId} enricher: ${message}`,
           `enricher:${e.languageId}`
         );
       }
     }
-    if (active === 0) return { enrichments, lspTier: 'unavailable', typedReceiverEdges: [] };
+    if (active === 0) return unavailable;
 
-    const enrichFailures: Array<{ item: string; error: string }> = [];
     for (const k of scanR.knowledge) {
       if (Date.now() > deadline) throw new Error('lsp-budget');
       if (k.type !== 'source-code' || !k.content) continue;
       const lang = langForFile(k.filePath);
       const enricher = lang ? registry.get(lang === 'php' ? 'php' : 'typescript') : undefined;
-      if (!enricher?.isReady) continue;
+      if (!enricher?.isReady) {
+        // Started, then died: the language's files are skipped, so the language is recorded.
+        const lost = enricher && lostServerFailure(enricher, startedServers);
+        if (lost) failures.push(lost);
+        continue;
+      }
       try {
         const r = await enricher.enrich(k.filePath);
         if (r) enrichments.set(k.filePath, r);
       } catch (error) {
-        enrichFailures.push({
-          item: k.filePath,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        // Isolated: the file stays unenriched, and is recorded as such.
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(fileFailure(toRelative(k.filePath), 'symbols', message));
       }
     }
-    if (enrichFailures.length > 0) reporter.warn(failureSummary('LSP enrichment', enrichFailures));
 
     if (Date.now() > deadline) throw new Error('lsp-budget');
     const reg = registry;
     const resolveExternalTarget = vendorPackPath
       ? makeExternalTargetResolver(db, rootPath)
       : undefined;
+    const symbolCollisions = await censusFor(enrichments);
     const edges = await resolveTypedReceiverEdges(
       buildTypedReceiverEntries(scanR.knowledge, []),
       rootPath,
@@ -605,16 +693,20 @@ async function runLspTier(
         resolveInFile: (fp, ps) => reg.resolveDefinitionsInFile(fp, ps),
         sharedExtractions,
         resolveExternalTarget,
+        symbolCollisions,
+        onTransientFailure: (filePath, error) =>
+          failures.push(fileFailure(toRelative(filePath), 'calls', error.message)),
       }
     );
+    failures.push(...requestIssueFailures(registry.drainRequestIssues(), toRelative));
     reporter.ran('lsp-tier');
-    return { enrichments, lspTier: 'ran', typedReceiverEdges: edges };
+    return { enrichments, lspTier: 'ran', typedReceiverEdges: edges, symbolCollisions, failures };
   } catch {
     reporter.warn(
       'LSP tier exceeded budget or failed — skipping; :lsp edges of R left stale.',
       'lsp-tier'
     );
-    return { enrichments, lspTier: 'skipped-budget', typedReceiverEdges: [] };
+    return { enrichments, lspTier: 'skipped-budget', typedReceiverEdges: [], failures };
   } finally {
     // Shut down enrichers (mirrors generalScan step 9) so a scoped refresh never leaks a language
     // server process — the spec's tier is budget-bounded but must not outlive the call.

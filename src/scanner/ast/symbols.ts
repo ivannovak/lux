@@ -11,6 +11,7 @@
 import type { StructuralNode } from '../../db/types.js';
 import { phpSymbolNodeId, tsSymbolNodeId } from '../associations/types.js';
 import { astLanguageId, type AstLang, type AstNode, type Extraction } from './extract.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 const SYMBOL_KIND_LABEL: Record<'function' | 'method' | 'class', string> = {
   function: 'Function',
@@ -28,12 +29,17 @@ const SYMBOL_KIND_LABEL: Record<'function' | 'method' | 'class', string> = {
  * - TS/TSX: `symbol:ts:<relPath>#<name>` (methods: `#<Container>.<name>`).
  * - PHP: `symbol:php:<Ns\\name>` (methods: `<Ns\\Class::name>`); un-namespaced
  *   top-level symbols fall back to the short name, matching the LSP path.
+ *
+ * With `collisions`, an id that another file also declares is file-qualified
+ * (identity/symbol-collisions.ts). Without it the bare id is returned — the form
+ * the declaration census and vendor packs use.
  */
 export function astSymbolIdentity(
   relPath: string,
   def: AstNode,
   lang: AstLang,
-  namespace?: string
+  namespace?: string,
+  collisions?: SymbolIdCollisions
 ): { id: string; qualifiedName?: string } {
   if (lang === 'php') {
     let qualifiedName: string | undefined;
@@ -43,12 +49,14 @@ export function astSymbolIdentity(
     } else if (namespace) {
       qualifiedName = `${namespace}\\${def.name}`;
     }
-    return { id: phpSymbolNodeId(qualifiedName ?? def.name), qualifiedName };
+    const id = phpSymbolNodeId(qualifiedName ?? def.name);
+    return { id: collisions ? collisions.qualify(id, relPath) : id, qualifiedName };
   }
 
   const localName =
     def.type === 'method' && def.container ? `${def.container}.${def.name}` : def.name;
-  return { id: tsSymbolNodeId(relPath, localName) };
+  const id = tsSymbolNodeId(relPath, localName);
+  return { id: collisions ? collisions.qualify(id, relPath) : id };
 }
 
 /**
@@ -56,19 +64,27 @@ export function astSymbolIdentity(
  *
  * @param updatedAt - Unix epoch seconds to stamp on each node (caller-supplied
  *   for determinism).
+ * @param collisions - Ids other files also declare; those are file-qualified.
  */
 export function buildAstSymbolNodes(
   relPath: string,
   extraction: Extraction,
   lang: AstLang,
-  updatedAt: number
+  updatedAt: number,
+  collisions?: SymbolIdCollisions
 ): StructuralNode[] {
   const languageId = astLanguageId(lang);
   const nodes: StructuralNode[] = [];
   const seen = new Set<string>();
 
   for (const def of extraction.nodes) {
-    const { id, qualifiedName } = astSymbolIdentity(relPath, def, lang, extraction.namespace);
+    const { id, qualifiedName } = astSymbolIdentity(
+      relPath,
+      def,
+      lang,
+      extraction.namespace,
+      collisions
+    );
     if (seen.has(id)) continue;
     seen.add(id);
 

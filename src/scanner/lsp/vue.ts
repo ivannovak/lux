@@ -13,13 +13,14 @@ import { join } from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { DocumentSymbol, Location } from 'vscode-languageserver-protocol';
 import { LspClient } from './client.js';
+import { LspRequester, type LspRequestIssue } from './requester.js';
 import type {
   LspEnricher,
   LspEnricherConfig,
   EnrichmentResult,
   EnrichedDefinition,
 } from './index.js';
-import { toEnrichedSymbol } from './index.js';
+import { stableLocationUri, symbolPosition, toEnrichedSymbol } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Options
@@ -75,6 +76,9 @@ export class VueLspEnricher implements LspEnricher {
   readonly config: LspEnricherConfig;
 
   private client: LspClient | null = null;
+  private requester: LspRequester | null = null;
+  /** Root the server was started on; locations outside it are stored in a stable form. */
+  private workspaceRoot: string | undefined;
   private _isReady = false;
   private readonly tsdkOverride?: string;
 
@@ -89,8 +93,9 @@ export class VueLspEnricher implements LspEnricher {
     };
   }
 
+  /** False once the server process has died, so callers stop treating it as available. */
   get isReady(): boolean {
-    return this._isReady;
+    return this._isReady && this.client?.initialized === true;
   }
 
   // -------------------------------------------------------------------------
@@ -100,6 +105,7 @@ export class VueLspEnricher implements LspEnricher {
   async initialize(workspaceRoot: string): Promise<void> {
     if (this._isReady) return;
 
+    this.workspaceRoot = workspaceRoot;
     const rootUri = pathToFileURL(workspaceRoot).toString();
 
     this.client = new LspClient({
@@ -110,6 +116,7 @@ export class VueLspEnricher implements LspEnricher {
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
     });
+    this.requester = new LspRequester(this.client);
 
     await this.client.initialize({
       processId: process.pid,
@@ -149,6 +156,11 @@ export class VueLspEnricher implements LspEnricher {
     this._isReady = true;
   }
 
+  /** Error answers recorded since the last call (see lsp/requester.ts). */
+  drainRequestIssues(): LspRequestIssue[] {
+    return this.requester?.drain() ?? [];
+  }
+
   async shutdown(): Promise<void> {
     if (!this.client) return;
 
@@ -156,6 +168,7 @@ export class VueLspEnricher implements LspEnricher {
       await this.client.shutdown();
     } finally {
       this.client = null;
+      this.requester = null;
       this._isReady = false;
     }
   }
@@ -188,9 +201,9 @@ export class VueLspEnricher implements LspEnricher {
 
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
   async enrichOpen(uri: string, filePath: string): Promise<EnrichmentResult | null> {
-    const rawSymbols = liftScriptSymbols(await this.getDocumentSymbols(uri));
+    const rawSymbols = liftScriptSymbols(await this.getDocumentSymbols(uri, filePath));
     const symbols = rawSymbols.map(toEnrichedSymbol);
-    const definitions = await this.getDefinitions(uri, rawSymbols);
+    const definitions = await this.getDefinitions(uri, filePath, rawSymbols);
 
     return {
       filePath,
@@ -229,18 +242,15 @@ export class VueLspEnricher implements LspEnricher {
     line: number,
     character: number
   ): Promise<{ filePath: string; line: number } | null> {
-    try {
-      const result = await this.client!.request<Location | Location[] | null>(
-        'textDocument/definition',
-        { textDocument: { uri }, position: { line, character } }
-      );
-      const loc = Array.isArray(result) ? result[0] : result;
-      if (!loc) return null;
-      return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return null;
-    }
+    const result = await this.requester!.ask<Location | Location[] | null>(
+      { filePath: fileURLToPath(uri), stage: 'calls' },
+      'textDocument/definition',
+      'definitionProvider',
+      { textDocument: { uri }, position: { line, character } }
+    );
+    const loc = Array.isArray(result) ? result[0] : result;
+    if (!loc) return null;
+    return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
   }
 
   /**
@@ -286,21 +296,19 @@ export class VueLspEnricher implements LspEnricher {
   // LSP queries
   // -------------------------------------------------------------------------
 
-  private async getDocumentSymbols(uri: string): Promise<DocumentSymbol[]> {
-    try {
-      const result = await this.client!.request<DocumentSymbol[] | null>(
-        'textDocument/documentSymbol',
-        { textDocument: { uri } }
-      );
-      return result ?? [];
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return [];
-    }
+  private async getDocumentSymbols(uri: string, filePath: string): Promise<DocumentSymbol[]> {
+    const result = await this.requester!.ask<DocumentSymbol[] | null>(
+      { filePath, stage: 'symbols' },
+      'textDocument/documentSymbol',
+      'documentSymbolProvider',
+      { textDocument: { uri } }
+    );
+    return result ?? [];
   }
 
   private async getDefinitions(
     uri: string,
+    filePath: string,
     symbols: DocumentSymbol[]
   ): Promise<EnrichedDefinition[]> {
     const definitions: EnrichedDefinition[] = [];
@@ -309,29 +317,27 @@ export class VueLspEnricher implements LspEnricher {
     const topLevel = symbols.slice(0, 20);
 
     for (const symbol of topLevel) {
-      try {
-        const position = symbol.selectionRange.start;
-        const result = await this.client!.request<Location | Location[] | null>(
-          'textDocument/definition',
-          {
-            textDocument: { uri },
-            position: { line: position.line, character: position.character },
-          }
-        );
+      const position = symbolPosition(symbol);
+      if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
-        if (!result) continue;
-
-        const locations = Array.isArray(result) ? result : [result];
-        for (const loc of locations.slice(0, 5)) {
-          definitions.push({
-            symbolName: symbol.name,
-            targetUri: loc.uri,
-            targetStartLine: loc.range.start.line,
-          });
+      const result = await this.requester!.ask<Location | Location[] | null>(
+        { filePath, stage: 'symbols' },
+        'textDocument/definition',
+        'definitionProvider',
+        {
+          textDocument: { uri },
+          position: { line: position.line, character: position.character },
         }
-      } catch {
-        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-        // Skip symbols that fail definition lookup.
+      );
+      if (!result) continue;
+
+      const locations = Array.isArray(result) ? result : [result];
+      for (const loc of locations.slice(0, 5)) {
+        definitions.push({
+          symbolName: symbol.name,
+          targetUri: stableLocationUri(loc.uri, this.workspaceRoot),
+          targetStartLine: loc.range.start.line,
+        });
       }
     }
 

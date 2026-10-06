@@ -31,8 +31,18 @@ import { resolveTypedReceiverEdges } from './ast/lsp-resolve.js';
 import { makeExternalTargetResolver } from './pack/external-resolve.js';
 import { resolveFacadeAndHelperEdges } from './pack/facade-resolve.js';
 import { classifyHandlerOwnership, resolveAppNamespace } from './associations/ownership.js';
-import { failureSummary, WarningLog, warnSink, type WarnFn } from './reporter.js';
+import { WarningLog, warnSink, type WarnFn } from './reporter.js';
 import { parseMarkdownSource, unreadableWarning } from './markdown.js';
+import { canonicalScanOrder, compareCodeUnits } from './scan-order.js';
+import {
+  failedStartFailure,
+  fileFailure,
+  incompleteIndexFailure,
+  lostServerFailure,
+  requestIssueFailures,
+  summarizeLspFailures,
+  type LspEnrichmentFailure,
+} from './lsp/enrichment-failures.js';
 
 // ---------------------------------------------------------------------------
 // Source Code Scanning Constants
@@ -207,7 +217,9 @@ export class GeneralScanner {
     // Scan all markdown files recursively from the root, excluding vendored
     // and tooling trees (e.g. node_modules, .git, .claude worktrees) so nested
     // repo checkouts don't inject duplicate content entries.
-    const mdFiles = await glob('**/*.md', { cwd: scanPath, ignore: this.ignorePatterns });
+    const mdFiles = canonicalScanOrder(
+      await glob('**/*.md', { cwd: scanPath, ignore: this.ignorePatterns })
+    );
 
     for (const mdFile of mdFiles) {
       const filePath = join(scanPath, mdFile);
@@ -291,7 +303,7 @@ export class GeneralScanner {
       ignore: this.ignorePatterns,
       nodir: true,
     });
-    return files;
+    return canonicalScanOrder(files);
   }
 
   /**
@@ -450,6 +462,11 @@ export interface GeneralScanResult {
     activeEnrichers: number;
     /** Errors encountered during enrichment (non-fatal). */
     enrichmentErrors: Array<{ filePath: string; error: string }>;
+    /**
+     * Everything the language servers left missing, by repo-relative path and stage
+     * (lsp/enrichment-failures.ts). Empty means the LSP output is complete.
+     */
+    lspFailures: LspEnrichmentFailure[];
   };
   /** Structural overlay rebuild result (only present when overlayEnabled=true). */
   overlay?: OverlayRebuildResult;
@@ -611,6 +628,11 @@ export async function generalScan(
 
   const enrichments: EnrichmentMap = new Map();
   const errors: Array<{ filePath: string; error: string }> = [];
+  const callResolutionErrors: Array<{ filePath: string; error: string }> = [];
+  const incompleteIndexes: string[] = [];
+  const failedEnrichers: Array<{ languageId: string; error: string }> = [];
+  const startedServers = new Set<string>();
+  const lostServers: LspEnrichmentFailure[] = [];
   let activeCount = 0;
   // Kept alive past enrichment so the typed-receiver LSP pass can query it.
   let activeRegistry: EnricherRegistry | null = null;
@@ -633,11 +655,19 @@ export async function generalScan(
           report(`Initializing ${enricher.languageId} enricher...`);
           await enricher.initialize(workspaceRoot);
           activeCount++;
+          startedServers.add(enricher.languageId);
+          if (enricher.indexIncomplete) {
+            incompleteIndexes.push(enricher.languageId);
+            report(
+              `${enricher.languageId} enricher was still indexing the workspace after ` +
+                `${enricher.config.initTimeoutMs}ms.`
+            );
+          }
         } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failedEnrichers.push({ languageId: enricher.languageId, error: message });
           warn(
-            `Failed to initialize ${enricher.languageId} enricher: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `Failed to initialize ${enricher.languageId} enricher: ${message}`,
             `enricher:${enricher.languageId}`
           );
         }
@@ -662,7 +692,13 @@ export async function generalScan(
       //    alone meets the REQ-3 app-build target; B+D+E carry the rest.
       for (const [languageId, filePaths] of filesToEnrich) {
         const enricher = registry.get(languageId);
-        if (!enricher?.isReady) continue;
+        if (!enricher?.isReady) {
+          // A server that started and died before its files came up leaves the whole language
+          // without LSP data; skipping it without a record would read as complete output.
+          const lost = enricher && lostServerFailure(enricher, startedServers);
+          if (lost) lostServers.push(lost);
+          continue;
+        }
 
         report(`Enriching ${filePaths.length} ${languageId} files (bounded parallel)...`);
 
@@ -687,14 +723,6 @@ export async function generalScan(
   }
 
   report(`Enrichment complete: ${enrichments.size} files enriched, ${errors.length} errors.`);
-  if (errors.length > 0) {
-    warn(
-      failureSummary(
-        'LSP enrichment',
-        errors.map((e) => ({ item: e.filePath, error: e.error }))
-      )
-    );
-  }
 
   // 8. Optionally rebuild structural overlay
   let overlay: OverlayRebuildResult | undefined;
@@ -782,14 +810,18 @@ export async function generalScan(
           sharedExtractions: overlay.sharedExtractions,
           concurrency: ENRICH_FILE_CONCURRENCY,
           resolveExternalTarget,
+          symbolCollisions: overlay.symbolCollisions,
+          onTransientFailure: (filePath, error) =>
+            callResolutionErrors.push({ filePath, error: error.message }),
         }
       );
       const stored = AssociationEngine.persistEdges(options.db, edges);
       report(`Typed-receiver resolution: ${stored} edge(s) stored.`);
     } catch (error) {
-      warn(
-        `typed-receiver resolution failed — ${error instanceof Error ? error.message : String(error)}`
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      // The whole pass is lost, not one file: recorded once for the workspace.
+      callResolutionErrors.push({ filePath: '.', error: message });
+      warn(`typed-receiver resolution failed — ${message}`);
     }
   }
 
@@ -808,7 +840,12 @@ export async function generalScan(
       for (const [relPath, extraction] of overlay.sharedExtractions) {
         if (langForFile(relPath) === 'php') files.push({ relPath, extraction });
       }
-      const edges = resolveFacadeAndHelperEdges(files, options.db, Math.floor(Date.now() / 1000));
+      const edges = resolveFacadeAndHelperEdges(
+        files,
+        options.db,
+        Math.floor(Date.now() / 1000),
+        overlay.symbolCollisions
+      );
       const stored = AssociationEngine.persistEdges(options.db, edges);
       report(`Facade & helper resolution: ${stored} edge(s) stored.`);
     } catch (error) {
@@ -841,6 +878,24 @@ export async function generalScan(
     }
   }
 
+  // 8e. Collect what the language servers left missing, and say so once per stage: a run with any
+  //     recorded failure must close on a warning, not read as complete.
+  const toRelative = (absolutePath: string): string =>
+    absolutePath.startsWith(rootPath + '/')
+      ? absolutePath.slice(rootPath.length + 1)
+      : absolutePath;
+  const lspFailures: LspEnrichmentFailure[] = [
+    ...failedEnrichers.map((failure) => failedStartFailure(failure.languageId, failure.error)),
+    ...lostServers,
+    ...incompleteIndexes.map(incompleteIndexFailure),
+    ...errors.map((error) => fileFailure(toRelative(error.filePath), 'symbols', error.error)),
+    ...callResolutionErrors.map((error) =>
+      fileFailure(toRelative(error.filePath), 'calls', error.error)
+    ),
+    ...requestIssueFailures(activeRegistry?.drainRequestIssues() ?? [], toRelative),
+  ];
+  for (const line of summarizeLspFailures(lspFailures)) warn(line, 'lsp-output');
+
   // 9. Shut down LSP enrichers (kept alive through the overlay + typed-receiver pass).
   if (activeRegistry) {
     report('Shutting down LSP enrichers...');
@@ -859,6 +914,7 @@ export async function generalScan(
       enrichedFiles: enrichments.size,
       activeEnrichers: activeCount,
       enrichmentErrors: errors,
+      lspFailures,
     },
     overlay,
     ...(overlayError !== undefined ? { overlayError } : {}),
@@ -943,6 +999,9 @@ function collectEnrichableFiles(
   return filesByLanguage;
 }
 
+/** Files kept per module dependency: the first ones by path, so the choice is reproducible. */
+const MODULE_DEPENDENCY_SAMPLE_SIZE = 5;
+
 /**
  * Parse imports from scanned source files and aggregate into module-level dependencies.
  *
@@ -971,8 +1030,9 @@ function parseDependencies(
 
   report(`Detected module boundaries: ${patterns.join(', ')}`);
 
-  // Aggregate: (sourceModule, targetModule) → { count, sampleFiles }
-  const depMap = new Map<string, { count: number; sampleFiles: Set<string> }>();
+  // Aggregate: (sourceModule, targetModule) → { count, files }. Every referencing file is kept so
+  // the sample can be chosen by path, not by which files the scan happened to reach first.
+  const depMap = new Map<string, { count: number; files: Set<string> }>();
 
   const sourceEntries = scan.knowledge.filter((k) => k.type === 'source-code');
   const sourceFiles =
@@ -1020,11 +1080,9 @@ function parseDependencies(
       const existing = depMap.get(key);
       if (existing) {
         existing.count++;
-        if (existing.sampleFiles.size < 5) {
-          existing.sampleFiles.add(entry.filePath);
-        }
+        existing.files.add(entry.filePath);
       } else {
-        depMap.set(key, { count: 1, sampleFiles: new Set([entry.filePath]) });
+        depMap.set(key, { count: 1, files: new Set([entry.filePath]) });
       }
     }
   }
@@ -1041,7 +1099,7 @@ function parseDependencies(
       source_module,
       target_module,
       reference_count: val.count,
-      sample_files: Array.from(val.sampleFiles),
+      sample_files: [...val.files].sort(compareCodeUnits).slice(0, MODULE_DEPENDENCY_SAMPLE_SIZE),
     };
   });
 }

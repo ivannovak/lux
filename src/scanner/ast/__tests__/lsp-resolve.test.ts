@@ -6,6 +6,7 @@ import {
   type ResolveDefinitionsInFile,
 } from '../lsp-resolve.js';
 import { buildSharedExtractions } from '../extraction-cache.js';
+import { LspTransientError } from '../../lsp/client.js';
 import type { ScanResult } from '../../types.js';
 
 describe('memberLeafName', () => {
@@ -40,6 +41,31 @@ describe('resolveTypedReceiverEdges', () => {
     expect(call?.targetNodeId).toBe('symbol:ts:b.ts#doThing');
     expect(call?.confidenceClass).toBe('proven');
     expect(call?.provenance.evidenceKind).toBe('ast-lsp-typed-receiver');
+  });
+
+  it("emits none of a file's edges, and reports the file, when its definitions time out", async () => {
+    const entries = [
+      {
+        filePath: '/repo/a.ts',
+        content: ['function go() {', '  svc.doThing();', '}'].join('\n'),
+      },
+      {
+        filePath: '/repo/c.ts',
+        content: ['function run() {', '  svc.doThing();', '}'].join('\n'),
+      },
+      { filePath: '/repo/b.ts', content: 'export function doThing() {}' },
+    ];
+    const resolveDefinition: ResolveDefinition = (file) =>
+      file === '/repo/c.ts'
+        ? Promise.reject(new LspTransientError('timeout', 'timed out after 5ms'))
+        : Promise.resolve({ filePath: '/repo/b.ts', line: 0 });
+    const failed: string[] = [];
+
+    const edges = await resolveTypedReceiverEdges(entries, '/repo', resolveDefinition, 1000, {
+      onTransientFailure: (filePath) => failed.push(filePath),
+    });
+    expect(edges.map((edge) => edge.sourceNodeId)).toEqual(['symbol:ts:a.ts#go']);
+    expect(failed).toEqual(['/repo/c.ts']);
   });
 
   it('skips import-bound calls and does not emit for unresolved targets', async () => {

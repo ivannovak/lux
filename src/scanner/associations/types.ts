@@ -7,6 +7,7 @@
 import type { StructuralNode, EdgeType, ConfidenceClass } from '../../db/types.js';
 import type { SharedExtractions } from '../ast/extraction-cache.js';
 import type { ProgramAnalysisV1 } from '../adapters/program-analysis.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 // Re-export node type alias for convenience
 export type {
@@ -43,6 +44,11 @@ export interface AssociationContext {
   sharedExtractions?: SharedExtractions;
   /** Contract-shaped parser analysis shared by relationship resolvers. */
   programAnalysis?: ProgramAnalysisV1;
+  /**
+   * Symbol ids more than one file declares (identity/symbol-collisions.ts). Resolvers that build
+   * a node id from a definition site pass it on, so their edges meet the file-qualified nodes.
+   */
+  symbolCollisions?: SymbolIdCollisions;
 }
 
 // ---------------------------------------------------------------------------

@@ -5,16 +5,18 @@
 // metadata.lsp fields on indexed entities.
 
 import { readFileSync } from 'fs';
+import { createRunStorage, removeRunStorage } from './run-storage.js';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { DocumentSymbol, Location, TypeHierarchyItem } from 'vscode-languageserver-protocol';
 import { LspClient } from './client.js';
+import { LspRequester, type LspRequestIssue } from './requester.js';
 import type {
   LspEnricher,
   LspEnricherConfig,
   EnrichmentResult,
   EnrichedDefinition,
 } from './index.js';
-import { toEnrichedSymbol } from './index.js';
+import { stableLocationUri, symbolPosition, toEnrichedSymbol } from './index.js';
 
 // ---------------------------------------------------------------------------
 // PHP-specific enrichment types (stored in metadata.lsp)
@@ -70,6 +72,25 @@ const TYPE_HIERARCHY_KINDS: Set<number> = new Set([
 ]);
 
 /** SymbolKind values for symbols worth gathering references for. */
+/**
+ * The settings intelephense asks for under `workspace/configuration`. Pinned rather than left to
+ * the server's defaults, so the indexed file set is the same for every installed version.
+ */
+const INTELEPHENSE_SETTINGS = {
+  files: {
+    exclude: [
+      '**/.git/**',
+      '**/.svn/**',
+      '**/.hg/**',
+      '**/node_modules/**',
+      '**/bower_components/**',
+      '**/.lux/**',
+      '**/vendor/**/{Tests,tests}/**',
+      '**/vendor/**/vendor/**',
+    ],
+  },
+} as const;
+
 const REFERENCEABLE_KINDS: Set<number> = new Set([
   5, // Class
   6, // Method
@@ -117,7 +138,13 @@ export class PhpLspEnricher implements LspEnricher {
   readonly config: LspEnricherConfig;
 
   private client: LspClient | null = null;
+  private requester: LspRequester | null = null;
+  /** Root the server was started on; locations outside it are stored in a stable form. */
+  private workspaceRoot: string | undefined;
   private _isReady = false;
+  private _indexIncomplete = false;
+  /** This run's intelephense storage; removed at shutdown. */
+  private storagePath: string | undefined;
   private readonly maxRefLocations: number;
 
   constructor(options?: PhpLspEnricherOptions) {
@@ -131,8 +158,13 @@ export class PhpLspEnricher implements LspEnricher {
     this.maxRefLocations = options?.maxReferenceLocations ?? MAX_REFERENCE_LOCATIONS;
   }
 
+  /** False once the server process has died, so callers stop treating it as available. */
   get isReady(): boolean {
-    return this._isReady;
+    return this._isReady && this.client?.initialized === true;
+  }
+
+  get indexIncomplete(): boolean {
+    return this._indexIncomplete;
   }
 
   // -------------------------------------------------------------------------
@@ -142,7 +174,16 @@ export class PhpLspEnricher implements LspEnricher {
   async initialize(workspaceRoot: string): Promise<void> {
     if (this._isReady) return;
 
+    this.workspaceRoot = workspaceRoot;
     const rootUri = pathToFileURL(workspaceRoot).toString();
+    // intelephense keeps its workspace index in a storage directory (by default
+    // $TMPDIR/intelephense/<workspace hash>) and starts from it on the next run, so answers depended
+    // on what an earlier run left there; a stale state stalled indexing outright. Each run gets a
+    // fresh directory, removed at shutdown or process exit (lsp/run-storage.ts): re-indexing costs
+    // seconds, and the index is then a function of the workspace alone. A directory under .lux/ would persist across rebuilds, which
+    // is the dependence being removed.
+    this.storagePath = createRunStorage('lux-intelephense-');
+    this._indexIncomplete = false;
 
     this.client = new LspClient({
       serverCommand: this.config.serverCommand,
@@ -151,27 +192,53 @@ export class PhpLspEnricher implements LspEnricher {
       maxConcurrency: this.config.maxConcurrency,
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
+      configuration: (section) => (section === 'intelephense' ? INTELEPHENSE_SETTINGS : undefined),
     });
+    this.requester = new LspRequester(this.client);
 
-    await this.client.initialize({
-      processId: process.pid,
-      rootUri,
-      capabilities: {
-        textDocument: {
-          documentSymbol: {
-            hierarchicalDocumentSymbolSupport: true,
-          },
-          references: {},
-          typeHierarchy: {
-            dynamicRegistration: false,
-          },
-          publishDiagnostics: {
-            relatedInformation: true,
+    // intelephense indexes the workspace in the background after `initialized`. Definitions and
+    // references asked for before it finishes see a partial index, so enrichment waits for
+    // indexingEnded, bounded by the initialization timeout.
+    let indexingEnded!: () => void;
+    const indexed = new Promise<void>((resolve) => (indexingEnded = resolve));
+    this.client.onNotification('indexingEnded', () => indexingEnded());
+
+    try {
+      await this.client.initialize({
+        processId: process.pid,
+        rootUri,
+        capabilities: {
+          workspace: { configuration: true },
+          textDocument: {
+            documentSymbol: {
+              hierarchicalDocumentSymbolSupport: true,
+            },
+            references: {},
+            typeHierarchy: {
+              dynamicRegistration: false,
+            },
+            publishDiagnostics: {
+              relatedInformation: true,
+            },
           },
         },
-      },
-      workspaceFolders: [{ uri: rootUri, name: 'root' }],
-    });
+        initializationOptions: { storagePath: this.storagePath, clearCache: true },
+        workspaceFolders: [{ uri: rootUri, name: 'root' }],
+      });
+    } catch (error) {
+      this.removeStorage();
+      throw error;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      indexed.then(() => 'indexed' as const),
+      new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), this.config.initTimeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    this._indexIncomplete = outcome === 'timeout';
 
     this._isReady = true;
   }
@@ -183,8 +250,21 @@ export class PhpLspEnricher implements LspEnricher {
       await this.client.shutdown();
     } finally {
       this.client = null;
+      this.requester = null;
       this._isReady = false;
+      this.removeStorage();
     }
+  }
+
+  /** Error answers recorded since the last call (see lsp/requester.ts). */
+  drainRequestIssues(): LspRequestIssue[] {
+    return this.requester?.drain() ?? [];
+  }
+
+  private removeStorage(): void {
+    if (!this.storagePath) return;
+    removeRunStorage(this.storagePath);
+    this.storagePath = undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -208,26 +288,20 @@ export class PhpLspEnricher implements LspEnricher {
 
     // Route open/close through the refcounted lease so bounded-parallel
     // enrichment (Lever B) never double-opens or closes a mid-request document.
-    return this.client.withDocument(uri, 'php', fileContent, () =>
-      this.enrichOpen(uri, filePath, fileContent)
-    );
+    return this.client.withDocument(uri, 'php', fileContent, () => this.enrichOpen(uri, filePath));
   }
 
   /** Enrich a document that is ALREADY open (no didOpen/didClose). */
-  async enrichOpen(
-    uri: string,
-    filePath: string,
-    fileContent: string
-  ): Promise<PhpEnrichmentResult | null> {
+  async enrichOpen(uri: string, filePath: string): Promise<PhpEnrichmentResult | null> {
     // 1. Get document symbols
-    const symbols = await this.getDocumentSymbols(uri);
+    const symbols = (await this.getDocumentSymbols(uri, filePath)).map(withStableAnonymousNames);
     const enrichedSymbols = symbols.map(toEnrichedSymbol);
 
     // 2. Get references for top-level referenceable symbols (REQ-5: KEPT)
-    const references = await this.getSymbolReferences(uri, fileContent, symbols);
+    const references = await this.getSymbolReferences(uri, filePath, symbols);
 
     // 3. Get type hierarchy for classes and interfaces (REQ-5: KEPT)
-    const typeHierarchy = await this.getTypeHierarchy(uri, fileContent, symbols);
+    const typeHierarchy = await this.getTypeHierarchy(uri, filePath, symbols);
 
     // 4. Collect definitions from reference data
     const definitions = this.extractDefinitions(references);
@@ -269,18 +343,15 @@ export class PhpLspEnricher implements LspEnricher {
     line: number,
     character: number
   ): Promise<{ filePath: string; line: number } | null> {
-    try {
-      const result = await this.client!.request<Location | Location[] | null>(
-        'textDocument/definition',
-        { textDocument: { uri }, position: { line, character } }
-      );
-      const loc = Array.isArray(result) ? result[0] : result;
-      if (!loc) return null;
-      return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return null;
-    }
+    const result = await this.requester!.ask<Location | Location[] | null>(
+      { filePath: fileURLToPath(uri), stage: 'calls' },
+      'textDocument/definition',
+      'definitionProvider',
+      { textDocument: { uri }, position: { line, character } }
+    );
+    const loc = Array.isArray(result) ? result[0] : result;
+    if (!loc) return null;
+    return { filePath: fileURLToPath(loc.uri), line: loc.range.start.line };
   }
 
   /**
@@ -331,51 +402,54 @@ export class PhpLspEnricher implements LspEnricher {
   // LSP queries
   // -------------------------------------------------------------------------
 
-  private async getDocumentSymbols(uri: string): Promise<DocumentSymbol[]> {
-    try {
-      const result = await this.client!.request<DocumentSymbol[] | null>(
-        'textDocument/documentSymbol',
-        { textDocument: { uri } }
-      );
-      return result ?? [];
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return [];
-    }
+  private async getDocumentSymbols(uri: string, filePath: string): Promise<DocumentSymbol[]> {
+    const result = await this.requester!.ask<DocumentSymbol[] | null>(
+      { filePath, stage: 'symbols' },
+      'textDocument/documentSymbol',
+      'documentSymbolProvider',
+      { textDocument: { uri } }
+    );
+    return result ?? [];
   }
 
   private async getSymbolReferences(
     uri: string,
-    _fileContent: string,
+    filePath: string,
     symbols: DocumentSymbol[]
   ): Promise<SymbolReferences[]> {
     const results: SymbolReferences[] = [];
     const topLevelSymbols = symbols.filter((s) => REFERENCEABLE_KINDS.has(s.kind));
 
     for (const symbol of topLevelSymbols) {
-      try {
-        const position = symbol.selectionRange.start;
+      const position = symbolPosition(symbol);
+      if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
-        const locations = await this.client!.request<Location[] | null>('textDocument/references', {
+      const locations = await this.requester!.ask<Location[] | null>(
+        { filePath, stage: 'symbols' },
+        'textDocument/references',
+        'referencesProvider',
+        {
           textDocument: { uri },
           position: { line: position.line, character: position.character },
           context: { includeDeclaration: false },
-        });
+        }
+      );
 
-        if (locations && locations.length > 0) {
-          results.push({
-            symbolName: symbol.name,
-            symbolKind: symbol.kind,
-            referenceCount: locations.length,
-            referenceLocations: locations.slice(0, this.maxRefLocations).map((loc) => ({
-              uri: loc.uri,
+      if (locations && locations.length > 0) {
+        results.push({
+          symbolName: symbol.name,
+          symbolKind: symbol.kind,
+          referenceCount: locations.length,
+          // intelephense returns references in a different order from run to run; the kept
+          // prefix is chosen from them in position order instead.
+          referenceLocations: [...locations]
+            .sort(compareLocations)
+            .slice(0, this.maxRefLocations)
+            .map((loc) => ({
+              uri: stableLocationUri(loc.uri, this.workspaceRoot),
               line: loc.range.start.line,
             })),
-          });
-        }
-      } catch {
-        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-        // Skip symbols that fail reference lookup
+        });
       }
     }
 
@@ -384,90 +458,62 @@ export class PhpLspEnricher implements LspEnricher {
 
   private async getTypeHierarchy(
     uri: string,
-    _fileContent: string,
+    filePath: string,
     symbols: DocumentSymbol[]
   ): Promise<TypeHierarchyEntry[]> {
     const results: TypeHierarchyEntry[] = [];
     const typeSymbols = symbols.filter((s) => TYPE_HIERARCHY_KINDS.has(s.kind));
 
     for (const symbol of typeSymbols) {
-      try {
-        const position = symbol.selectionRange.start;
+      const position = symbolPosition(symbol);
+      if (!position) continue; // a symbol the server placed nowhere cannot be asked about
 
-        // Prepare type hierarchy at the symbol's position
-        const items = await this.client!.request<TypeHierarchyItem[] | null>(
-          'textDocument/prepareTypeHierarchy',
-          {
-            textDocument: { uri },
-            position: { line: position.line, character: position.character },
-          }
-        );
+      // Prepare type hierarchy at the symbol's position
+      const items = await this.requester!.ask<TypeHierarchyItem[] | null>(
+        { filePath, stage: 'symbols' },
+        'textDocument/prepareTypeHierarchy',
+        'typeHierarchyProvider',
+        {
+          textDocument: { uri },
+          position: { line: position.line, character: position.character },
+        }
+      );
 
-        if (!items || items.length === 0) continue;
+      if (!items || items.length === 0) continue;
 
-        const item = items[0];
+      const item = items[0];
+      const supertypes = await this.relatedTypes(filePath, 'typeHierarchy/supertypes', item);
+      const subtypes = await this.relatedTypes(filePath, 'typeHierarchy/subtypes', item);
 
-        // Resolve supertypes
-        const supertypes = await this.resolveSupertypes(item);
-
-        // Resolve subtypes
-        const subtypes = await this.resolveSubtypes(item);
-
-        results.push({
-          name: item.name,
-          kind: item.kind,
-          uri: item.uri,
-          startLine: item.range.start.line,
-          supertypes,
-          subtypes,
-        });
-      } catch {
-        // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-        // Skip symbols that fail type hierarchy resolution
-      }
+      results.push({
+        name: item.name,
+        kind: item.kind,
+        uri: stableLocationUri(item.uri, this.workspaceRoot),
+        startLine: item.range.start.line,
+        supertypes,
+        subtypes,
+      });
     }
 
     return results;
   }
 
-  private async resolveSupertypes(
+  private async relatedTypes(
+    filePath: string,
+    method: 'typeHierarchy/supertypes' | 'typeHierarchy/subtypes',
     item: TypeHierarchyItem
   ): Promise<Array<{ name: string; uri: string; kind: number }>> {
-    try {
-      const supertypes = await this.client!.request<TypeHierarchyItem[] | null>(
-        'typeHierarchy/supertypes',
-        { item }
-      );
-
-      return (supertypes ?? []).map((st) => ({
-        name: st.name,
-        uri: st.uri,
-        kind: st.kind,
-      }));
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return [];
-    }
-  }
-
-  private async resolveSubtypes(
-    item: TypeHierarchyItem
-  ): Promise<Array<{ name: string; uri: string; kind: number }>> {
-    try {
-      const subtypes = await this.client!.request<TypeHierarchyItem[] | null>(
-        'typeHierarchy/subtypes',
-        { item }
-      );
-
-      return (subtypes ?? []).map((st) => ({
-        name: st.name,
-        uri: st.uri,
-        kind: st.kind,
-      }));
-    } catch {
-      // lux-intentional-swallow: a failed LSP request leaves this file or symbol without that data; failures are not reported per request.
-      return [];
-    }
+    const related = await this.requester!.ask<TypeHierarchyItem[] | null>(
+      { filePath, stage: 'symbols' },
+      method,
+      'typeHierarchyProvider',
+      { item }
+    );
+    return (related ?? []).map((type) => ({
+      name: type.name,
+      uri: stableLocationUri(type.uri, this.workspaceRoot),
+      kind: type.kind,
+    }));
   }
 
   // -------------------------------------------------------------------------
@@ -495,4 +541,24 @@ export class PhpLspEnricher implements LspEnricher {
 
     return definitions;
   }
+}
+
+function compareLocations(a: Location, b: Location): number {
+  if (a.uri !== b.uri) return a.uri < b.uri ? -1 : 1;
+  return (
+    a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character
+  );
+}
+
+/**
+ * intelephense names an anonymous class `*<random hex>`, a new name every session. Name it by
+ * where it starts instead, so the same file yields the same symbols and references.
+ */
+function withStableAnonymousNames(symbol: DocumentSymbol): DocumentSymbol {
+  const start = (symbol.range ?? symbol.selectionRange)?.start.line ?? 0;
+  return {
+    ...symbol,
+    name: /^\*[0-9a-f]{6,8}$/.test(symbol.name) ? `*anonymous@${start}` : symbol.name,
+    ...(symbol.children ? { children: symbol.children.map(withStableAnonymousNames) } : {}),
+  };
 }

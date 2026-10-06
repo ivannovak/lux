@@ -128,6 +128,18 @@ export interface LuxLspConfig {
    *  zero config. NO token here — the API key is env-only (LUX_EMBEDDING_TOKEN); an inline token
    *  fails the load (validateEmbeddingConfig). */
   embedding?: EmbeddingConfig;
+  /** Vendor-pack merge control. Absent ⇒ merge a cached pack when one matches composer.lock. */
+  vendorPack?: VendorPackConfig;
+}
+
+/**
+ * The vendorPack section of lux.yaml. A rebuild merges a vendor pack from the machine-wide cache
+ * (`~/.lux/packs`, keyed by composer.lock), so two machines with different caches build different
+ * indexes from one commit. `merge: false` makes the index a function of the checkout alone.
+ */
+export interface VendorPackConfig {
+  /** Merge the cached vendor pack into the overlay (default: true). */
+  merge: boolean;
 }
 
 /** The delta section of lux.yaml — CI/local gate policy (Decision 7). */
@@ -248,6 +260,7 @@ interface RawLuxConfig {
   siblings?: unknown;
   frameworks?: unknown;
   embedding?: unknown;
+  vendorPack?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +319,20 @@ function validateConfig(raw: RawLuxConfig): LuxLspConfig {
     siblings: validateSiblingsConfig(raw.siblings, overlay),
     frameworks: validateFrameworksConfig(raw.frameworks),
     embedding: validateEmbeddingConfig(raw.embedding),
+    vendorPack: validateVendorPackConfig(raw.vendorPack),
   };
+}
+
+function validateVendorPackConfig(raw: unknown): VendorPackConfig | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('lux.yaml "vendorPack" must be a mapping.');
+  }
+  const merge = (raw as { merge?: unknown }).merge ?? true;
+  if (typeof merge !== 'boolean') {
+    throw new Error('lux.yaml "vendorPack.merge" must be true or false.');
+  }
+  return { merge };
 }
 
 function validFrameworkPath(value: unknown): value is string {

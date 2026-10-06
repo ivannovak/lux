@@ -1,6 +1,7 @@
 // Config fingerprint tests (spec 15 Part A / Decision 7 / SC-10 / T3b.1). The fingerprint hashes
-// the raw lux.yaml bytes, the raw composer.lock bytes (when present), the applied schema_version,
-// and the sorted realpaths of the resolved first-party roots. Over-escalation is the safe
+// the raw lux.yaml bytes (with the checkout root replaced by a placeholder), the raw composer.lock
+// bytes (when present), the applied schema_version, and the sorted root-relative realpaths of the
+// resolved first-party roots. Over-escalation is the safe
 // direction, so a cosmetic YAML edit must change the fingerprint; a missed input would silently
 // under-escalate, so the whole file is hashed.
 
@@ -111,6 +112,32 @@ describe('computeStructuralConfigFingerprint (spec 15 Part A)', () => {
     );
     const twoRoots = computeStructuralConfigFingerprint(root, db);
     expect(twoRoots).not.toBe(oneRoot);
+    db.close();
+  });
+
+  it('is the same for two checkouts whose lux.yaml names their own absolute root', () => {
+    const yamlFor = (root: string) =>
+      `lsp:\n  enabled: false\n  workspace_root: ${root}\n  enrichers: []\n` +
+      `deps:\n  enabled: false\n# ${root}/scratch is ignored\n`;
+    const first = makeRoot(BASE_YAML);
+    const second = makeRoot(BASE_YAML);
+    writeFileSync(join(first, 'lux.yaml'), yamlFor(first));
+    writeFileSync(join(second, 'lux.yaml'), yamlFor(second));
+    const db = makeDb();
+    expect(computeStructuralConfigFingerprint(first, db)).toBe(
+      computeStructuralConfigFingerprint(second, db)
+    );
+    db.close();
+  });
+
+  it('still sees a path that only shares a prefix with the checkout root', () => {
+    const root = makeRoot(BASE_YAML);
+    const db = makeDb();
+    writeFileSync(join(root, 'lux.yaml'), `lsp:\n  workspace_root: ${root}-a\n`);
+    const siblingA = computeStructuralConfigFingerprint(root, db);
+    writeFileSync(join(root, 'lux.yaml'), `lsp:\n  workspace_root: ${root}-b\n`);
+    const siblingB = computeStructuralConfigFingerprint(root, db);
+    expect(siblingA).not.toBe(siblingB);
     db.close();
   });
 

@@ -39,6 +39,11 @@ export interface LspClientOptions {
   initTimeoutMs?: number;
   /** Max distinct documents open in the server at once (the didOpen cap). Default: 12. */
   maxOpenDocuments?: number;
+  /**
+   * Settings returned for a `workspace/configuration` item, by section. Undefined (or no
+   * provider) answers null for that item: "no value set, use your default".
+   */
+  configuration?: (section: string | undefined) => unknown;
 }
 
 /** Internal representation of a pending JSON-RPC request. */
@@ -54,6 +59,39 @@ interface OpenDoc {
   /** Resolves once the didOpen for this URI has been sent (guards the open race). */
   opened: Promise<void>;
 }
+
+/** The server answered a request with an error. */
+export class LspResponseError extends Error {
+  constructor(
+    readonly code: number,
+    message: string
+  ) {
+    super(`LSP error ${code}: ${message}`);
+    this.name = 'LspResponseError';
+  }
+}
+
+/**
+ * A request got no answer: it timed out, or the transport died under it. Unlike an error answer
+ * or a malformed result, this says nothing about the file and depends on load, so it must not be
+ * read as "this item has no data".
+ */
+export class LspTransientError extends Error {
+  constructor(
+    readonly kind: 'timeout' | 'transport',
+    message: string
+  ) {
+    super(message);
+    this.name = 'LspTransientError';
+  }
+}
+
+/**
+ * A timed-out request is sent again this many times before the timeout is reported. Timeouts
+ * come from load, not from the request, so one more attempt recovers most of them; a file whose
+ * request still times out is recorded as not enriched.
+ */
+const REQUEST_TIMEOUT_RETRIES = 1;
 
 /** How long a server has to exit after SIGTERM before it is sent SIGKILL. */
 const KILL_GRACE_MS = 2_000;
@@ -131,11 +169,15 @@ export class LspClient {
   private readonly semaphore: Semaphore;
   private readonly openDocSemaphore: Semaphore;
   private readonly openDocs = new Map<string, OpenDoc>();
-  private inputBuffer = '';
+  private readonly notificationHandlers = new Map<string, (params: unknown) => void>();
+  /** Unparsed stdout bytes. Content-Length counts bytes, so framing never sees decoded text. */
+  private inputBuffer: Buffer = Buffer.alloc(0);
   private contentLength = -1;
   private _initialized = false;
   private _serverCapabilities: InitializeResult | null = null;
   private _shutdownRequested = false;
+  /** Set when the server process died or errored without a shutdown having been requested. */
+  private _transportLost: string | null = null;
 
   constructor(options: LspClientOptions) {
     this.options = {
@@ -244,7 +286,14 @@ export class LspClient {
    */
   async request<T = unknown>(method: string, params: unknown, timeoutMs?: number): Promise<T> {
     this.assertReady();
-    return this.sendRequest(method, params, timeoutMs) as Promise<T>;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return (await this.sendRequest(method, params, timeoutMs)) as T;
+      } catch (error) {
+        const timedOut = error instanceof LspTransientError && error.kind === 'timeout';
+        if (!timedOut || attempt >= REQUEST_TIMEOUT_RETRIES) throw error;
+      }
+    }
   }
 
   /**
@@ -256,6 +305,11 @@ export class LspClient {
   notify(method: string, params: unknown): void {
     this.assertReady();
     this.sendNotification(method, params);
+  }
+
+  /** Call `handler` for each notification the server sends with `method` (one handler per method). */
+  onNotification(method: string, handler: (params: unknown) => void): void {
+    this.notificationHandlers.set(method, handler);
   }
 
   /**
@@ -318,19 +372,19 @@ export class LspClient {
     });
 
     this.process.stdout!.on('data', (data: Buffer) => {
-      this.handleData(data.toString('utf-8'));
+      this.handleData(data);
     });
 
     this.process.on('error', (err) => {
-      this.rejectAll(new Error(`Language server process error: ${err.message}`));
+      this._transportLost = `Language server process error: ${err.message}`;
+      this.rejectAll(new LspTransientError('transport', this._transportLost));
       this.cleanup();
     });
 
     this.process.on('exit', (code) => {
       if (!this._shutdownRequested) {
-        this.rejectAll(
-          new Error(`Language server exited unexpectedly with code ${code ?? 'null'}`)
-        );
+        this._transportLost = `Language server exited unexpectedly with code ${code ?? 'null'}`;
+        this.rejectAll(new LspTransientError('transport', this._transportLost));
       }
       this.cleanup();
     });
@@ -364,37 +418,43 @@ export class LspClient {
     }
 
     this._initialized = false;
-    this.rejectAll(new Error('Client shut down'));
+    this.rejectAll(new LspTransientError('transport', 'Client shut down'));
   }
 
   // -------------------------------------------------------------------------
   // Private: JSON-RPC framing
   // -------------------------------------------------------------------------
 
-  private handleData(chunk: string): void {
-    this.inputBuffer += chunk;
+  /**
+   * Frame JSON-RPC messages out of raw stdout bytes. Bodies are cut by byte count and decoded only
+   * once complete: a multi-byte character can straddle two chunks, and its UTF-16 length differs
+   * from its byte length, so framing decoded text cuts a body too long and corrupts the next one.
+   */
+  private handleData(chunk: Buffer): void {
+    this.inputBuffer =
+      this.inputBuffer.length === 0 ? chunk : Buffer.concat([this.inputBuffer, chunk]);
 
     while (true) {
       if (this.contentLength === -1) {
         const headerEnd = this.inputBuffer.indexOf('\r\n\r\n');
         if (headerEnd === -1) break;
 
-        const header = this.inputBuffer.slice(0, headerEnd);
+        const header = this.inputBuffer.subarray(0, headerEnd).toString('ascii');
         const match = header.match(/Content-Length:\s*(\d+)/i);
         if (!match) {
           // Malformed header — skip past it
-          this.inputBuffer = this.inputBuffer.slice(headerEnd + 4);
+          this.inputBuffer = this.inputBuffer.subarray(headerEnd + 4);
           continue;
         }
 
         this.contentLength = parseInt(match[1], 10);
-        this.inputBuffer = this.inputBuffer.slice(headerEnd + 4);
+        this.inputBuffer = this.inputBuffer.subarray(headerEnd + 4);
       }
 
       if (this.inputBuffer.length < this.contentLength) break;
 
-      const body = this.inputBuffer.slice(0, this.contentLength);
-      this.inputBuffer = this.inputBuffer.slice(this.contentLength);
+      const body = this.inputBuffer.subarray(0, this.contentLength).toString('utf-8');
+      this.inputBuffer = this.inputBuffer.subarray(this.contentLength);
       this.contentLength = -1;
 
       try {
@@ -408,7 +468,13 @@ export class LspClient {
   }
 
   private handleMessage(message: ResponseMessage): void {
-    if (message.id === undefined || message.id === null) return;
+    if (message.id === undefined || message.id === null) {
+      const notification = message as unknown as NotificationMessage;
+      if (typeof notification.method === 'string') {
+        this.notificationHandlers.get(notification.method)?.(notification.params);
+      }
+      return;
+    }
 
     // A message carrying BOTH an id and a method is a server->client REQUEST,
     // not a response to one of ours. The protocol requires an answer, and a
@@ -429,7 +495,7 @@ export class LspClient {
     this.pending.delete(id);
 
     if (message.error) {
-      pending.reject(new Error(`LSP error ${message.error.code}: ${message.error.message}`));
+      pending.reject(new LspResponseError(message.error.code, message.error.message));
     } else {
       pending.resolve(message.result);
     }
@@ -452,7 +518,7 @@ export class LspClient {
   private sendRequestRaw(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       if (!this.process?.stdin?.writable) {
-        reject(new Error('Language server stdin is not writable'));
+        reject(new LspTransientError('transport', 'Language server stdin is not writable'));
         return;
       }
 
@@ -461,7 +527,12 @@ export class LspClient {
 
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`LSP request "${method}" (id=${id}) timed out after ${timeout}ms`));
+        reject(
+          new LspTransientError(
+            'timeout',
+            `LSP request "${method}" (id=${id}) timed out after ${timeout}ms`
+          )
+        );
       }, timeout);
 
       this.pending.set(id, { resolve, reject, timer });
@@ -480,9 +551,9 @@ export class LspClient {
   /**
    * Answer a server-initiated request.
    *
-   * We hold no user configuration, so `workspace/configuration` is answered
-   * with one null per requested item — the shape the protocol requires, meaning
-   * "no value set, use your default". Every other server request is answered
+   * `workspace/configuration` is answered with one value per requested item:
+   * the `configuration` option's settings for that section, or null — "no
+   * value set, use your default". Every other server request is answered
    * with a null result rather than an error: an enrichment pass wants the
    * server to proceed with defaults, not to surface a failure the caller cannot
    * act on.
@@ -492,8 +563,10 @@ export class LspClient {
 
     let result: unknown = null;
     if (message.method === 'workspace/configuration') {
-      const params = message.params as { items?: unknown[] } | undefined;
-      result = new Array(params?.items?.length ?? 0).fill(null);
+      const params = message.params as { items?: Array<{ section?: string }> } | undefined;
+      result = (params?.items ?? []).map(
+        (item) => this.options.configuration?.(item?.section) ?? null
+      );
     }
 
     const body = JSON.stringify({ jsonrpc: '2.0', id: message.id, result });
@@ -524,6 +597,9 @@ export class LspClient {
   // -------------------------------------------------------------------------
 
   private assertReady(): void {
+    // A server that died mid-run is a transport failure, like a request it never answered — not
+    // a caller's mistake — so the caller records what it could not ask.
+    if (this._transportLost) throw new LspTransientError('transport', this._transportLost);
     if (!this._initialized) {
       throw new Error('Client is not initialized. Call initialize() first.');
     }

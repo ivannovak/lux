@@ -30,16 +30,25 @@ export function rememberProjectResolutionFingerprintInputs(
 /**
  * `sha256` over the raw bytes of `lux.yaml` (whole file — over-escalation is the safe direction),
  * the raw bytes of `composer.lock` when present, the applied `schema_version`, and the sorted
- * realpaths of resolved first-party roots (Decision 7). A cosmetic YAML edit costs one full
- * rebuild; a missed input would silently under-escalate (the dangerous direction), so the whole
- * file is hashed.
+ * root-relative realpaths of resolved first-party roots (Decision 7). A cosmetic YAML edit costs
+ * one full rebuild; a missed input would silently under-escalate (the dangerous direction), so the
+ * whole file is hashed.
+ *
+ * The checkout's own location is not an input. `lux.yaml` commonly spells it out (an absolute
+ * `lsp.workspace_root`), so every occurrence of the root path is replaced by a placeholder before
+ * hashing, and first-party roots are hashed relative to the root: two checkouts of one commit with
+ * the same config share a fingerprint.
  */
 export function computeStructuralConfigFingerprint(rootPath: string, db: LuxDatabase): string {
   const h = createHash('sha256');
 
   h.update('lux.yaml\0');
   const luxYaml = join(rootPath, 'lux.yaml');
-  h.update(existsSync(luxYaml) ? readFileSync(luxYaml) : Buffer.from('<absent>'));
+  h.update(
+    existsSync(luxYaml)
+      ? withoutCheckoutRoot(readFileSync(luxYaml, 'utf-8'), rootPath)
+      : Buffer.from('<absent>')
+  );
 
   h.update('\0composer.lock\0');
   const composerLock = join(rootPath, 'composer.lock');
@@ -50,17 +59,11 @@ export function computeStructuralConfigFingerprint(rootPath: string, db: LuxData
 
   h.update('\0firstPartyRoots\0');
   const config = loadLspConfig(rootPath);
+  const realRoot = realpathOr(rootPath);
   const roots = (
     config.firstParty ? resolveFirstPartyRoots(rootPath, config.firstParty.packages) : []
   )
-    .map((r) => {
-      try {
-        return realpathSync(r.sourceRoot);
-      } catch {
-        // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
-        return r.sourceRoot;
-      }
-    })
+    .map((r) => relative(realRoot, realpathOr(r.sourceRoot)).replaceAll('\\', '/'))
     .sort();
   h.update(roots.join('|'));
 
@@ -85,6 +88,31 @@ export function computeStructuralConfigFingerprint(rootPath: string, db: LuxData
   }
 
   return h.digest('hex');
+}
+
+function realpathOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    // lux-intentional-swallow: a path that cannot be canonicalized is used as written.
+    return path;
+  }
+}
+
+/**
+ * Replace the checkout root (as given, and resolved) with a placeholder, longest spelling first.
+ * Only whole path prefixes match: `/src/app` is replaced in `/src/app/sub`, not in `/src/app-old`.
+ */
+function withoutCheckoutRoot(text: string, rootPath: string): string {
+  const spellings = [...new Set([rootPath, realpathOr(rootPath)])].sort(
+    (a, b) => b.length - a.length
+  );
+  let out = text;
+  for (const spelling of spellings) {
+    const escaped = spelling.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`${escaped}(?=$|[/\\s"',\\]}])`, 'gm'), '<ROOT>');
+  }
+  return out;
 }
 
 /** Persist the fingerprint — call after EVERY full rebuild (Decision 7). */

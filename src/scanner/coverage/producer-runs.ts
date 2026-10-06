@@ -1,7 +1,42 @@
 import type { LuxDatabase } from '../../db/index.js';
 import type { GeneralScanResult } from '../general.js';
+import {
+  mergeLspEnrichmentFailures,
+  persistLspEnrichmentFailures,
+  type LspEnrichmentFailure,
+} from '../lsp/enrichment-failures.js';
 
 const COVERAGE_PRODUCER_RUNS_KEY = 'coverage_producer_runs_v1';
+const SYMBOL_ID_COLLISIONS_KEY = 'symbol_id_collisions_v1';
+
+/** Shared symbol ids and the references they cost (`lux index status --json` → symbolIdCollisions). */
+export interface SymbolIdCollisionStatus {
+  /** Ids more than one file declares, each stored once per declaring file. */
+  collidingIds: number;
+  /** Stored edges that point at a shared id's bare form, and so at no node. */
+  edgesToAmbiguousIds: number;
+  /** References the last full rebuild dropped because they named a shared id. */
+  droppedAmbiguousReferences: number;
+}
+
+export function loadSymbolIdCollisionStatus(db: LuxDatabase): SymbolIdCollisionStatus {
+  return {
+    ...db.getSymbolIdCollisionCounts(),
+    droppedAmbiguousReferences: loadDroppedAmbiguousReferences(db),
+  };
+}
+
+function loadDroppedAmbiguousReferences(db: LuxDatabase): number {
+  try {
+    const parsed = JSON.parse(db.getIndexMetadata(SYMBOL_ID_COLLISIONS_KEY) ?? '{}') as {
+      droppedAmbiguousReferences?: unknown;
+    };
+    return validCount(parsed.droppedAmbiguousReferences);
+  } catch {
+    // lux-intentional-swallow: a count this version cannot parse is shown as 0; it is a statistic, and the next full rebuild rewrites it.
+    return 0;
+  }
+}
 
 export interface ProducerRunSignal {
   status: 'success' | 'partial' | 'failed' | 'not-applicable';
@@ -98,6 +133,17 @@ export function persistCoverageProducerRuns(db: LuxDatabase, scan: GeneralScanRe
     completedCandidates: scan.overlay?.fileNodes ?? 0,
   };
   db.setIndexMetadata(COVERAGE_PRODUCER_RUNS_KEY, JSON.stringify(runs));
+
+  // References dropped because they named an id several files declare (identity/symbol-collisions.ts).
+  // Only a full rebuild sees every reference, so only it records the count.
+  db.setIndexMetadata(
+    SYMBOL_ID_COLLISIONS_KEY,
+    JSON.stringify({
+      droppedAmbiguousReferences: scan.overlay?.symbolCollisions.ambiguousReferences ?? 0,
+    })
+  );
+
+  persistLspEnrichmentFailures(db, scan.stats.lspFailures);
 }
 
 export function persistScopedCoverageProducerRuns(
@@ -105,9 +151,16 @@ export function persistScopedCoverageProducerRuns(
   result: {
     tiers: { ast: 'ran' | 'failed'; lsp: 'ran' | 'skipped-budget' | 'unavailable' };
     refreshedFiles: number;
+    refreshedPaths?: string[];
+    lspEnrichmentFailures?: LspEnrichmentFailure[];
   },
   changedPaths: string[]
 ): void {
+  // A tier that ran replaces R's outcomes; one that could not start still records why.
+  const failures = result.lspEnrichmentFailures ?? [];
+  if (result.refreshedPaths && (result.tiers.lsp === 'ran' || failures.length > 0)) {
+    mergeLspEnrichmentFailures(db, result.refreshedPaths, failures);
+  }
   const previous = loadCoverageProducerRuns(db) ?? {};
   const next: Record<string, ProducerRunSignal> = { ...previous };
   const touched = countLanguages(changedPaths);
