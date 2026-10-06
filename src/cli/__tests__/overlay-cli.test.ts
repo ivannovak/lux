@@ -13,6 +13,8 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const CLI_ENTRY = join(PROJECT_ROOT, 'src', 'cli', 'index.ts');
+// A stub language server, so the enricher comes up whatever is installed on the machine.
+const STUB_LSP_SERVER = join(__dirname, 'fixtures', 'stub-lsp-server.mjs');
 
 interface OverlayTrustPayload {
   mode: string;
@@ -106,9 +108,9 @@ describe('overlay CLI trust surface', () => {
         '  enrichers:',
         '    - language_id: typescript',
         '      enabled: true',
-        '      server_command: typescript-language-server',
+        `      server_command: ${JSON.stringify(process.execPath)}`,
         '      server_args:',
-        '        - --stdio',
+        `        - ${JSON.stringify(STUB_LSP_SERVER)}`,
         'deps:',
         '  enabled: false',
         '',
