@@ -1,5 +1,6 @@
 import type { SourceDiagnosticV1, SourceLocationV1 } from '../../../contracts/program.js';
 import { astSymbolIdentity } from '../../../ast/symbols.js';
+import type { SymbolIdCollisions } from '../../../identity/symbol-collisions.js';
 import type { AstEdge, AstNode, Extraction } from '../../../ast/extract.js';
 
 export interface InertiaPageFactV1 {
@@ -21,6 +22,8 @@ export interface InertiaFactInputV1 {
   filePath: string;
   content: string;
   extraction: Extraction;
+  /** Symbol ids more than one file declares; the owning method's id is file-qualified then. */
+  collisions?: SymbolIdCollisions;
 }
 
 /**
@@ -59,7 +62,8 @@ export function extractInertiaFacts(input: InertiaFactInputV1): InertiaFactExtra
       input.filePath,
       owner,
       'php',
-      input.extraction.namespace
+      input.extraction.namespace,
+      input.collisions
     ).id;
     pages.push({
       filePath: input.filePath,

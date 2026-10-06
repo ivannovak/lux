@@ -8,6 +8,8 @@
 // def.name)`, ast/symbols.ts:46; materializer.ts:124, `?? symbol.name`), so a global-namespace
 // `symbol:php:helper` collides across repos exactly like a path-relative id.
 
+import { isFileQualifiedSymbolId } from '../identity/symbol-collisions.js';
+
 /** A repo in the federation frontier. `main` is the primary; siblings carry their registry role. */
 export type FederationRole = 'primary' | 'kernel' | 'peer';
 
@@ -28,10 +30,12 @@ export type IdPortability = 'portable' | 'portable-kernel-only' | 'repo-local';
  *     collides across repos.
  *   - portable-kernel-only: an HTTP surface id names one URL space only within a shared assembly
  *     (kernel/client) — bridged only toward the single role:kernel sibling.
- *   - repo-local: bare-name symbol:php:*, file:<rel>, symbol:ts:<rel>#<name>, non-http surfaces,
- *     contract:*, operational ids — never bridged (bridging would fabricate joins).
+ *   - repo-local: bare-name symbol:php:*, file-qualified symbol ids (`<id>#file:<rel>`, a name
+ *     the repo declares in more than one file), file:<rel>, symbol:ts:<rel>#<name>, non-http
+ *     surfaces, contract:*, operational ids — never bridged (bridging would fabricate joins).
  */
 export function idPortability(nodeId: string): IdPortability {
+  if (isFileQualifiedSymbolId(nodeId)) return 'repo-local';
   if (nodeId.startsWith('symbol:php:') && nodeId.includes('\\')) return 'portable';
   if (nodeId.startsWith('surface:http:')) return 'portable-kernel-only';
   return 'repo-local';

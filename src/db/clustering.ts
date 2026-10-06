@@ -42,7 +42,16 @@ export function computeClusters(
     if (!degree.has(mod)) degree.set(mod, 0);
   };
 
-  for (const dep of dependencies) {
+  // Merge ties go to the first pair visited, and both the visit order and the order equal-score
+  // clusters are returned in follow the order modules are first seen here, so the input is put in
+  // a fixed order before anything reads it.
+  const ordered = [...dependencies].sort(
+    (a, b) =>
+      compareModules(a.source_module, b.source_module) ||
+      compareModules(a.target_module, b.target_module)
+  );
+
+  for (const dep of ordered) {
     ensureNode(dep.source_module);
     ensureNode(dep.target_module);
 
@@ -133,6 +142,10 @@ export function computeClusters(
   }
 
   return result.sort((a, b) => b.couplingScore - a.couplingScore);
+}
+
+function compareModules(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /**

@@ -9,6 +9,7 @@ import type {
 import type { LuxDatabase } from '../../db/index.js';
 import { detectModuleBoundaries, resolveModule } from '../imports/module-boundary.js';
 import { deriveOverlayTrustLevel, type OverlayTrustLevel } from '../overlay-trust-state.js';
+import { compareCodeUnits } from '../scan-order.js';
 
 export type BoundaryEvidenceFamily =
   | 'async-workflow'
@@ -112,6 +113,7 @@ export const BOUNDARY_RUBRIC_SETTINGS: BoundaryRubricSettings = {
 };
 
 const MAX_PROJECTED_GLUE_TRANSIT_NODES = 4;
+const SAMPLE_PATHS_PER_RELATIONSHIP = 4;
 
 const GRAPH_FORMING_CONFIDENCE_CLASSES: ConfidenceClass[] = [
   'proven',
@@ -736,7 +738,12 @@ export function aggregateModuleBoundaryEvidence(
   const mode = options.mode ?? 'projected';
   const minWeight = options.minWeight ?? 0;
   const trustLevel = deriveOverlayTrustLevel(db);
-  const paths = projectBoundaryPathsThroughGlue(db, options);
+  // The path set is independent of the order the database returns edges in, but the order of the
+  // list is not. Weights are summed, families are listed and samples are taken in this order, so it
+  // is fixed first: floating-point addition is not associative.
+  const paths = projectBoundaryPathsThroughGlue(db, options).sort((a, b) =>
+    compareCodeUnits(pathKey(a), pathKey(b))
+  );
   const ownedRegions = new Set(paths.flatMap((path) => [path.sourceRegion, path.targetRegion]));
   const supportingSignals = buildSupportingSignals(db, ownedRegions);
   const aggregates = new Map<string, ModuleBoundaryAggregate>();
@@ -767,7 +774,7 @@ export function aggregateModuleBoundaryEvidence(
     aggregate.supportingWeight += supportingWeight;
     aggregate.evidenceTiers = unique([...aggregate.evidenceTiers, ...path.evidenceTiers]);
     aggregate.families = unique([...aggregate.families, ...path.families]);
-    if (aggregate.samplePaths.length < 4) {
+    if (aggregate.samplePaths.length < SAMPLE_PATHS_PER_RELATIONSHIP) {
       aggregate.samplePaths.push(path);
     }
     aggregates.set(key, aggregate);
@@ -803,7 +810,7 @@ export function aggregateModuleBoundaryEvidence(
       return aggregate;
     })
     .filter((aggregate) => totalWeight(aggregate) >= minWeight)
-    .sort((a, b) => totalWeight(b) - totalWeight(a));
+    .sort(compareAggregates);
 
   const byKey = new Map(
     results.map((aggregate) => [`${aggregate.sourceRegion}\0${aggregate.targetRegion}`, aggregate])
@@ -1157,6 +1164,15 @@ function buildRationaleSummary(aggregate: ModuleBoundaryAggregate): string {
 
   const familySummary = aggregate.families.join(', ');
   return `${aggregate.relationshipKind} via ${familySummary}${tierSummary ? ` (${tierSummary})` : ''}`;
+}
+
+/** Heaviest first; equal weights fall back to the region pair, so the order is total. */
+export function compareAggregates(a: ModuleBoundaryAggregate, b: ModuleBoundaryAggregate): number {
+  return (
+    totalWeight(b) - totalWeight(a) ||
+    compareCodeUnits(a.sourceRegion, b.sourceRegion) ||
+    compareCodeUnits(a.targetRegion, b.targetRegion)
+  );
 }
 
 function pathKey(path: ProjectedBoundaryPath): string {

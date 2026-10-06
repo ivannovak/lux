@@ -21,7 +21,7 @@ vi.mock('../general.js', () => ({
     dependencies: [
       { source_module: 'Users', target_module: 'Orders', reference_count: 1, sample_files: [] },
     ],
-    stats: { enrichedFiles: 1, activeEnrichers: 1, enrichmentErrors: [] },
+    stats: { enrichedFiles: 1, activeEnrichers: 1, enrichmentErrors: [], lspFailures: [] },
     overlay: {
       fileNodes: 1,
       symbolNodes: 1,
@@ -33,6 +33,7 @@ vi.mock('../general.js', () => ({
       surfacesDetected: 0,
       surfaceEdgesStored: 0,
       propagationEdgesAdded: 0,
+      symbolCollisions: (await import('../identity/symbol-collisions.js')).SymbolIdCollisions.NONE,
     },
     warnings: [...stub.scanWarnings],
     warningComponents: {},

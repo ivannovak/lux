@@ -1355,6 +1355,21 @@ export class LuxDatabase {
     return removed;
   }
 
+  /**
+   * Ids more than one file declares (stored file-qualified as `<id>#file:<path>`), and the edges
+   * that still point at such an id's bare form. Those edges name an ambiguous target and resolve to
+   * no node (identity/symbol-collisions.ts).
+   */
+  getSymbolIdCollisionCounts(): { collidingIds: number; edgesToAmbiguousIds: number } {
+    const ambiguous = `SELECT DISTINCT substr(id, 1, instr(id, '#file:') - 1) AS bare
+      FROM structural_nodes WHERE origin = 'local' AND instr(id, '#file:') > 0`;
+    const row = this.db.get(
+      `SELECT (SELECT COUNT(*) FROM (${ambiguous})) AS ids,
+              (SELECT COUNT(*) FROM structural_edges WHERE target_node_id IN (${ambiguous})) AS edges`
+    ) as { ids: number; edges: number };
+    return { collidingIds: row.ids, edgesToAmbiguousIds: row.edges };
+  }
+
   /** Symbol node ids declared in the given files — reuses getStructuralNodesForFilePaths (Decision 14
    *  growth gate + orphan detection). */
   getSymbolNodeIdsForFiles(relPaths: string[]): string[] {

@@ -220,15 +220,18 @@ export class PreparedQueries {
     `);
 
     this.getModuleDependenciesBySource = db.prepare(`
-      SELECT * FROM module_dependencies WHERE source_module = ? ORDER BY reference_count DESC
+      SELECT * FROM module_dependencies WHERE source_module = ?
+      ORDER BY reference_count DESC, target_module ASC
     `);
 
     this.getModuleDependenciesByTarget = db.prepare(`
-      SELECT * FROM module_dependencies WHERE target_module = ? ORDER BY reference_count DESC
+      SELECT * FROM module_dependencies WHERE target_module = ?
+      ORDER BY reference_count DESC, source_module ASC
     `);
 
     this.getAllModuleDependencies = db.prepare(`
-      SELECT * FROM module_dependencies ORDER BY reference_count DESC
+      SELECT * FROM module_dependencies
+      ORDER BY reference_count DESC, source_module ASC, target_module ASC
     `);
 
     this.getModuleDependency = db.prepare(`
@@ -491,10 +494,14 @@ export class PreparedQueries {
 
     this.setEdgeOwnership = db.prepare(`UPDATE structural_edges SET ownership = ? WHERE id = ?`);
 
+    // `ownership ASC` breaks count ties. SQLite returns GROUP BY groups in key order today, but only
+    // by implementation: https://www.sqlite.org/lang_select.html documents no order for GROUP BY
+    // output, and says "the order in which two rows for which all ORDER BY expressions evaluate to
+    // equal values are returned is undefined".
     this.getOwnershipBreakdown = db.prepare(`
       SELECT ownership, COUNT(*) as count FROM structural_edges
       WHERE edge_type = 'handled_by' AND source_node_id LIKE 'surface:http:%'
-      GROUP BY ownership ORDER BY count DESC
+      GROUP BY ownership ORDER BY count DESC, ownership ASC
     `);
 
     // structural_node_texts upsert (INSERT OR REPLACE on the node_id PK: a re-materialization of the

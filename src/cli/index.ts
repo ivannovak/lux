@@ -26,6 +26,10 @@ import type { ScopedDecision } from '../scanner/sync-escalation.js';
 import { persistStructuralConfigFingerprint } from '../scanner/config-fingerprint.js';
 import { buildIndexStatusPayload } from './status-payload.js';
 import {
+  loadLspEnrichmentFailures,
+  summarizeLspFailures,
+} from '../scanner/lsp/enrichment-failures.js';
+import {
   persistCoverageProducerRuns,
   persistScopedCoverageProducerRuns,
 } from '../scanner/coverage/producer-runs.js';
@@ -1179,6 +1183,8 @@ indexCmd
         printRunWarnings(diagnostics.warnings);
       }
     }
+    const lspFailures = summarizeLspFailures(loadLspEnrichmentFailures(db));
+    if (lspFailures.length > 0) printRunWarnings(lspFailures);
     console.log();
 
     // Freshness (Decision 1) — computed on read, never persisted.

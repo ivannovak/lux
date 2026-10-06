@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import type { AstLang, AstNode, Extraction } from '../ast/extract.js';
 import { astSymbolIdentity } from '../ast/symbols.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 /** A single node's split fields (the FTS columns) + the rendered embed/search unit + freshness hash. */
 export interface PreparedNodeText {
@@ -170,7 +171,8 @@ export function buildAnchorTexts(
   relPath: string,
   extraction: Extraction,
   lang: AstLang,
-  fileContent: string
+  fileContent: string,
+  collisions?: SymbolIdCollisions
 ): PreparedNodeText[] {
   const SYMBOL_KIND_LABEL: Record<AstNode['type'], string> = {
     function: 'Function',
@@ -184,7 +186,13 @@ export function buildAnchorTexts(
   const out: PreparedNodeText[] = [];
   const seen = new Set<string>();
   for (const def of extraction.nodes) {
-    const { id, qualifiedName } = astSymbolIdentity(relPath, def, lang, extraction.namespace);
+    const { id, qualifiedName } = astSymbolIdentity(
+      relPath,
+      def,
+      lang,
+      extraction.namespace,
+      collisions
+    );
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(

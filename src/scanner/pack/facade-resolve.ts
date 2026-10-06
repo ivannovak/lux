@@ -31,6 +31,7 @@ import { LuxDatabase } from '../../db/index.js';
 import { phpSymbolNodeId } from '../associations/types.js';
 import type { StructuralRelationEdge } from '../associations/types.js';
 import { astSymbolIdentity } from '../ast/symbols.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 import type { AstNode, Extraction } from '../ast/extract.js';
 
 // ---------------------------------------------------------------------------
@@ -450,7 +451,8 @@ interface DefRange {
 export function resolveFacadeAndHelperEdges(
   files: Array<{ relPath: string; extraction: Extraction }>,
   db: LuxDatabase,
-  now: number
+  now: number,
+  collisions?: SymbolIdCollisions
 ): StructuralRelationEdge[] {
   // Keyed by edge id so repeat call-sites collapse to one edge while ACCUMULATING every
   // call-site as evidence (e.g. `Redis::get` + `Redis::set` both landing on the one
@@ -472,7 +474,7 @@ export function resolveFacadeAndHelperEdges(
       if (entry) facadeByLocal.set(imp.local, entry);
     }
 
-    const defs = defRanges(f.relPath, extraction);
+    const defs = defRanges(f.relPath, extraction, collisions);
 
     for (const edge of extraction.edges) {
       if (edge.type !== 'call') continue;
@@ -645,9 +647,13 @@ function makeCatalogEdge(
 }
 
 /** PHP def ids with byte spans, for source attribution (astSymbolIdentity — symbols.ts:32). */
-function defRanges(relPath: string, extraction: Extraction): DefRange[] {
+function defRanges(
+  relPath: string,
+  extraction: Extraction,
+  collisions?: SymbolIdCollisions
+): DefRange[] {
   return extraction.nodes.map((def: AstNode) => ({
-    id: astSymbolIdentity(relPath, def, 'php', extraction.namespace).id,
+    id: astSymbolIdentity(relPath, def, 'php', extraction.namespace, collisions).id,
     startByte: def.range.startByte,
     endByte: def.range.endByte,
   }));

@@ -34,6 +34,7 @@ import {
   type ImportBinding,
 } from './extract.js';
 import { astSymbolIdentity } from './symbols.js';
+import type { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 /** Confidence assigned to AST-only (syntactic) edges. */
 const AST_CONFIDENCE = 0.6;
@@ -42,6 +43,8 @@ interface FileExtraction {
   relPath: string;
   lang: AstLang;
   extraction: Extraction;
+  /** Ids more than one file declares; this file's definitions of them are file-qualified. */
+  collisions?: SymbolIdCollisions;
 }
 
 export class AstStructuralResolver implements AssociationResolver {
@@ -98,10 +101,12 @@ export class AstStructuralResolver implements AssociationResolver {
           lang
         ).extraction;
       }
-      files.push({ relPath, lang, extraction });
+      files.push({ relPath, lang, extraction, collisions: context.symbolCollisions });
       relPaths.add(relPath);
       for (const def of extraction.nodes) {
-        symbolIds.add(astSymbolIdentity(relPath, def, lang, extraction.namespace).id);
+        symbolIds.add(
+          astSymbolIdentity(relPath, def, lang, extraction.namespace, context.symbolCollisions).id
+        );
       }
     }
 
@@ -152,7 +157,7 @@ interface DefEntry {
 function defEntries(f: FileExtraction): DefEntry[] {
   return f.extraction.nodes.map((def) => ({
     name: def.name,
-    id: astSymbolIdentity(f.relPath, def, f.lang, f.extraction.namespace).id,
+    id: astSymbolIdentity(f.relPath, def, f.lang, f.extraction.namespace, f.collisions).id,
     kind: def.type,
     container: def.container,
     startByte: def.range.startByte,
@@ -270,7 +275,11 @@ function crossFileEdges(
     if (!targetId) continue;
     // In-memory universe first (co-changed targets in R), then the persisted universe for
     // targets OUTSIDE R (Decision 13). Full rebuild passes no verifier ⇒ in-memory only.
-    if (!symbolIds.has(targetId) && !(verifyExternalTarget?.(targetId) ?? false)) continue;
+    if (!symbolIds.has(targetId) && !(verifyExternalTarget?.(targetId) ?? false)) {
+      // A shared id names declarations in several files; the reference is ambiguous, not absent.
+      if (f.collisions?.has(targetId)) f.collisions.noteAmbiguousReference();
+      continue;
+    }
 
     const source = enclosingDef(defs, edge.range.startByte);
     if (!source || source.id === targetId) continue;

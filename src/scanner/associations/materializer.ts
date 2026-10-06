@@ -13,6 +13,7 @@ import type { StructuralNode } from '../../db/types.js';
 import type { ScanResult, ScannedKnowledge } from '../types.js';
 import type { EnrichmentMap, EnrichmentResult } from '../lsp/index.js';
 import { fileNodeId, phpSymbolNodeId, tsSymbolNodeId } from './types.js';
+import { SymbolIdCollisions } from '../identity/symbol-collisions.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -33,12 +34,14 @@ export interface MaterializeResult {
  * @param scan - Completed scan result from GeneralScanner.
  * @param enrichments - LSP enrichment results keyed by absolute file path.
  * @param rootPath - Absolute repository root (used to compute relative paths).
+ * @param collisions - Symbol ids more than one file declares; those are file-qualified.
  */
 export function materializeNodes(
   db: LuxDatabase,
   scan: ScanResult,
   enrichments: EnrichmentMap,
-  rootPath: string
+  rootPath: string,
+  collisions: SymbolIdCollisions = SymbolIdCollisions.NONE
 ): MaterializeResult {
   let fileNodes = 0;
   let symbolNodes = 0;
@@ -56,7 +59,13 @@ export function materializeNodes(
     // Symbol nodes — from LSP enrichment (may be absent for unenriched files)
     const enrichment = enrichments.get(entry.filePath);
     if (enrichment && enrichment.symbols.length > 0) {
-      const symNodes = buildSymbolNodes(entry.filePath, enrichment, rootPath, entry.content);
+      const symNodes = buildSymbolNodes(
+        entry.filePath,
+        enrichment,
+        rootPath,
+        entry.content,
+        collisions
+      );
       const seenIds = new Set<string>();
       for (const node of symNodes) {
         db.upsertStructuralNode(node);
@@ -102,12 +111,14 @@ export function buildFileNode(entry: ScannedKnowledge, rootPath: string): Struct
 /**
  * Build symbol StructuralNodes from an enrichment result.
  * Only top-level symbols are materialized (no nested children).
+ * Without `collisions` the ids are bare — the form the declaration census reads.
  */
 export function buildSymbolNodes(
   absoluteFilePath: string,
   enrichment: EnrichmentResult,
   rootPath: string,
-  fileContent?: string
+  fileContent?: string,
+  collisions: SymbolIdCollisions = SymbolIdCollisions.NONE
 ): StructuralNode[] {
   const relPath = toRelative(absoluteFilePath, rootPath);
   const lang = enrichment.languageId;
@@ -128,10 +139,12 @@ export function buildSymbolNodes(
   );
 
   for (const symbol of enrichment.symbols) {
-    const id =
+    const id = collisions.qualify(
       lang === 'php'
         ? phpSymbolNodeId(phpQualifiedNames.get(symbol.name) ?? symbol.name)
-        : tsSymbolNodeId(relPath, symbol.name);
+        : tsSymbolNodeId(relPath, symbol.name),
+      relPath
+    );
 
     nodes.push({
       id,

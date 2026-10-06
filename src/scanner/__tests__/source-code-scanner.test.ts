@@ -388,8 +388,8 @@ export default router;`;
           const scanner = new GeneralScanner(root);
           const result = await scanner.scan();
 
-          const sourceEntries = result.knowledge.filter((k) => k.type === 'source-code');
-          expect(sourceEntries[0].content).toBe(
+          const router = result.knowledge.find((k) => k.title === 'router.ts');
+          expect(router?.content).toBe(
             `import { Router } from 'express';
 
 const router = Router();

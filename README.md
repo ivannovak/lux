@@ -161,6 +161,84 @@ from `lux.yaml`.
 > sends **nothing** off-machine. Turning on the key ships the codebase's identifier surface and
 > documentation comments to an external service — set it only where that is acceptable.
 
+## Reproducible rebuilds
+
+For a fixed commit, config and toolchain, `lux index rebuild` writes the same index and every
+`--json` command prints the same bytes, on any machine and in any clone location, provided the
+environmental inputs below are pinned:
+
+- **Vendor pack.** A rebuild merges a vendor pack from the machine-wide cache (`~/.lux/packs`,
+  keyed by `composer.lock`), so a machine whose cache holds a matching pack builds a larger index.
+  To make the index a function of the checkout alone, turn the merge off:
+
+  ```yaml
+  # lux.yaml
+  vendorPack:
+    merge: false # default true
+  ```
+
+- **Embeddings.** Without `--embeddings`, a rebuild on a machine that already has the model cached
+  runs one embed pass on a 30 s budget, so which nodes get embedded depends on machine speed and on
+  earlier runs. Deterministic output needs either `lux index rebuild --embeddings` (drains the queue
+  to full coverage) or no embedding model in the cache (no embeddings at all).
+- **Language servers.** Everything a language server left missing is listed under
+  `lspEnrichmentFailures` in `lux index status --json`, and a run that records anything prints one
+  `Warning: LSP output incomplete — <stage>: …` line per stage and closes on ⚠ instead of ✓.
+  The contract: **output is deterministic when `lspEnrichmentFailures` is empty; otherwise the
+  index names exactly what is missing.** A consumer that needs byte-identical output should refuse
+  an index whose list is non-empty. Each entry has a `stage` and a `reason`:
+
+  | `stage`      | what is missing                                                        |
+  | ------------ | ---------------------------------------------------------------------- |
+  | `init`       | the whole language: its server failed to start (`filePath: "."`)       |
+  | `index`      | a complete index: the server was still indexing at `init_timeout_ms`   |
+  | `capability` | one request kind for the language: the server declared it, then answered MethodNotFound |
+  | `symbols`    | the file's LSP enrichment, or one request of it                        |
+  | `calls`      | the file's LSP-resolved call edges, or one request of them             |
+
+  `reason` is `timeout` (after one retry), `transport` (the server died; every later request
+  fails the same way, so each file it leaves without data is recorded), `response` (the server
+  answered a request with an error; the entry carries the `method` and `code`), or `error`. A
+  request for a capability the server did not declare is never sent, and is not a failure. An
+  error answer counts as an empty result only if it is on the allowlist in
+  `src/scanner/lsp/requester.ts`, whose entries each cite why that answer means "nothing here".
+
+  intelephense is started with a fresh storage directory each run (its default keeps the workspace
+  index in `$TMPDIR/intelephense/` between runs) and pinned `files.exclude` settings, and
+  enrichment waits for its `indexingEnded` notification. typescript-language-server is started
+  without its syntax-only server and without automatic type acquisition.
+
+What the rebuild guarantees itself:
+
+- Files are processed in a canonical order (sorted by path), and every `--json` list has an
+  explicit tie-break, so equal weights never reorder between runs.
+- LSP locations are stored without machine paths: `workspace:<path>` inside the workspace,
+  `external:…` outside it.
+- Float aggregates (boundary weights) are summed in a fixed order; samples
+  (`module_dependencies.sample_files`, boundary `samplePaths`) are taken in path order, not by
+  which file was reached first.
+- `structural_config_fingerprint` does not include the checkout's location: the root path in
+  `lux.yaml` (e.g. an absolute `lsp.workspace_root`) is masked before hashing.
+- **Symbol ids are unique by construction.** PHP symbol ids are not file-qualified
+  (`symbol:php:<FQCN>::<member>`, or a bare name outside any namespace), so two files can declare
+  the same id — two `config/aliases.php` each holding `$aliases`, a class declared twice under one
+  FQCN. Before writing any node, the rebuild censuses every declaration. An id declared by exactly
+  one file keeps its form. An id declared by two or more files is file-qualified for **every**
+  declarer, none keeping the bare id: `<id>#file:<repo-relative path>`, e.g.
+  `symbol:php:$aliases#file:src/Module/Users/config/aliases.php`. `#` cannot occur in a PHP name, so
+  the qualified form never meets a bare id. A reference that names only the shared id (a `use` of a
+  twice-declared FQCN) is ambiguous and resolves to neither declaration; `lux index status --json`
+  counts these under `symbolIdCollisions`.
+
+  Contract notes. `lux delta --json` (`DeltaReportV1`, still `schemaVersion: 1`) can carry ids of
+  the form `<id>#file:<path>` in `touched.symbolIds`; consumers treat ids as opaque, and unique
+  ids are unchanged. A qualified id is repo-local, so a FQCN one repository declares twice no
+  longer bridges to the same FQCN in a federated sibling. Whether an id is qualified depends on
+  every declaration the rebuild sees: when a file's LSP enrichment fails, its LSP-only
+  declarations drop out of the census, which can turn another file's id from qualified to bare or
+  back. Such a run always lists the failed file in `lspEnrichmentFailures`, which is why stable
+  ids, like every other determinism guarantee here, hold only for a run whose list is empty.
+
 ## Agent integration
 
 The canonical Agent Skill lives at `skills/lux-code-intel/SKILL.md`. It teaches compatible agents

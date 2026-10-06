@@ -26,6 +26,7 @@ import {
   aggregateModuleBoundaryEvidence,
   type ModuleBoundaryAggregate,
 } from '../scanner/overlay/module-boundary-analysis.js';
+import { compareCodeUnits } from '../scanner/scan-order.js';
 import { openCliReadIndex, withReadTelemetry } from './read-index.js';
 
 type BoundaryFocusDirection = 'inbound' | 'outbound' | 'both';
@@ -52,6 +53,17 @@ function totalBoundaryWeight(aggregate: ModuleBoundaryAggregate): number {
   return aggregate.directWeight + aggregate.projectedWeight + aggregate.supportingWeight;
 }
 
+export function compareByBoundaryWeight(
+  left: ModuleBoundaryAggregate,
+  right: ModuleBoundaryAggregate
+): number {
+  return (
+    totalBoundaryWeight(right) - totalBoundaryWeight(left) ||
+    compareCodeUnits(left.sourceRegion, right.sourceRegion) ||
+    compareCodeUnits(left.targetRegion, right.targetRegion)
+  );
+}
+
 function applyBoundaryFocus(
   aggregates: ModuleBoundaryAggregate[],
   focusRegion?: string,
@@ -72,7 +84,9 @@ function applyBoundaryFocus(
   });
 }
 
-function buildRegionSummaries(aggregates: ModuleBoundaryAggregate[]): BoundaryRegionSummary[] {
+export function buildRegionSummaries(
+  aggregates: ModuleBoundaryAggregate[]
+): BoundaryRegionSummary[] {
   const summaries = new Map<
     string,
     {
@@ -127,11 +141,15 @@ function buildRegionSummaries(aggregates: ModuleBoundaryAggregate[]): BoundaryRe
     }))
     .sort(
       (left, right) =>
-        right.totalWeight - left.totalWeight || right.neighborCount - left.neighborCount
+        right.totalWeight - left.totalWeight ||
+        right.neighborCount - left.neighborCount ||
+        compareCodeUnits(left.region, right.region)
     );
 }
 
-function buildFamilySummaries(aggregates: ModuleBoundaryAggregate[]): BoundaryFamilySummary[] {
+export function buildFamilySummaries(
+  aggregates: ModuleBoundaryAggregate[]
+): BoundaryFamilySummary[] {
   const summaries = new Map<
     string,
     {
@@ -169,7 +187,9 @@ function buildFamilySummaries(aggregates: ModuleBoundaryAggregate[]): BoundaryFa
     }))
     .sort(
       (left, right) =>
-        right.totalWeight - left.totalWeight || right.relationshipCount - left.relationshipCount
+        right.totalWeight - left.totalWeight ||
+        right.relationshipCount - left.relationshipCount ||
+        compareCodeUnits(left.family, right.family)
     );
 }
 
@@ -222,7 +242,7 @@ function runBoundaryExplore(
           (aggregate) =>
             aggregate.sourceRegion === options.focus || aggregate.targetRegion === options.focus
         )
-        .sort((left, right) => totalBoundaryWeight(right) - totalBoundaryWeight(left))
+        .sort(compareByBoundaryWeight)
     : [];
 
   const overview = {
@@ -355,7 +375,7 @@ function runBoundaryAggregates(
     minWeight: options.minWeight ?? 0,
   });
   let aggregates = applyBoundaryFocus(baseAggregates, options.focus, focusDirection).sort(
-    (left, right) => totalBoundaryWeight(right) - totalBoundaryWeight(left)
+    compareByBoundaryWeight
   );
   const totalCount = aggregates.length;
 
