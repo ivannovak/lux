@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');

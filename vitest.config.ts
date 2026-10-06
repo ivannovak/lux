@@ -13,8 +13,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    // Compiles `src` once per run for the tests that spawn the CLI (src/__tests__/helpers).
-    globalSetup: ['./src/__tests__/helpers/cli-build.global-setup.ts'],
+    // Compiles `src` once per run for the tests that spawn the CLI (src/integration/__tests__/helpers).
+    globalSetup: ['./src/integration/__tests__/helpers/cli-build.global-setup.ts'],
     // The suite includes CLI integration tests that spawn multiple lux
     // subprocesses plus a real language server and run a full overlay rebuild.
     // The default 5s is too tight for those on slower CI runners (they take

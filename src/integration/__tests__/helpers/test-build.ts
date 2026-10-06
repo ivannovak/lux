@@ -22,7 +22,13 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
 
-export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+export const PROJECT_ROOT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..'
+);
 export const SOURCE_ROOT = join(PROJECT_ROOT, 'src');
 
 /** Set by the global setup to the directory holding this run's build. */

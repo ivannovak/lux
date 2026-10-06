@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync, spawnSync } from 'child_process';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const CLI_ENTRY = builtCli();
 

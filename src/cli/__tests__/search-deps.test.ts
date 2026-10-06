@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'node:os';
 import { LuxDatabase } from '../../db/index.js';
 import { detectModuleBoundaries, resolveModule } from '../../scanner/imports/module-boundary.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const CLI_ENTRY = builtCli();
 

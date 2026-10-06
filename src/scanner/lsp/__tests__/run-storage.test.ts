@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRunStorage, removeRunStorage, sweepRunStorage } from '../run-storage.js';
-import { built } from '../../../__tests__/helpers/built-cli.js';
+import { built } from '../../../integration/__tests__/helpers/built-cli.js';
 
 const MODULE = built(join(dirname(fileURLToPath(import.meta.url)), '..', 'run-storage.ts'));
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');

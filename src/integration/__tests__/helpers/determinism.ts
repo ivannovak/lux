@@ -9,7 +9,7 @@ import type { LuxDatabase } from '../../../db/index.js';
 import type { EdgeType, StructuralEdge, StructuralNode } from '../../../db/types.js';
 import { LuxSqlite } from '../../../db/sqlite-adapter.js';
 import { SCAN_ORDER_SEED_ENV } from '../../../scanner/scan-order.js';
-import { builtCli } from '../../../__tests__/helpers/built-cli.js';
+import { builtCli } from './built-cli.js';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const CLI_ENTRY = builtCli();

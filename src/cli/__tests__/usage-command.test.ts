@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { LuxDatabase } from '../../db/index.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const CLI_ENTRY = builtCli();
 

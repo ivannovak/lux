@@ -16,7 +16,7 @@ import {
   type LspEnricherConfig,
 } from '../../scanner/lsp/index.js';
 import type { EnrichmentResult } from '../../scanner/lsp/index.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');

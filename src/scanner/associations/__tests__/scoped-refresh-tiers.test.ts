@@ -13,7 +13,7 @@ import { getHeadCommit } from '../../git.js';
 import { inspectOverlayTrustState, persistRefreshTrustState } from '../../overlay-trust-state.js';
 import { refreshOverlayScoped, type ChangedFile } from '../overlay-refresh.js';
 import type { StructuralEdge } from '../../../db/types.js';
-import { builtCli } from '../../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // src/scanner/associations/__tests__ → project root (four levels up).

@@ -9,7 +9,7 @@ import {
   loadOverlayTrustState,
   inspectOverlayTrustState,
 } from '../../scanner/overlay-trust-state.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');

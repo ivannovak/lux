@@ -7,7 +7,7 @@ import { LuxDatabase } from '../../db/index.js';
 import { persistRebuildTrustState } from '../../scanner/overlay-trust-state.js';
 import type { RebuildResult } from '../../scanner/rebuild-orchestrator.js';
 import type { StructuralEdge, StructuralNode } from '../../db/types.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..');
 const CLI_ENTRY = builtCli();

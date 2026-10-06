@@ -20,7 +20,7 @@ import { computeImpact } from '../../cli/deps-impact.js';
 import { buildIndexStatusPayload, buildOverlayStatusPayload } from '../../cli/status-payload.js';
 import { buildDoctorPayload } from '../../cli/doctor.js';
 import { resolveRuntimePaths } from '../../utils/runtime-paths.js';
-import { built } from '../../__tests__/helpers/built-cli.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const DIST_SERVER = built('src/mcp/server.ts');

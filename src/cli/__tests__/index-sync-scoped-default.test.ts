@@ -17,7 +17,7 @@ import { LuxDatabase } from '../../db/index.js';
 import { rebuildWithOverlay } from '../../scanner/rebuild-orchestrator.js';
 import { persistRebuildTrustState } from '../../scanner/overlay-trust-state.js';
 import { persistStructuralConfigFingerprint } from '../../scanner/config-fingerprint.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');

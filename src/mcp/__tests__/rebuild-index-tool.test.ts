@@ -16,7 +16,7 @@ import {
   getDefaultEnvironment,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { LuxDatabase } from '../../db/index.js';
-import { built } from '../../__tests__/helpers/built-cli.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const DIST_SERVER = built('src/mcp/server.ts');

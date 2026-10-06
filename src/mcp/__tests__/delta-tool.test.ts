@@ -17,7 +17,7 @@ import {
 import { LuxDatabase } from '../../db/index.js';
 import { computeDelta } from '../../scanner/delta/run.js';
 import type { DeltaOptions } from '../../scanner/delta/types.js';
-import { built } from '../../__tests__/helpers/built-cli.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 // The wire test drives the BUILT server (plain node, negligible startup) rather than compiling it

@@ -15,7 +15,7 @@ import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { loadOverlayTrustState } from '../../scanner/overlay-trust-state.js';
-import { built, builtCli } from '../../__tests__/helpers/built-cli.js';
+import { built, builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');

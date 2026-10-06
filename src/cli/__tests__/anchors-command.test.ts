@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LuxDatabase } from '../../db/index.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 // CLI text-surface behavior for the consumer-polish default (issue #77 item #3): when the test-exclusion
 // default swallows every match, the human CLI must not go silent — it prints "No anchors found" AND a

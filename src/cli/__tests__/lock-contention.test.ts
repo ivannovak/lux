@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { LuxDatabase } from '../../db/index.js';
-import { built } from '../../__tests__/helpers/built-cli.js';
+import { built } from '../../integration/__tests__/helpers/built-cli.js';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const DIST_CLI = built('src/cli/index.ts');

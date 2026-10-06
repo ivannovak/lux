@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import { LuxDatabase } from '../../db/index.js';
 import { loadOverlayTrustState } from '../../scanner/overlay-trust-state.js';
-import { builtCli } from '../../__tests__/helpers/built-cli.js';
+import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
