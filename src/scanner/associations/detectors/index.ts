@@ -104,11 +104,19 @@ export async function runDetectors(
       }
     });
 
-    // Persist boundary edges + evidence using the engine's static helper.
+    // Persist boundary edges + evidence using the engine's static helper. An id that arrived
+    // from two files keeps only the edges evidenced in the stored declaration's file, so the node
+    // and its edges state one declaration.
     // sourceCommit is threaded on the scoped-refresh path (SC-8); undefined on full rebuild.
-    if (batch.edges.length > 0) {
-      const stored = AssociationEngine.persistEdges(db, batch.edges, sourceCommit);
-      surfaceEdgesStored += stored;
+    const edges = batch.edges.filter((edge) => {
+      const shared = [edge.sourceNodeId, edge.targetNodeId].find((id) => declaringFiles.has(id));
+      if (shared === undefined) return true;
+      const locations = edge.provenance?.evidenceLocations ?? [];
+      const storedFile = declaringFile(stored.get(shared)!);
+      return locations.length === 0 || locations.some((at) => at.filePath === storedFile);
+    });
+    if (edges.length > 0) {
+      surfaceEdgesStored += AssociationEngine.persistEdges(db, edges, sourceCommit);
     }
 
     if (batch.surfaces.length > 0 || batch.edges.length > 0) {

@@ -155,12 +155,13 @@ function addDispatch(
     transport,
     trust_tier: 4,
   });
+  // One edge per job, shared by every dispatch site, so it states no transport: the sites can
+  // disagree (`dispatch` here, `dispatchSync` there), and each DISPATCHES edge above has its own.
   batch.edges.push({
     id: operationalEdgeId(jobBoundaryId, jobSymbolId, 'HANDLED_BY'),
     source_id: jobBoundaryId,
     target_id: jobSymbolId,
     edge_type: 'HANDLED_BY',
-    transport,
     trust_tier: 4,
   });
 

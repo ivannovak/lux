@@ -197,4 +197,35 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     coldAfter.close();
     db.close();
   }, 120_000);
+
+  it('still sees every declaring file when the change set also holds a React file', async () => {
+    const repo = makeRepo();
+    const db = await rebuilt(repo);
+
+    // A React change widens the refresh to the JavaScript universe; the PHP census must not be
+    // left with only the changed PHP files because of it.
+    const mixed = {
+      ...SECOND,
+      'resources/js/Widget.tsx':
+        "import React from 'react';\nexport function Widget() {\n  return <div>widget</div>;\n}\n",
+    };
+    write(repo, mixed);
+    commitAll(repo);
+    const added: ChangedFile[] = Object.keys(mixed).map((relPath) => ({
+      relPath,
+      status: 'added',
+    }));
+    await refreshOverlayScoped(db, repo, added, loadLspConfig(repo), {});
+
+    const facts = declaredFacts(db, repo);
+    expect(ids(facts.surfaces)).toEqual([
+      'surface:http:GET:/#file:routes/web.php',
+      'surface:http:GET:/#file:workbench/routes/web.php',
+      'surface:http:GET:/faq',
+    ]);
+    const cold = await rebuilt(repo);
+    expect(facts).toEqual(declaredFacts(cold, repo));
+    cold.close();
+    db.close();
+  }, 120_000);
 });

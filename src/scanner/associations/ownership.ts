@@ -106,7 +106,10 @@ export type CrossAreaLabel =
   'kernel-owned' | 'client-override' | 'client-gap' | 'external' | 'client-local';
 
 export interface CrossAreaRoute {
-  /** `surface:http:METHOD:/path`. */
+  /**
+   * `surface:http:METHOD:/path`: the route, never one file's declaration of it. A route either
+   * index declares in several files is one row.
+   */
   route: string;
   label: CrossAreaLabel;
   /** For `client-override`: `implements` (client provides an `App\` handler the kernel

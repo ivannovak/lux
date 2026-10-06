@@ -117,4 +117,49 @@ describe('classifyCrossAreaOwnership', () => {
     expect(map.summary['kernel-owned']).toBe(1);
     expect(map.routes.filter((r) => r.route === 'surface:http:GET:/dup')).toHaveLength(1);
   });
+
+  it('joins a route the kernel declares in two files to the client route by method and path', () => {
+    // The kernel declares GET / twice (package routes and a test skeleton), so each declaration
+    // has a file-qualified id; the client declares it once, under the bare id.
+    const kernelPath = join(root, 'kq', '.lux', 'lux.db');
+    const kernelDb = new LuxDatabase(kernelPath);
+    addRoute(kernelDb, 'surface:http:GET:/#file:routes/web.php', 'Kern\\Core\\Site');
+    addRoute(kernelDb, 'surface:http:GET:/#file:workbench/routes/web.php', 'Kern\\Core\\Welcome');
+    kernelDb.close();
+
+    const clientDb = new LuxDatabase(join(root, 'cq', '.lux', 'lux.db'));
+    addRoute(clientDb, 'surface:http:GET:/', 'App\\Home');
+    const kernel: ResolvedKernel = { dbPath: kernelPath, worktree: '', namespace: 'Kern\\Core' };
+    const map = classifyCrossAreaOwnership(clientDb, kernel, 'App');
+    clientDb.close();
+
+    expect(map.routes).toEqual([
+      {
+        route: 'surface:http:GET:/',
+        label: 'client-override',
+        overrideKind: 'route',
+        kernelHandler: 'symbol:php:Kern\\Core\\Site',
+        clientHandler: 'symbol:php:App\\Home',
+      },
+    ]);
+    expect(map.summary).toMatchObject({ 'client-override': 1, 'client-local': 0 });
+  });
+
+  it('joins a route the client declares in two files to the kernel route the same way', () => {
+    const kernelPath = join(root, 'kr', '.lux', 'lux.db');
+    const kernelDb = new LuxDatabase(kernelPath);
+    addRoute(kernelDb, 'surface:http:GET:/', 'Kern\\Core\\Site');
+    kernelDb.close();
+
+    const clientDb = new LuxDatabase(join(root, 'cr', '.lux', 'lux.db'));
+    addRoute(clientDb, 'surface:http:GET:/#file:routes/web.php', 'App\\Home');
+    addRoute(clientDb, 'surface:http:GET:/#file:routes/extra.php', 'App\\Other');
+    const kernel: ResolvedKernel = { dbPath: kernelPath, worktree: '', namespace: 'Kern\\Core' };
+    const map = classifyCrossAreaOwnership(clientDb, kernel, 'App');
+    clientDb.close();
+
+    expect(map.routes.map((r) => [r.route, r.label, r.clientHandler])).toEqual([
+      ['surface:http:GET:/', 'client-override', 'symbol:php:App\\Home'],
+    ]);
+  });
 });

@@ -92,7 +92,7 @@ export async function runOperationalExtractors(
 
     for (const boundary of batch.boundaries) rows.addBoundary(boundary, extractor.name);
     for (const handler of batch.handlers) rows.addHandler(handler);
-    for (const edge of batch.edges) rows.addEdge(edge);
+    for (const edge of batch.edges) rows.addEdge(edge, extractor.name);
     for (const contract of batch.contracts) rows.addContract(contract, extractor.name);
 
     if (

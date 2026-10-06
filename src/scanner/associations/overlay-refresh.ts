@@ -229,15 +229,19 @@ export async function refreshOverlayScoped(
         ]),
       ];
     }
-    // Livewire registrations, namespaces, class roots, and Blade mounts are whole-PHP.
-    if (changedPaths.some((path) => path.toLowerCase().endsWith('.php'))) {
-      R = [
-        ...new Set([
-          ...R,
-          ...persistedSourcePaths.filter((path) => path.toLowerCase().endsWith('.php')),
-        ]),
-      ];
-    }
+  }
+  // Livewire registrations, namespaces, class roots, and Blade mounts are whole-PHP. So is a
+  // route, an event or a command name that several PHP files declare: it is settled by a census
+  // of every file that declares it (identity/file-qualified-id.ts), and with a partial set one
+  // declaration would be stored under the bare id as if it were the only one. So a PHP change
+  // brings every PHP file into R whichever expansion above applied.
+  if (changedPaths.some((path) => path.toLowerCase().endsWith('.php'))) {
+    R = [
+      ...new Set([
+        ...R,
+        ...persistedSourcePaths.filter((path) => path.toLowerCase().endsWith('.php')),
+      ]),
+    ];
   }
   const deletedPaths = new Set(changed.filter((c) => c.status === 'deleted').map((c) => c.relPath));
   const rematPaths = R.filter((p) => !deletedPaths.has(p)); // deleted files: nodes stay deleted

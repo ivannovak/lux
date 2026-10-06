@@ -206,10 +206,32 @@ describe('a detector that emits one surface id for two declarations', () => {
     };
   }
   const declarations = [surface('routes/b.php', 'closure'), surface('routes/a.php', 'controller')];
+  const edge = (filePath: string, edgeType: 'declares_surface' | 'handled_by') => ({
+    id: `${edgeType}:${filePath}`,
+    edgeType,
+    sourceNodeId: edgeType === 'handled_by' ? 'surface:http:GET:/dup' : `file:${filePath}`,
+    targetNodeId:
+      edgeType === 'handled_by' ? `symbol:php:From\\${filePath}` : 'surface:http:GET:/dup',
+    confidence: 0.95,
+    confidenceClass: 'framework-inferred' as const,
+    provenance: {
+      resolver: 'unqualified',
+      evidenceKind: 'route-declaration',
+      evidenceLocations: [{ filePath, line: 1 }],
+      extractedAt: 0,
+    },
+  });
   const unqualified = (surfaces: CapabilitySurfaceNode[]): CapabilitySurfaceDetector => ({
     name: 'unqualified',
     supports: () => true,
-    detect: () => Promise.resolve({ surfaces, edges: [] }),
+    detect: () =>
+      Promise.resolve({
+        surfaces,
+        edges: surfaces.flatMap((declared) => [
+          edge(declared.file_path!, 'declares_surface'),
+          edge(declared.file_path!, 'handled_by'),
+        ]),
+      }),
   });
 
   it.each([
@@ -225,6 +247,11 @@ describe('a detector that emits one surface id for two declarations', () => {
     expect(run.surfaces).toHaveLength(1);
     expect(run.surfaces[0].file_path).toBe('routes/a.php');
     expect(meta(run.surfaces[0]).providerKind).toBe('controller');
+    // Only the stored declaration's edges are stored with it.
+    expect(run.edges).toEqual([
+      'declares_surface file:routes/a.php -> surface:http:GET:/dup @ routes/a.php',
+      'handled_by surface:http:GET:/dup -> symbol:php:From\\routes/a.php @ routes/a.php',
+    ]);
     expect(run.surfacesDetected).toBe(1);
   });
 });
@@ -263,7 +290,10 @@ async function extractOperational(
       for (const handler of db.getOperationalHandlersForBoundary(boundary.id)) {
         run.handlers.push(`${handler.id} | tier ${handler.trust_tier}`);
       }
-      for (const edge of db.getOperationalEdgesForSource(boundary.id)) {
+      for (const edge of [
+        ...db.getOperationalEdgesForSource(boundary.id),
+        ...db.getOperationalEdgesForTarget(boundary.id),
+      ]) {
         run.edges.push(`${edge.id} | ${edge.transport ?? '-'} | tier ${edge.trust_tier}`);
       }
       for (const contract of db.getOperationalContractsForBoundary(boundary.id)) {
@@ -274,7 +304,7 @@ async function extractOperational(
       }
     }
     run.handlers.sort();
-    run.edges.sort();
+    run.edges = [...new Set(run.edges)].sort();
     run.contracts.sort((a, b) => (a.id < b.id ? -1 : 1));
     return run;
   } finally {
@@ -337,6 +367,67 @@ describe('an event registered by two providers', () => {
     const forwards = await extractOperational(entries);
     const reversed = await extractOperational([...entries].reverse());
 
+    expect(reversed).toEqual(forwards);
+  });
+
+  it('keeps both registrations when one file registers the event twice', async () => {
+    const twice: Entry = {
+      filePath: 'app/Providers/EventServiceProvider.php',
+      content: `<?php
+namespace App\\Providers;
+use App\\Events\\OrderShipped;
+use App\\Listeners\\FromArray;
+use App\\Listeners\\FromCall;
+use Illuminate\\Support\\Facades\\Event;
+class EventServiceProvider
+{
+    protected $listen = [
+        OrderShipped::class => [FromArray::class],
+    ];
+
+    public function boot(): void
+    {
+        Event::listen(OrderShipped::class, FromCall::class);
+    }
+}
+`,
+    };
+    const run = await extractOperational([twice]);
+
+    expect(run.contracts[0].payload).toMatchObject({
+      listenerCount: 2,
+      listenerClasses: ['App\\Listeners\\FromArray', 'App\\Listeners\\FromCall'],
+      registeredIn: ['app/Providers/EventServiceProvider.php'],
+    });
+    expect(run.handlers).toEqual([
+      `oph:${EVENT}:symbol:php:App\\Listeners\\FromArray | tier 5`,
+      `oph:${EVENT}:symbol:php:App\\Listeners\\FromCall | tier 5`,
+    ]);
+  });
+
+  it('reads the payload hints of an event class two files declare from the first file by path', async () => {
+    const eventClass = (dir: string, property: string): Entry => ({
+      filePath: `${dir}/OrderShipped.php`,
+      content: `<?php
+namespace App\\Events;
+class OrderShipped
+{
+    public int $${property};
+}
+`,
+    });
+    const withEvent = [
+      ...entries,
+      eventClass('src/Legacy', 'legacyId'),
+      eventClass('src/Events', 'orderId'),
+    ];
+    const forwards = await extractOperational(withEvent);
+    const reversed = await extractOperational([...withEvent].reverse());
+
+    expect(forwards.contracts[0].payload.payloadHints).toMatchObject({
+      sourceFile: 'src/Events/OrderShipped.php',
+      publicProperties: [{ name: 'orderId', type: 'int' }],
+    });
     expect(reversed).toEqual(forwards);
   });
 });
@@ -447,7 +538,7 @@ describe('a job reached from several places', () => {
   const JOB = 'opb:job:App\\Jobs\\Prune';
   const HANDLED = `ope:${JOB}:HANDLED_BY:symbol:php:App\\Jobs\\Prune`;
 
-  it('settles the shared handler edge by rule when dispatch sites disagree on transport', async () => {
+  it('states a transport per dispatch site and none on the handler edge they share', async () => {
     const entries = [
       dispatcher('Later', 'Prune::dispatch()'),
       dispatcher('Now', 'Prune::dispatchSync()'),
@@ -455,7 +546,12 @@ describe('a job reached from several places', () => {
     const forwards = await extractOperational(entries);
     const reversed = await extractOperational([...entries].reverse());
 
-    expect(forwards.edges).toContain(`${HANDLED} | async | tier 4`);
+    expect(forwards.edges).toEqual([
+      `${HANDLED} | - | tier 4`,
+      `ope:symbol:php:App\\Services\\Later:DISPATCHES:${JOB}:async | async | tier 4`,
+      `ope:symbol:php:App\\Services\\Now:DISPATCHES:${JOB}:sync | sync | tier 4`,
+    ]);
+    expect(forwards.warnings).toEqual([]);
     expect(reversed).toEqual(forwards);
   });
 
@@ -465,7 +561,7 @@ describe('a job reached from several places', () => {
     const reversed = await extractOperational([...entries].reverse());
 
     expect(forwards.boundaries).toContain(`${JOB} | - | tier 5`);
-    expect(forwards.edges).toContain(`${HANDLED} | queue | tier 5`);
+    expect(forwards.edges).toContain(`${HANDLED} | - | tier 5`);
     expect(forwards.handlers).toContain(`oph:${JOB}:symbol:php:App\\Jobs\\Prune | tier 5`);
     expect(reversed).toEqual(forwards);
 
@@ -504,6 +600,14 @@ describe('an extractor that emits one id for two declarations', () => {
           payload_schema: JSON.stringify({ from: file }),
           trust_tier: 5,
         });
+        batch.edges.push({
+          id: 'ope:opb:command:dup:HANDLED_BY:symbol:php:Dup',
+          source_id: 'opb:command:dup',
+          target_id: 'symbol:php:Dup',
+          edge_type: 'HANDLED_BY',
+          transport: file === 'a.php' ? 'sync' : 'queue',
+          trust_tier: 5,
+        });
       }
       return Promise.resolve(batch);
     },
@@ -518,9 +622,12 @@ describe('an extractor that emits one id for two declarations', () => {
     expect(run.warnings).toEqual([
       'operational boundary opb:command:dup is declared in 2 files (a.php, b.php); ' +
         'one row cannot hold both, the declaration in a.php is stored.',
+      'operational edge ope:opb:command:dup:HANDLED_BY:symbol:php:Dup was extracted with 2 transports ' +
+        '(queue, sync); one row cannot hold them all, queue is stored.',
       'operational contract opc:opb:command:dup:signature was extracted with 2 different payloads; ' +
         'one row cannot hold them all, the first by text order is stored.',
     ]);
+    expect(run.edges).toEqual(['ope:opb:command:dup:HANDLED_BY:symbol:php:Dup | queue | tier 5']);
     expect(run.boundaries).toEqual(['opb:command:dup | a.php | tier 5']);
     expect(run.contracts).toEqual([
       { id: 'opc:opb:command:dup:signature', payload: { from: 'a.php' } },

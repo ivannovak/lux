@@ -130,11 +130,12 @@ export class LaravelSchedulerExtractor implements OperationalExtractor {
           trust_tier: 5,
         });
         batch.edges.push({
+          // Shared with every dispatch site of the job, so it states no transport; the
+          // TRIGGERS edge above carries the scheduler's.
           id: operationalEdgeId(jobBoundaryId, jobSymbolId, 'HANDLED_BY'),
           source_id: jobBoundaryId,
           target_id: jobSymbolId,
           edge_type: 'HANDLED_BY',
-          transport: 'queue',
           trust_tier: 5,
         });
         batch.contracts.push({

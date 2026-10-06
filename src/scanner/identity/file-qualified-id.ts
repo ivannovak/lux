@@ -49,6 +49,22 @@ export function bareId(id: string): string {
   return at === -1 ? id : id.slice(0, at);
 }
 
+/** The declaring file a file-qualified id names; undefined for an id that is not qualified. */
+function declaringFileOf(id: string): string | undefined {
+  const at = id.indexOf(FILE_QUALIFIER);
+  return at === -1 ? undefined : id.slice(at + FILE_QUALIFIER.length);
+}
+
+/**
+ * How a person or another command names one declaration of a shared id: the handle everyone
+ * would use for it, then the file, e.g. `GET / @ routes/web.php`. An id that is not qualified
+ * keeps its handle.
+ */
+export function declarationHandle(id: string, handle: string): string {
+  const file = declaringFileOf(id);
+  return file === undefined ? handle : `${handle} @ ${file}`;
+}
+
 /** True for a file-qualified id: it names one file's declaration, never a shared one. */
 export function isFileQualifiedId(id: string): boolean {
   return id.includes(FILE_QUALIFIER);

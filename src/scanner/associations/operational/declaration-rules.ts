@@ -16,15 +16,15 @@
 //              stays on the unqualified name, which names neither class.
 //   job        One boundary per job class, with no file. The scheduler states a job outright
 //              (tier 5); a dispatch site is an inference (tier 4). The higher tier is stored, for
-//              the boundary, its handler and its HANDLED_BY edge. Dispatch sites of one tier that
-//              disagree on transport settle the HANDLED_BY edge by TRANSPORT_PRECEDENCE; each
-//              site's own transport stays on its DISPATCHES edge.
+//              the boundary, its handler and its HANDLED_BY edge. That edge is shared by every
+//              site that reaches the job, so the extractors put no transport on it: how a site
+//              dispatches is on that site's DISPATCHES or TRIGGERS edge, whose id carries it.
 //   schedule   Ids carry file and line, so two files cannot share one.
 //
 // Stated as one order over rows: a row with a file outranks one without, then the higher trust
-// tier, then the transport precedence. Two rows the order cannot separate that still differ are
-// two declarations of one id that an extractor failed to merge or qualify: the first by path (or
-// by payload text) is stored and the run warns with the id and the files.
+// tier. Two rows the order cannot separate that still differ are two declarations of one id that
+// an extractor failed to merge or qualify: the first by path, payload or transport text is stored
+// and the run warns with the id and what differed.
 
 import { compareCodeUnits } from '../../scan-order.js';
 import type { Reporter } from '../../reporter.js';
@@ -33,17 +33,7 @@ import type {
   OperationalContractDescriptor,
   OperationalEdgeDescriptor,
   OperationalHandlerDescriptor,
-  OperationalTransport,
 } from './types.js';
-
-/** The transport a shared edge keeps when its declarations disagree, strongest first. */
-const TRANSPORT_PRECEDENCE: ReadonlyArray<OperationalTransport | undefined> = [
-  'queue',
-  'async',
-  'sync',
-  'event-bus',
-  undefined,
-];
 
 /** The operational rows of one run, each id settled by the rules above. */
 export class OperationalRows {
@@ -54,6 +44,7 @@ export class OperationalRows {
 
   private readonly boundaryFiles = new Map<string, Set<string>>();
   private readonly contractPayloads = new Map<string, Set<string>>();
+  private readonly edgeTransports = new Map<string, Set<string>>();
   private readonly conflictSource = new Map<string, string>();
 
   addBoundary(boundary: OperationalBoundaryDescriptor, extractor: string): void {
@@ -80,17 +71,24 @@ export class OperationalRows {
     if (!current || handler.trust_tier > current.trust_tier) this.handlers.set(handler.id, handler);
   }
 
-  addEdge(edge: OperationalEdgeDescriptor): void {
+  addEdge(edge: OperationalEdgeDescriptor, extractor: string): void {
     const current = this.edges.get(edge.id);
     if (!current) {
       this.edges.set(edge.id, edge);
       return;
     }
-    const order =
-      edge.trust_tier - current.trust_tier ||
-      TRANSPORT_PRECEDENCE.indexOf(current.transport) -
-        TRANSPORT_PRECEDENCE.indexOf(edge.transport);
-    if (order > 0) this.edges.set(edge.id, edge);
+    if (edge.trust_tier !== current.trust_tier) {
+      if (edge.trust_tier > current.trust_tier) this.edges.set(edge.id, edge);
+      return;
+    }
+    const transport = edge.transport ?? '';
+    const currentTransport = current.transport ?? '';
+    if (transport === currentTransport) return;
+
+    const transports = this.edgeTransports.get(edge.id) ?? new Set([currentTransport]);
+    this.edgeTransports.set(edge.id, transports.add(transport));
+    this.conflictSource.set(edge.id, extractor);
+    if (transport < currentTransport) this.edges.set(edge.id, edge);
   }
 
   addContract(contract: OperationalContractDescriptor, extractor: string): void {
@@ -120,6 +118,17 @@ export class OperationalRows {
       reporter.warn(
         `operational boundary ${id} is declared in ${files.length} files (${files.join(', ')}); ` +
           `one row cannot hold both, the declaration in ${this.boundaries.get(id)!.file_path} is stored.`,
+        `extractor:${this.conflictSource.get(id)}`
+      );
+    }
+    for (const id of [...this.edgeTransports.keys()].sort(compareCodeUnits)) {
+      const transports = [...this.edgeTransports.get(id)!]
+        .sort(compareCodeUnits)
+        .map((transport) => transport || 'none');
+      reporter.warn(
+        `operational edge ${id} was extracted with ${transports.length} transports ` +
+          `(${transports.join(', ')}); one row cannot hold them all, ` +
+          `${this.edges.get(id)!.transport ?? 'none'} is stored.`,
         `extractor:${this.conflictSource.get(id)}`
       );
     }

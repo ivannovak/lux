@@ -676,24 +676,32 @@ export class LuxDatabase {
       // the chosen handler deterministic). client_handler is a deterministic correlated subquery
       // (ORDER BY … LIMIT 1) rather than a LEFT JOIN, so a client with >1 handler for a route
       // cannot fan the kernel row out or pick a handler non-deterministically.
+      // A route is its method and path on both sides: an id either index file-qualified because
+      // several of its files declare the route (`…#file:<path>`) is read without the qualifier,
+      // so the two indexes join on the route and not on how many files declare it.
+      const route = (column: string): string =>
+        `CASE WHEN instr(${column}, '#file:') > 0
+              THEN substr(${column}, 1, instr(${column}, '#file:') - 1)
+              ELSE ${column} END`;
       const kernelRows = this.db.all(
         `SELECT ke.route,
                 ke.kernel_handler,
                 cn.id AS client_node,
                 (SELECT ce.target_node_id FROM main.structural_edges ce
-                  WHERE ce.source_node_id = ke.route AND ce.edge_type = 'handled_by'
+                  WHERE ${route('ce.source_node_id')} = ke.route AND ce.edge_type = 'handled_by'
+                    AND ce.source_node_id LIKE 'surface:http:%'
                   ORDER BY ce.target_node_id LIMIT 1) AS client_handler
-           FROM (SELECT source_node_id AS route, MIN(target_node_id) AS kernel_handler
+           FROM (SELECT ${route('source_node_id')} AS route, MIN(target_node_id) AS kernel_handler
                    FROM kernel.structural_edges
                   WHERE edge_type = 'handled_by' AND source_node_id LIKE 'surface:http:%'
-                  GROUP BY source_node_id) ke
+                  GROUP BY 1) ke
            LEFT JOIN main.structural_nodes cn ON cn.id = ke.kernel_handler`
       ) as CrossAreaKernelRow[];
       const clientRoutes = this.db.all(
-        `SELECT source_node_id AS route, MIN(target_node_id) AS handler
+        `SELECT ${route('source_node_id')} AS route, MIN(target_node_id) AS handler
            FROM main.structural_edges
           WHERE edge_type = 'handled_by' AND source_node_id LIKE 'surface:http:%'
-          GROUP BY source_node_id`
+          GROUP BY 1`
       ) as CrossAreaClientRoute[];
       return { kernelRows, clientRoutes };
     });
