@@ -11,9 +11,15 @@
 import { FILES_PER_COMMIT, writeInChunks, type LuxDatabase } from '../../db/index.js';
 import type { StructuralNode } from '../../db/types.js';
 import type { ScanResult, ScannedKnowledge } from '../types.js';
-import type { EnrichmentMap, EnrichmentResult } from '../lsp/index.js';
+import type { EnrichedSymbol, EnrichmentMap, EnrichmentResult } from '../lsp/index.js';
 import { fileNodeId, phpSymbolNodeId, tsSymbolNodeId } from './types.js';
 import { SymbolIdCollisions } from '../identity/symbol-collisions.js';
+import {
+  bladeDeclarations,
+  hasNamespaceSymbols,
+  namespaceOpensBlock,
+  phpDeclarations,
+} from '../identity/php-declarations.js';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -110,7 +116,10 @@ export function buildFileNode(entry: ScannedKnowledge, rootPath: string): Struct
 
 /**
  * Build symbol StructuralNodes from an enrichment result.
- * Only top-level symbols are materialized (no nested children).
+ * Only top-level declarations are materialized (no nested children). For PHP that is every
+ * declaration of every namespace in the file; a namespace is not a node, it qualifies the ids of
+ * what it contains, and in a Blade template only the PHP variables are declarations
+ * (identity/php-declarations.ts).
  * Without `collisions` the ids are bare — the form the declaration census reads.
  */
 export function buildSymbolNodes(
@@ -125,35 +134,30 @@ export function buildSymbolNodes(
   const nodes: StructuralNode[] = [];
   const ts = nowEpoch();
 
-  // Use the PHP-enrichment-specific qualified name when available.
-  // When enrichment only carries short PHP names, derive a file-local FQN from
-  // the namespace declaration so duplicate controller/resource short names do
-  // not collapse across namespaces.
-  const ext = enrichment as unknown as Record<string, unknown>;
-  const phpReferences = ext['references'] as
-    Array<{ symbolName: string; symbolKind: number }> | undefined;
-  const phpQualifiedNames = buildPhpQualifiedNameMap(
-    enrichment.symbols.map((symbol) => symbol.name),
-    phpReferences,
-    fileContent
-  );
+  if (lang === 'php') {
+    for (const { symbol, qualifiedName } of phpSymbolNames(relPath, enrichment, fileContent)) {
+      nodes.push({
+        id: collisions.qualify(phpSymbolNodeId(qualifiedName ?? symbol.name), relPath),
+        node_type: 'symbol',
+        file_path: relPath,
+        language_id: lang,
+        symbol_name: symbol.name,
+        symbol_kind: symbol.kindLabel,
+        qualified_name: qualifiedName,
+        updated_at: ts,
+      });
+    }
+    return nodes;
+  }
 
   for (const symbol of enrichment.symbols) {
-    const id = collisions.qualify(
-      lang === 'php'
-        ? phpSymbolNodeId(phpQualifiedNames.get(symbol.name) ?? symbol.name)
-        : tsSymbolNodeId(relPath, symbol.name),
-      relPath
-    );
-
     nodes.push({
-      id,
+      id: collisions.qualify(tsSymbolNodeId(relPath, symbol.name), relPath),
       node_type: 'symbol',
       file_path: relPath,
       language_id: lang,
       symbol_name: symbol.name,
       symbol_kind: symbol.kindLabel,
-      qualified_name: phpQualifiedNames.get(symbol.name),
       updated_at: ts,
     });
   }
@@ -177,32 +181,36 @@ function nowEpoch(): number {
 }
 
 /**
- * Build a short-name → qualified-name map for PHP symbols.
+ * The PHP declarations of an enrichment, each with its qualified name when it has one.
  *
- * Preference order:
- *  1. Namespace declaration in the current file content, when available.
- *  2. Reference-derived names from PHP enrichment (best-effort fallback).
+ * The namespace of a declaration, in order of preference:
+ *  1. The one the PHP enricher attached to it (`symbol.namespace`), or, for a symbol list that
+ *     still holds the server's Namespace symbols, the one phpDeclarations assigns by position.
+ *  2. For an enrichment that says nothing about namespaces, the file's `namespace X;` statement.
+ * A declaration with no namespace keeps its reference-derived name when PHP enrichment has one.
  */
-function buildPhpQualifiedNameMap(
-  symbolNames: string[],
-  references?: Array<{ symbolName: string; symbolKind: number }>,
+function phpSymbolNames(
+  relPath: string,
+  enrichment: EnrichmentResult,
   fileContent?: string
-): Map<string, string> {
-  const map = new Map<string, string>();
+): Array<{ symbol: EnrichedSymbol; qualifiedName?: string }> {
+  const symbols = bladeDeclarations(relPath, enrichment.symbols);
+  const declarations = hasNamespaceSymbols(symbols)
+    ? phpDeclarations(symbols, (namespace) => namespaceOpensBlock(fileContent, namespace.startLine))
+    : symbols.map((symbol) => ({ symbol, namespace: symbol.namespace }));
 
-  const namespace = extractPhpNamespace(fileContent);
-  if (namespace) {
-    for (const symbolName of symbolNames) {
-      map.set(symbolName, `${namespace}\\${symbolName}`);
-    }
-    return map;
-  }
+  const stated = declarations.some((declaration) => declaration.namespace !== undefined);
+  const fileNamespace = stated ? undefined : extractPhpNamespace(fileContent);
 
-  if (!references) return map;
-  for (const ref of references) {
-    map.set(ref.symbolName, ref.symbolName);
-  }
-  return map;
+  const ext = enrichment as unknown as Record<string, unknown>;
+  const references = ext['references'] as Array<{ symbolName: string }> | undefined;
+  const referenced = new Set(fileNamespace ? [] : (references ?? []).map((ref) => ref.symbolName));
+
+  return declarations.map(({ symbol, namespace }) => {
+    const owner = namespace ?? fileNamespace;
+    if (owner) return { symbol, qualifiedName: `${owner}\\${symbol.name}` };
+    return referenced.has(symbol.name) ? { symbol, qualifiedName: symbol.name } : { symbol };
+  });
 }
 
 function extractPhpNamespace(fileContent?: string): string | undefined {

@@ -95,6 +95,71 @@ describe('buildAstSymbolNodes — PHP', () => {
     expect(total?.language_id).toBe('php');
   });
 
+  it('qualifies each definition with the namespace statement it follows', () => {
+    const src = [
+      '<?php',
+      'namespace App\\A;',
+      'class X { public function a() {} }',
+      'namespace App\\B;',
+      'class Y { public function b() {} }',
+      'function helper() {}',
+    ].join('\n');
+    const { extraction } = extractSource(grammars, src, 'TwoBlocks.php', 'php');
+    expect(extraction.namespace).toBe('App\\A');
+
+    const ids = buildAstSymbolNodes('TwoBlocks.php', extraction, 'php', 1000).map((n) => n.id);
+    expect(ids.sort()).toEqual([
+      'symbol:php:App\\A\\X',
+      'symbol:php:App\\A\\X::a',
+      'symbol:php:App\\B\\Y',
+      'symbol:php:App\\B\\Y::b',
+      'symbol:php:App\\B\\helper',
+    ]);
+  });
+
+  it('qualifies by namespace block, and leaves the global block unqualified', () => {
+    const src = [
+      '<?php',
+      'namespace App\\Br {',
+      '  class Z { public function z() {} }',
+      '}',
+      'namespace {',
+      '  function in_global() {}',
+      '  class Bare {}',
+      '}',
+      'namespace App\\Other {',
+      '  class Q {}',
+      '}',
+    ].join('\n');
+    const { extraction } = extractSource(grammars, src, 'Bracketed.php', 'php');
+
+    const nodes = buildAstSymbolNodes('Bracketed.php', extraction, 'php', 1000);
+    expect(nodes.map((n) => n.id).sort()).toEqual([
+      'symbol:php:App\\Br\\Z',
+      'symbol:php:App\\Br\\Z::z',
+      'symbol:php:App\\Other\\Q',
+      'symbol:php:Bare',
+      'symbol:php:in_global',
+    ]);
+    expect(nodes.find((n) => n.id === 'symbol:php:in_global')?.qualified_name).toBeUndefined();
+  });
+
+  it('records a namespace on a definition only when it is not the first one in the file', () => {
+    const one = extractSource(grammars, '<?php\nnamespace App;\nclass A {}\n', 'A.php', 'php');
+    expect(one.extraction.nodes.map((n) => n.namespace)).toEqual([undefined]);
+
+    const two = extractSource(
+      grammars,
+      '<?php\nnamespace App;\nclass A {}\nnamespace Lib;\nclass B {}\n',
+      'AB.php',
+      'php'
+    );
+    expect(two.extraction.nodes.map((n) => [n.name, n.namespace])).toEqual([
+      ['A', undefined],
+      ['B', 'Lib'],
+    ]);
+  });
+
   it('falls back to short names when there is no namespace', () => {
     const src = ['<?php', 'class Plain {}'].join('\n');
     const { extraction } = extractSource(grammars, src, 'Plain.php', 'php');
