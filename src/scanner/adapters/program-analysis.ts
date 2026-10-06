@@ -10,8 +10,10 @@ import { isVueSfcFacts, type VueSfcFactsV1 } from '../vue/types.js';
 import { extractVueEvents } from '../vue/event-extract.js';
 import { DEFAULT_PARSER_LIMITS } from './types.js';
 import { sourceAdapterForLanguage } from './registry.js';
+import { resetParserWorkerStartFailures } from './worker-host.js';
 import {
   buildSharedExtractionAnalysis,
+  workerStartFailureWarning,
   type SharedExtractionBuildV1,
 } from '../ast/extraction-cache.js';
 import { buildProjectResolutionContext } from '../project-resolution/context.js';
@@ -41,8 +43,12 @@ export async function analyzeProgram(
   rootPath: string,
   onWarn?: WarnFn
 ): Promise<ProgramAnalysisBuildV1> {
+  // A new analysis is a new run: try again any parser worker that failed to start in the last one.
+  resetParserWorkerStartFailures();
   const shared = await buildSharedExtractionAnalysis(scan, rootPath, onWarn);
   const vueFacts: VueSfcFactsV1[] = [];
+  let vueStartFailure: string | undefined;
+  let vueFilesNotStarted = 0;
   const vueAdapter = sourceAdapterForLanguage('vue');
   if (vueAdapter) {
     for (const entry of scan.knowledge) {
@@ -56,6 +62,11 @@ export async function analyzeProgram(
       shared.producersRun.add(vueAdapter.id);
       shared.dependencies.push(...output.dependencies);
       shared.diagnostics.push(...output.diagnostics);
+      const notStarted = output.diagnostics.find((item) => item.code === 'start-timeout');
+      if (notStarted) {
+        vueStartFailure ??= notStarted.message;
+        vueFilesNotStarted++;
+      }
       if (isVueSfcFacts(output.facts)) {
         const source = entry.content ?? '';
         const eventFacts = source ? extractVueEvents(source, output.facts.filePath) : undefined;
@@ -71,6 +82,12 @@ export async function analyzeProgram(
         shared.facts.push(enriched);
       }
     }
+  }
+  if (vueStartFailure !== undefined) {
+    onWarn?.(
+      workerStartFailureWarning('Vue', vueStartFailure, vueFilesNotStarted),
+      'ast-worker:vue'
+    );
   }
   const sourceFiles = new Set(
     scan.knowledge

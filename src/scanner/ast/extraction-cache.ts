@@ -54,6 +54,8 @@ export async function buildSharedExtractionAnalysis(
     producersRun: new Set(),
   };
 
+  let startFailure: string | undefined;
+  let filesNotStarted = 0;
   for (const entry of scan.knowledge) {
     if (entry.type !== 'source-code' || !entry.content) continue;
     const lang = langForFile(entry.filePath);
@@ -86,10 +88,16 @@ export async function buildSharedExtractionAnalysis(
           location: { filePath: relPath, line: 1, column: 0 },
         };
         result.diagnostics.push(diagnostic);
-        onWarn?.(
-          `AST extraction ${diagnostic.code} for ${relPath}: ${diagnostic.message}`,
-          `ast-file:${relPath}`
-        );
+        if (diagnostic.code === 'start-timeout') {
+          // One worker failing to start fails every file; that is one warning, made below.
+          startFailure ??= diagnostic.message;
+          filesNotStarted++;
+        } else {
+          onWarn?.(
+            `AST extraction ${diagnostic.code} for ${relPath}: ${diagnostic.message}`,
+            `ast-file:${relPath}`
+          );
+        }
         continue;
       }
       const facts = {
@@ -142,8 +150,23 @@ export async function buildSharedExtractionAnalysis(
       );
     }
   }
+  if (startFailure !== undefined) {
+    onWarn?.(
+      workerStartFailureWarning('JavaScript', startFailure, filesNotStarted),
+      'ast-worker:javascript'
+    );
+  }
 
   return result;
+}
+
+/** The single warning for a parser worker that failed to start, however many files it cost. */
+export function workerStartFailureWarning(
+  language: string,
+  reason: string,
+  fileCount: number
+): string {
+  return `${language} parser worker failed to start: ${reason} ${fileCount} file(s) were not parsed.`;
 }
 
 export async function buildSharedExtractions(

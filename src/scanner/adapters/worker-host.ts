@@ -34,6 +34,11 @@ export const WORKER_DIAGNOSTICS = {
   fileLimit: 'Parser input exceeds maxBytes.',
   resultLimit: 'Parser result exceeds maxResultBytes.',
   timeout: 'Parser worker timed out.',
+  /** A worker that never reported its parse started: a start-up failure, not a slow parse. */
+  startTimeout: (limitMs: number): string =>
+    `Parser worker did not start within ${limitMs / 1000}s.`,
+  /** A file not attempted because this adapter's worker already failed to start in this run. */
+  startFailedEarlier: 'Parser worker failed to start earlier in this run; not retried.',
   workerError: 'Parser worker failed.',
 } as const;
 
@@ -57,6 +62,8 @@ export interface WorkerHostOptions {
   persistentWorkerUrl?: URL;
   /** Test seam: the clock behind the start and parse limits. Defaults to unref'd real timers. */
   timers?: WorkerHostTimers;
+  /** Test seam: how long a worker has to report its parse started (WORKER_START_LIMIT_MS). */
+  startLimitMs?: number;
 }
 
 export interface WorkerHostTimers {
@@ -89,7 +96,7 @@ interface WorkerWireRequestV1 {
 }
 
 function diagnostic(
-  code: 'timeout' | 'limit' | 'parse-error' | 'path-escape' | 'worker-error',
+  code: 'timeout' | 'start-timeout' | 'limit' | 'parse-error' | 'path-escape' | 'worker-error',
   message: string
 ): AdapterWorkerResponseV1 {
   return { schemaVersion: 1, ok: false, diagnostic: { code, message } };
@@ -228,7 +235,9 @@ function isWorkerResponse(value: unknown): value is AdapterWorkerResponseV1 {
   const item = response.diagnostic as Record<string, unknown>;
   return (
     typeof item.message === 'string' &&
-    ['timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(String(item.code))
+    ['timeout', 'start-timeout', 'limit', 'parse-error', 'path-escape', 'worker-error'].includes(
+      String(item.code)
+    )
   );
 }
 
@@ -254,9 +263,15 @@ function defaultCreateWorker(url: URL, options: WorkerOptions): WorkerLike {
   return new Worker(url, options);
 }
 
-function graceDelay(timers: WorkerHostTimers, milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => {
-    timers.set(resolveDelay, milliseconds);
+/** Resolve once `worker.terminate()` settles, or after the grace period if it does not. */
+function terminateWithGrace(worker: WorkerLike, timers: WorkerHostTimers): Promise<void> {
+  return new Promise((resolveTerminated) => {
+    const grace = timers.set(resolveTerminated, TERMINATION_GRACE_MS);
+    const terminated = (): void => {
+      timers.clear(grace);
+      resolveTerminated();
+    };
+    void worker.terminate().then(terminated, terminated);
   });
 }
 
@@ -304,8 +319,26 @@ function wireRequest(
 // (no parse-started message within the start limit, a crash, an unreadable reply,
 // `worker-error`) discards that worker and re-runs the request in a fresh single-use worker, so it
 // is decided exactly as without the pool. Idle workers are unref'd and never keep the process alive.
+//
+// A worker that does not start is remembered for the rest of the run (resetParserWorkerStartFailures
+// marks a new one). Parsing is serial, so waiting out the start limit again for every file would
+// turn one broken worker into hours. A persistent worker that never starts takes its entry out of
+// the pool; a fresh one that never starts fails every later file for that entry at once, as
+// `start-timeout`. One expiry is enough: the limit is hundreds of times a normal start, and with
+// the pool in use it is the second worker in a row to miss it.
 
 const idleWorkers = new Map<string, Worker[]>();
+/** Entries whose persistent worker never started this run: their requests skip the pool. */
+const poolStartFailures = new Set<string>();
+/** Entries whose fresh worker never started this run: their requests fail without a worker. */
+const startFailures = new Set<string>();
+
+/** Forget the workers that failed to start, so a new run tries them again. */
+export function resetParserWorkerStartFailures(): void {
+  poolStartFailures.clear();
+  startFailures.clear();
+}
+
 let persistentWorkersStarted = 0;
 
 /** Persistent parser workers started by this process (observability for tests). */
@@ -341,7 +374,8 @@ function executePersistent(
   request: AdapterWorkerRequestV1,
   wire: WorkerWire,
   url: URL,
-  timers: WorkerHostTimers
+  timers: WorkerHostTimers,
+  startLimitMs: number
 ): Promise<AdapterWorkerResponseV1 | undefined> {
   let worker: Worker;
   try {
@@ -370,8 +404,10 @@ function executePersistent(
     let parseStarted = false;
     // A timeout after parse-started is the parse overrunning its limit, which a fresh worker would
     // measure the same way, so it is final; before it, the worker never got going.
-    const onTimeout = (): void =>
+    const onTimeout = (): void => {
+      if (!parseStarted) poolStartFailures.add(url.href);
       finish(parseStarted ? diagnostic('timeout', WORKER_DIAGNOSTICS.timeout) : undefined);
+    };
     const onMessage = (value: unknown): void => {
       if (isParseStartedMessage(value)) {
         parseStarted = true;
@@ -384,7 +420,7 @@ function executePersistent(
       finish(failed ? undefined : response, !failed);
     };
 
-    let timeout = timers.set(onTimeout, WORKER_START_LIMIT_MS);
+    let timeout = timers.set(onTimeout, startLimitMs);
     worker.on('message', onMessage);
     worker.once('error', onFailure);
     worker.once('exit', onFailure);
@@ -399,17 +435,20 @@ async function executeWorker(
 ): Promise<AdapterWorkerResponseV1> {
   const wire = wireRequest(request, confined, options);
   const timers = options.timers ?? REAL_TIMERS;
-  // The worker seams name a single-use entry point, so they bypass the pool.
-  if (!options.workerUrl && !options.createWorker) {
-    const pooled = await executePersistent(
-      request,
-      wire,
-      options.persistentWorkerUrl ?? workerEntryUrl(request.adapterId),
-      timers
-    );
+  const startLimitMs = options.startLimitMs ?? WORKER_START_LIMIT_MS;
+  const url = options.workerUrl ?? workerEntryUrl(request.adapterId);
+  if (startFailures.has(url.href)) {
+    return diagnostic('start-timeout', WORKER_DIAGNOSTICS.startFailedEarlier);
+  }
+  // The worker seams name a single-use entry point, so they bypass the pool unless a persistent
+  // entry is named too.
+  const persistentUrl =
+    options.persistentWorkerUrl ??
+    (options.workerUrl || options.createWorker ? undefined : workerEntryUrl(request.adapterId));
+  if (persistentUrl && !poolStartFailures.has(persistentUrl.href)) {
+    const pooled = await executePersistent(request, wire, persistentUrl, timers, startLimitMs);
     if (pooled) return pooled;
   }
-  const url = options.workerUrl ?? workerEntryUrl(request.adapterId);
   const createWorker = options.createWorker ?? defaultCreateWorker;
 
   let worker: WorkerLike;
@@ -429,23 +468,25 @@ async function executeWorker(
       resolveResponse(response);
     };
 
+    let parseStarted = false;
     const onTimeout = (): void => {
       if (settled) return;
       settled = true;
-      void Promise.race([
-        worker
-          .terminate()
-          .then(() => undefined)
-          .catch(() => undefined),
-        graceDelay(timers, TERMINATION_GRACE_MS),
-      ]).then(() => resolveResponse(diagnostic('timeout', WORKER_DIAGNOSTICS.timeout)));
+      // A worker that never reported its parse started failed to start: say so, and do not wait
+      // on this entry's worker again in this run.
+      if (!parseStarted) startFailures.add(url.href);
+      const response = parseStarted
+        ? diagnostic('timeout', WORKER_DIAGNOSTICS.timeout)
+        : diagnostic('start-timeout', WORKER_DIAGNOSTICS.startTimeout(startLimitMs));
+      void terminateWithGrace(worker, timers).then(() => resolveResponse(response));
     };
     // The worker has the start limit to report the parse started; the parse then has its own.
-    let timeout = timers.set(onTimeout, WORKER_START_LIMIT_MS);
+    let timeout = timers.set(onTimeout, startLimitMs);
 
     const onMessage = (value: unknown): void => {
       if (settled) return;
       if (isParseStartedMessage(value)) {
+        parseStarted = true;
         timers.clear(timeout);
         timeout = timers.set(onTimeout, request.input.limits.timeoutMs);
         return;

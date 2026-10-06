@@ -10,6 +10,7 @@ import { DEFAULT_PARSER_LIMITS, type ParserLimitsV1 } from '../types.js';
 import type { AdapterWorkerRequestV1 } from '../worker-protocol.js';
 import {
   persistentParserWorkersStarted,
+  resetParserWorkerStartFailures,
   runAdapterWorker,
   WORKER_DIAGNOSTICS,
 } from '../worker-host.js';
@@ -81,7 +82,40 @@ class NeverWorker extends EventEmitter {
   terminate = vi.fn(async () => 0);
 }
 
+/** Workers the host created through `countingWorkers`, and whether each has exited. */
+function countingWorkers(): {
+  created: Worker[];
+  exited: Set<Worker>;
+  createWorker: (url: URL, options: WorkerOptions) => Worker;
+} {
+  const created: Worker[] = [];
+  const exited = new Set<Worker>();
+  return {
+    created,
+    exited,
+    createWorker: (url, options) => {
+      const worker = new Worker(url, options);
+      worker.once('exit', () => exited.add(worker));
+      created.push(worker);
+      return worker;
+    },
+  };
+}
+
+const START_TIMEOUT = {
+  schemaVersion: 1,
+  ok: false,
+  diagnostic: { code: 'start-timeout', message: 'Parser worker did not start within 30s.' },
+};
+const NOT_RETRIED = {
+  schemaVersion: 1,
+  ok: false,
+  diagnostic: { code: 'start-timeout', message: WORKER_DIAGNOSTICS.startFailedEarlier },
+};
+
 afterEach(async () => {
+  vi.restoreAllMocks();
+  resetParserWorkerStartFailures();
   await Promise.all(
     temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
   );
@@ -358,7 +392,6 @@ describe('bounded parser worker host', () => {
     const freshOverTimers = new ManualTimers();
     const freshOverRun = runAdapterWorker(limited(hung), { workerUrl, timers: freshOverTimers });
     await freshOverTimers.expire(300);
-    await freshOverTimers.expire(250); // the fresh worker's termination grace, if it is still going
     const freshOver = await freshOverRun;
 
     expect(!warmOver.ok && warmOver.diagnostic.code).toBe('timeout');
@@ -367,7 +400,7 @@ describe('bounded parser worker host', () => {
     expect(persistentParserWorkersStarted()).toBe(startedBefore);
   }, 60_000);
 
-  it('discards a persistent worker that hangs and re-runs the parse in a fresh worker', async () => {
+  it('discards and terminates a persistent worker that never starts, re-runs the parse in a fresh worker, and stops using the pool', async () => {
     const root = await temporaryRoot();
     const file = join(root, 'input.js');
     await writeFile(file, 'export const value = 1;');
@@ -375,24 +408,166 @@ describe('bounded parser worker host', () => {
       ...request(root, file),
       adapterId: 'javascript-tree-sitter',
     };
-    const persistentWorkerUrl = fixture('hang-persistent-adapter.mjs');
+    const persistentWorkerUrl = new URL(`${fixture('never-start-adapter.mjs').href}?pool=discard`);
+    const terminate = vi.spyOn(Worker.prototype, 'terminate');
     // The persistent worker never reports a parse started, so its start limit is what ends it; the
     // fresh worker that takes over answers on its own, and no other limit expires.
     const timers = new ManualTimers();
-    const expireStartLimit = (): Promise<void> => timers.expire(START_LIMIT_MS);
 
     const before = persistentParserWorkersStarted();
     const firstRun = runAdapterWorker(javascript, { persistentWorkerUrl, timers });
-    await expireStartLimit();
+    await timers.expire(START_LIMIT_MS);
     const first = await firstRun;
-    const secondRun = runAdapterWorker(javascript, { persistentWorkerUrl, timers });
-    await expireStartLimit();
-    const second = await secondRun;
+    const terminatedAfterFirst = new Set(terminate.mock.contexts).size;
+    const second = await runAdapterWorker(javascript, { persistentWorkerUrl, timers });
 
-    // Each hung persistent worker is terminated, not returned to the pool, so the second request
-    // starts another; both requests still parse, in the fresh worker.
     expect(first.ok).toBe(true);
     expect(second).toEqual(first);
-    expect(persistentParserWorkersStarted() - before).toBe(2);
+    // Two workers were terminated for the first request: the persistent one that never started,
+    // and the fresh one once it had answered.
+    expect(terminatedAfterFirst).toBe(2);
+    // The pool's worker failed to start once, so the second request went straight to a fresh one
+    // instead of waiting out the start limit again.
+    expect(persistentParserWorkersStarted() - before).toBe(1);
+    expect(timers.armed.filter((delay) => delay === START_LIMIT_MS)).toHaveLength(3);
+  }, 60_000);
+
+  it('reports a fresh worker that never starts as start-timeout, and terminates it', async () => {
+    const root = await temporaryRoot();
+    const file = join(root, 'input.js');
+    await writeFile(file, 'export const value = 1;');
+    const timers = new ManualTimers();
+    const workers = countingWorkers();
+
+    const run = runAdapterWorker(request(root, file), {
+      workerUrl: fixture('never-start-adapter.mjs'),
+      createWorker: workers.createWorker,
+      timers,
+    });
+    await timers.expire(START_LIMIT_MS);
+    const result = await run;
+    await vi.waitFor(() => expect(workers.exited.size).toBe(1), { timeout: 30_000 });
+
+    expect(result).toEqual(START_TIMEOUT);
+    expect(timers.armed).toEqual([START_LIMIT_MS, 250]);
+  }, 60_000);
+
+  it('fails fast for the rest of the run once neither a persistent nor a fresh worker starts', async () => {
+    const root = await temporaryRoot();
+    const files: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      files.push(join(root, `module-${index}.js`));
+      await writeFile(files[index], `export const value${index} = ${index};`);
+    }
+    const workerUrl = fixture('never-start-adapter.mjs');
+    const persistentWorkerUrl = new URL(`${workerUrl.href}?pool=breaker`);
+    const timers = new ManualTimers();
+    const workers = countingWorkers();
+    const options = { workerUrl, persistentWorkerUrl, createWorker: workers.createWorker, timers };
+
+    const before = persistentParserWorkersStarted();
+    const firstRun = runAdapterWorker(request(root, files[0]), options);
+    await timers.expire(START_LIMIT_MS); // the persistent worker
+    await timers.expire(START_LIMIT_MS); // the fresh worker
+    const first = await firstRun;
+    const armedAfterFirst = timers.armed.length;
+    const rest = [];
+    for (const file of files.slice(1))
+      rest.push(await runAdapterWorker(request(root, file), options));
+
+    expect(first).toEqual(START_TIMEOUT);
+    // The other four files wait on nothing: no worker is started and no limit is armed for them.
+    expect(rest).toEqual([NOT_RETRIED, NOT_RETRIED, NOT_RETRIED, NOT_RETRIED]);
+    expect(timers.armed).toHaveLength(armedAfterFirst);
+    expect(workers.created).toHaveLength(1);
+    expect(persistentParserWorkersStarted() - before).toBe(1);
+
+    // A new run tries the worker again.
+    resetParserWorkerStartFailures();
+    const nextRun = runAdapterWorker(request(root, files[0]), options);
+    await timers.expire(START_LIMIT_MS);
+    await timers.expire(START_LIMIT_MS);
+    expect(await nextRun).toEqual(START_TIMEOUT);
+    expect(workers.created).toHaveLength(2);
+  }, 60_000);
+});
+
+// These cases run on the real clock, with limits short enough to wait out. Each asserts the
+// outcome a limit produces and never how long it took, so load cannot fail them; they are what
+// shows the production clock is wired to the limits at all.
+describe('bounded parser worker host — real clock', () => {
+  it('times out a fresh worker whose parse hangs, and terminates it', async () => {
+    const root = await temporaryRoot();
+    const file = join(root, 'input.js');
+    await writeFile(file, 'export const value = 1;');
+    const workers = countingWorkers();
+
+    const result = await runAdapterWorker(request(root, file, { timeoutMs: 50 }), {
+      workerUrl: fixture('hang-adapter.mjs'),
+      createWorker: workers.createWorker,
+    });
+    await vi.waitFor(() => expect(workers.exited.size).toBe(1), { timeout: 30_000 });
+
+    expect(result).toEqual({
+      schemaVersion: 1,
+      ok: false,
+      diagnostic: { code: 'timeout', message: WORKER_DIAGNOSTICS.timeout },
+    });
+  }, 60_000);
+
+  it('times out a persistent worker whose parse hangs, and terminates it', async () => {
+    const root = await temporaryRoot();
+    const file = join(root, 'hung.js');
+    await writeFile(file, 'hang');
+    const persistentWorkerUrl = new URL(`${fixture('timed-parse-adapter.mjs').href}?pool=real`);
+    const terminate = vi.spyOn(Worker.prototype, 'terminate');
+
+    const before = persistentParserWorkersStarted();
+    const result = await runAdapterWorker(request(root, file, { timeoutMs: 50 }), {
+      persistentWorkerUrl,
+    });
+
+    expect(result).toEqual({
+      schemaVersion: 1,
+      ok: false,
+      diagnostic: { code: 'timeout', message: WORKER_DIAGNOSTICS.timeout },
+    });
+    expect(persistentParserWorkersStarted() - before).toBe(1);
+    expect(terminate).toHaveBeenCalledTimes(1);
+  }, 60_000);
+
+  it('gives up on workers that never start, once, and fails the remaining files at once', async () => {
+    const root = await temporaryRoot();
+    const files: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      files.push(join(root, `module-${index}.js`));
+      await writeFile(files[index], `export const value${index} = ${index};`);
+    }
+    const workerUrl = fixture('never-start-adapter.mjs');
+    const persistentWorkerUrl = new URL(`${workerUrl.href}?pool=real-breaker`);
+    const workers = countingWorkers();
+    const options = {
+      workerUrl,
+      persistentWorkerUrl,
+      createWorker: workers.createWorker,
+      startLimitMs: 50,
+    };
+
+    const before = persistentParserWorkersStarted();
+    const results = [];
+    for (const file of files) results.push(await runAdapterWorker(request(root, file), options));
+
+    expect(results).toEqual([
+      {
+        schemaVersion: 1,
+        ok: false,
+        diagnostic: { code: 'start-timeout', message: 'Parser worker did not start within 0.05s.' },
+      },
+      NOT_RETRIED,
+      NOT_RETRIED,
+      NOT_RETRIED,
+    ]);
+    expect(workers.created).toHaveLength(1);
+    expect(persistentParserWorkersStarted() - before).toBe(1);
   }, 60_000);
 });
