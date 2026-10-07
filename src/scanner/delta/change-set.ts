@@ -1,5 +1,6 @@
 import { getDiffNameStatus, getDirtyFileEntries, getHeadCommit } from '../git.js';
 import { detectModuleBoundaries, resolveModule } from '../imports/module-boundary.js';
+import { denyListWarning, denyPatternsFor, isDeniedPath } from '../file-universe.js';
 import type { LuxDatabase } from '../../db/index.js';
 import type { BaseResolution } from './preflight.js';
 import type { DeltaChangeSet, DeltaFile, DeltaFileStatus, IndexTrust } from './types.js';
@@ -74,6 +75,17 @@ export function resolveDeltaChangeSet(
       });
     }
   }
+
+  // The credential deny list applies here as it does to the index (file-universe.ts): a denied
+  // file has no index facts to join, and the change set names it only in one warning.
+  const denyPatterns = denyPatternsFor(corpusPath);
+  const denied = [...files.keys()].filter((path) => isDeniedPath(path, denyPatterns));
+  for (const path of denied) {
+    const entry = files.get(path);
+    files.delete(path);
+    indexPaths.delete(entry?.renamedFrom ?? path);
+  }
+  if (denied.length > 0) warnings.push(denyListWarning(denied));
 
   // OQ4 (Decision 11): the maintained overlay marks are a base-honesty dimension the commit
   // pointer alone cannot express. When delta's base is the index pointer (the default) and the

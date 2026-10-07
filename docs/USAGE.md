@@ -24,6 +24,37 @@ Notes:
 - `index status --json` is the canonical machine-readable status envelope; it includes index stats, overlay trust diagnostics, and runtime corpus/DB provenance
 - `overlay status --json` emits the native overlay trust payload plus the same runtime provenance
 
+### Which files are indexed
+
+In a git repository the file universe is git's: `rebuild` reads the files `git ls-files` lists
+(tracked files, submodules included) under the paths git prints, so an index on a case-insensitive
+filesystem matches the repository even when a directory's case on disk is stale. Untracked and
+ignored files are never indexed, whatever the include globs say. `sync` applies the committed diff
+since the last indexed commit, which also lists tracked files only. `lux delta` is the one reader
+that looks at untracked files: it reports untracked, non-ignored source files as `index-absent`
+changes (`git status --porcelain`), and writes nothing.
+
+A directory that is not a git repository, or that its enclosing repository ignores (such as a
+vendored package copy), is walked on disk as before.
+
+The include globs (markdown and the source-code extensions) and exclude globs then select from that
+universe. `lux_get_file` serves only files in the same universe.
+
+A built-in deny list keeps credential files out of the index even when they are tracked:
+`auth.json`, `.env`, `.env.*` (except `.env.example`), `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`,
+`.npmrc` and `.netrc`, in any directory. Each run that skips one prints a single
+`Warning: skipped N file(s) on the credential deny list …` line naming them; the skip does not
+degrade the overlay. Extend the list in `lux.yaml`; there is no way to remove a built-in entry:
+
+```yaml
+# lux.yaml
+scan:
+  ignore_patterns: ['storage/**'] # extra exclude globs
+  deny_patterns: ['**/secrets.yaml'] # extra credential globs, added to the built-in list
+```
+
+After adding a deny pattern, run `lux index rebuild` so a file indexed before it is removed.
+
 ## Doctor
 
 ```bash

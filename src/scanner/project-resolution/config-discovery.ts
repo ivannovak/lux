@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { parse, printParseErrorCode, type ParseError, type ParseOptions } from 'jsonc-parser';
 
 import type { SourceDiagnosticV1 } from '../contracts/program.js';
+import { resolveFileUniverse, universeIncludes, type FileUniverse } from '../file-universe.js';
 
 const JSONC_OPTIONS: ParseOptions = {
   allowTrailingComma: true,
@@ -316,7 +317,8 @@ async function walkConfigs(
 /** Select the nearest ts/jsconfig for one importer, refusing an equal-distance pair. */
 export async function discoverNearestProjectConfig(
   importerFile: string,
-  roots: ConfinedRootsV1
+  roots: ConfinedRootsV1,
+  universe: FileUniverse = resolveFileUniverse(roots.rootPath)
 ): Promise<{ configFile?: string; diagnostics: SourceDiagnosticV1[] }> {
   const diagnostics: SourceDiagnosticV1[] = [];
   if (unsafePath(importerFile)) {
@@ -341,6 +343,7 @@ export async function discoverNearestProjectConfig(
     const existing: string[] = [];
     for (const name of CONFIG_NAMES) {
       const candidate = resolve(directory, name);
+      if (!universeIncludes(universe, roots.rootPath, candidate)) continue;
       if (await readConfinedConfigFile(candidate, roots)) existing.push(candidate);
     }
     if (existing.length > 1) {
@@ -369,7 +372,8 @@ export async function discoverNearestProjectConfig(
 export async function discoverProjectConfigs(
   rootPath: string,
   allowedRoots: readonly string[],
-  importerFiles?: readonly string[]
+  importerFiles?: readonly string[],
+  universe?: FileUniverse
 ): Promise<ProjectConfigDiscoveryResultV1> {
   const roots = await canonicalizeConfigRoots(rootPath, allowedRoots);
   if (!roots) {
@@ -388,11 +392,19 @@ export async function discoverProjectConfigs(
   const vite = new Set<string>();
   const diagnostics: SourceDiagnosticV1[] = [];
   await walkConfigs(roots.rootPath, roots, configs, vite, diagnostics);
+  // Only configs in the scan's file universe count: an ignored or untracked tsconfig must not
+  // steer how tracked imports resolve (file-universe.ts).
+  const files = universe ?? resolveFileUniverse(roots.rootPath);
+  for (const set of [configs, vite]) {
+    for (const candidate of [...set]) {
+      if (!universeIncludes(files, roots.rootPath, candidate)) set.delete(candidate);
+    }
+  }
 
   if (importerFiles) {
     configs.clear();
     for (const importer of importerFiles) {
-      const nearest = await discoverNearestProjectConfig(importer, roots);
+      const nearest = await discoverNearestProjectConfig(importer, roots, files);
       diagnostics.push(...nearest.diagnostics);
       if (nearest.configFile) configs.add(nearest.configFile);
     }

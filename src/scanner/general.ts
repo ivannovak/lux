@@ -1,6 +1,5 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, basename, extname } from 'path';
-import { glob, globSync } from 'glob';
 import type { Frontmatter, ScannedKnowledge, ScanResult } from './types.js';
 import { ROWS_PER_COMMIT, toStoredPath, writeInChunks, type LuxDatabase } from '../db/index.js';
 import {
@@ -35,6 +34,14 @@ import { classifyHandlerOwnership, resolveAppNamespace } from './associations/ow
 import { WarningLog, warnSink, type WarnFn } from './reporter.js';
 import { parseMarkdownSource, unreadableWarning } from './markdown.js';
 import { canonicalScanOrder, compareCodeUnits } from './scan-order.js';
+import {
+  partitionDenied,
+  resolveDenyPatterns,
+  resolveFileUniverse,
+  selectFiles,
+  selectFilesSync,
+  type FileUniverse,
+} from './file-universe.js';
 import {
   failedStartFailure,
   fileFailure,
@@ -197,10 +204,16 @@ export function inferTagsFromPath(filePath: string): string[] {
 export class GeneralScanner {
   private rootPath?: string;
   private readonly ignorePatterns: string[];
+  private readonly denyPatterns: string[];
 
-  constructor(rootPath?: string, ignorePatterns: string[] = SOURCE_CODE_IGNORE_PATTERNS) {
+  constructor(
+    rootPath?: string,
+    ignorePatterns: string[] = SOURCE_CODE_IGNORE_PATTERNS,
+    denyPatterns: string[] = resolveDenyPatterns()
+  ) {
     this.rootPath = rootPath;
     this.ignorePatterns = ignorePatterns;
+    this.denyPatterns = denyPatterns;
   }
 
   async scan(rootPath?: string): Promise<ScanResult> {
@@ -215,11 +228,22 @@ export class GeneralScanner {
       warnings.push({ message, component });
     });
 
+    // The files this scan may read: git's tracked files in a git repository, the filesystem
+    // elsewhere (file-universe.ts). Credential files on the deny list are dropped from every
+    // selection below and reported once, by name, in `denied`.
+    const universe = resolveFileUniverse(scanPath);
+    const denied: string[] = [];
+    const allowed = (paths: string[]): string[] => {
+      const split = partitionDenied(paths, this.denyPatterns);
+      denied.push(...split.denied);
+      return split.allowed;
+    };
+
     // Scan all markdown files recursively from the root, excluding vendored
     // and tooling trees (e.g. node_modules, .git, .claude worktrees) so nested
     // repo checkouts don't inject duplicate content entries.
     const mdFiles = canonicalScanOrder(
-      await glob('**/*.md', { cwd: scanPath, ignore: this.ignorePatterns })
+      allowed(await selectFiles(scanPath, universe, ['**/*.md'], this.ignorePatterns))
     );
 
     for (const mdFile of mdFiles) {
@@ -247,8 +271,8 @@ export class GeneralScanner {
     }
 
     // Scan source code files if this looks like a code repository
-    if (this.isSourceCodeRepository(scanPath)) {
-      const sourceFiles = await this.discoverSourceCodeFiles(scanPath);
+    if (this.isSourceCodeRepository(scanPath, universe)) {
+      const sourceFiles = allowed(await this.discoverSourceCodeFiles(scanPath, universe));
 
       for (const sourceFile of sourceFiles) {
         const filePath = join(scanPath, sourceFile);
@@ -276,34 +300,31 @@ export class GeneralScanner {
       }
     }
 
-    return { knowledge, warnings };
+    return { knowledge, warnings, denied: [...new Set(denied)].sort(compareCodeUnits) };
   }
 
   /**
    * Check if a directory looks like a source code repository by checking
    * for common manifest/build files.
    */
-  private isSourceCodeRepository(rootPath: string): boolean {
+  private isSourceCodeRepository(rootPath: string, universe: FileUniverse): boolean {
+    const hasManifest = (manifest: string): boolean =>
+      universe.kind === 'git' ? universe.has(manifest) : existsSync(join(rootPath, manifest));
     return (
-      SOURCE_CODE_MANIFEST_FILES.some((manifest) => existsSync(join(rootPath, manifest))) ||
-      globSync(['**/*.tf', '**/*.hcl'], {
-        cwd: rootPath,
-        nodir: true,
-        ignore: this.ignorePatterns,
-      }).length > 0
+      SOURCE_CODE_MANIFEST_FILES.some(hasManifest) ||
+      selectFilesSync(rootPath, universe, ['**/*.tf', '**/*.hcl'], this.ignorePatterns).length > 0
     );
   }
 
   /**
-   * Discover source code files in a directory, respecting ignore patterns.
+   * Discover source code files in the universe, respecting ignore patterns.
    */
-  private async discoverSourceCodeFiles(rootPath: string): Promise<string[]> {
+  private async discoverSourceCodeFiles(
+    rootPath: string,
+    universe: FileUniverse
+  ): Promise<string[]> {
     const extensionGlobs = SOURCE_CODE_EXTENSIONS.map((ext) => `**/*${ext}`);
-    const files = await glob(extensionGlobs, {
-      cwd: rootPath,
-      ignore: this.ignorePatterns,
-      nodir: true,
-    });
+    const files = await selectFiles(rootPath, universe, extensionGlobs, this.ignorePatterns);
     return canonicalScanOrder(files);
   }
 
@@ -596,7 +617,8 @@ export async function generalScan(
   // 1. Run the base scan (generated-artifact exclusion resolved from config — Lever A)
   report('Scanning content directory...');
   const ignore = resolveIgnorePatterns(config.scan);
-  const scanner = new GeneralScanner(rootPath, ignore);
+  const deny = resolveDenyPatterns(config.scan);
+  const scanner = new GeneralScanner(rootPath, ignore, deny);
   const scan = await scanner.scan();
   for (const w of scan.warnings ?? []) warn(w.message, w.component);
 
@@ -609,7 +631,7 @@ export async function generalScan(
   const firstPartySource: ScannedKnowledge[] = [];
   for (const fpRoot of firstPartyRoots) {
     report(`Scanning first-party root: ${fpRoot}`);
-    const fpScan = await new GeneralScanner(fpRoot, ignore).scan();
+    const fpScan = await new GeneralScanner(fpRoot, ignore, deny).scan();
     for (const w of fpScan.warnings ?? []) warn(w.message, w.component);
     for (const k of fpScan.knowledge) {
       if (k.type === 'source-code') firstPartySource.push(k);
@@ -1089,7 +1111,11 @@ export async function analyzeWorkingTree(
   config: LuxLspConfig,
   warn: WarnFn
 ): Promise<WorkingTreeProgram> {
-  const scan = await new GeneralScanner(rootPath, resolveIgnorePatterns(config.scan)).scan();
+  const scan = await new GeneralScanner(
+    rootPath,
+    resolveIgnorePatterns(config.scan),
+    resolveDenyPatterns(config.scan)
+  ).scan();
   for (const w of scan.warnings ?? []) warn(w.message, w.component);
   try {
     return { scan, analysis: await analyzeProgram(scan, rootPath, warn) };

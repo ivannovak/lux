@@ -67,6 +67,7 @@ import {
   commitIncrementalSync,
   hasOverlayRelevantChanges,
 } from '../scanner/incremental.js';
+import { denyListWarning } from '../scanner/file-universe.js';
 import { assessWorkingTreeFreshness, renderFreshnessText } from '../scanner/freshness.js';
 import { addSearchCommand } from './search.js';
 import { registerAnchorsCommand } from './anchors.js';
@@ -768,6 +769,7 @@ indexCmd
               // references point) moves when the files it refers to do.
               const planLog = new WarningLog();
               const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
+              printDeniedFiles(plan.denied);
               const refreshedPaths = new Set(result.refreshedPaths);
               const refreshedEntries = (result.workingTree?.scan.knowledge ?? []).filter(
                 (entry) =>
@@ -970,6 +972,7 @@ indexCmd
         // Build incremental plan
         const planLog = new WarningLog();
         const plan = buildIncrementalPlan(corpusPath, diff, planLog.reporter);
+        printDeniedFiles(plan.denied);
 
         if (!options.quiet) {
           console.log(
@@ -1679,6 +1682,7 @@ async function persistKnowledgeIndex(
     embedToCompletion?: boolean;
   }
 ): Promise<string[]> {
+  printDeniedFiles(result.denied);
   progress.log('Indexing...');
 
   try {
@@ -1779,6 +1783,17 @@ function finishRebuild(
   const count = printRunWarnings(warnings, carried);
   progress.finish('index rebuild complete', count);
   return count;
+}
+
+/**
+ * Name the credential files the deny list kept out of this run, in one line on stderr, in every
+ * mode. A policy outcome rather than a problem the run absorbed, so it is not one of the run's
+ * trust warnings and does not degrade the overlay.
+ */
+function printDeniedFiles(denied: readonly string[] | undefined): void {
+  if (!denied || denied.length === 0) return;
+  // eslint-disable-next-line no-restricted-syntax -- the deny-list notice, beside the run-warnings printer.
+  console.warn(`Warning: ${denyListWarning(denied)}`);
 }
 
 /**

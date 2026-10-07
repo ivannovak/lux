@@ -7,6 +7,7 @@ import { parseDocument, visit } from 'yaml';
 
 import type { SourceDiagnosticV1, WorkspacePackageV1 } from '../contracts/program.js';
 import { normalizeRepositoryPath } from './candidates.js';
+import { resolveFileUniverse, universeIncludes, type FileUniverse } from '../file-universe.js';
 import { parsePackageExports } from './package-exports.js';
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
@@ -29,7 +30,8 @@ interface WorkspaceManifestV1 {
 export async function discoverWorkspacePackages(
   rootPath: string,
   allowedRoots: readonly string[],
-  sourceFiles: ReadonlySet<string>
+  sourceFiles: ReadonlySet<string>,
+  universe: FileUniverse = resolveFileUniverse(rootPath)
 ): Promise<WorkspaceDiscoveryResultV1> {
   const diagnostics: SourceDiagnosticV1[] = [];
   const dependencies: string[] = [];
@@ -61,12 +63,11 @@ export async function discoverWorkspacePackages(
     }
   }
 
-  const manifestPaths = await expandWorkspacePatterns(
-    patterns,
-    rootPath,
-    canonicalRoot,
-    diagnostics
-  );
+  // A workspace member is a manifest in the scan's file universe (file-universe.ts), so an
+  // ignored or untracked package.json never names a package.
+  const manifestPaths = (
+    await expandWorkspacePatterns(patterns, rootPath, canonicalRoot, diagnostics)
+  ).filter((manifestPath) => universeIncludes(universe, rootPath, manifestPath));
   const records: WorkspacePackageV1[] = [];
   for (const manifestPath of manifestPaths) {
     const manifest = await readConfinedManifest(

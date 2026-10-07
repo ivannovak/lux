@@ -72,6 +72,11 @@ export interface ScanConfig {
   excludeGeneratedArtifacts: boolean;
   /** Extra ignore globs, unioned with the built-in defaults. */
   ignorePatterns: string[];
+  /**
+   * Extra credential-file globs, unioned with the built-in deny list (file-universe.ts). A denied
+   * file is never indexed, tracked or not. There is no way to remove a built-in entry.
+   */
+  denyPatterns?: string[];
 }
 
 export interface InertiaFrameworkConfigV1 {
@@ -217,6 +222,7 @@ const DEFAULT_AST_CONFIG: AstConfig = {
 const DEFAULT_SCAN_CONFIG: ScanConfig = {
   excludeGeneratedArtifacts: true,
   ignorePatterns: [],
+  denyPatterns: [],
 };
 
 const DEFAULT_CONFIG: LuxLspConfig = {
@@ -601,13 +607,18 @@ function validateAstConfig(raw: unknown): AstConfig {
 
 function validateScanConfig(raw: unknown): ScanConfig {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_SCAN_CONFIG;
-  const obj = raw as { exclude_generated_artifacts?: unknown; ignore_patterns?: unknown };
+  const obj = raw as {
+    exclude_generated_artifacts?: unknown;
+    ignore_patterns?: unknown;
+    deny_patterns?: unknown;
+  };
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((p): p is string => typeof p === 'string') : [];
   return {
     // On by default; only an explicit `exclude_generated_artifacts: false` opts out.
     excludeGeneratedArtifacts: obj.exclude_generated_artifacts !== false,
-    ignorePatterns: Array.isArray(obj.ignore_patterns)
-      ? obj.ignore_patterns.filter((p): p is string => typeof p === 'string')
-      : [],
+    ignorePatterns: strings(obj.ignore_patterns),
+    denyPatterns: strings(obj.deny_patterns),
   };
 }
 

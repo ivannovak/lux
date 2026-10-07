@@ -9,12 +9,17 @@ import {
   SOURCE_CODE_IGNORE_PATTERNS,
   detectLanguage,
   inferTagsFromPath,
+  resolveIgnorePatterns,
 } from './general.js';
+import { loadLspConfig, type ScanConfig } from './config.js';
+import { fileSelector, isDeniedPath, resolveDenyPatterns } from './file-universe.js';
 
 export interface IncrementalPlan {
   toDelete: string[]; // Absolute file paths to remove from index
   toIndex: ScannedKnowledge[]; // New/modified entries to add
   unchanged: number; // Count of files not affected
+  /** Changed paths the credential deny list kept out (their old rows, if any, are deleted). */
+  denied: string[];
 }
 
 /** True when a relative source path can invalidate the structural overlay
@@ -85,8 +90,8 @@ export function commitIncrementalSync(
   return { edgesMarkedNodePath, edgesMarkedEvidence };
 }
 
-/** Set of indexable extensions (markdown + source code). */
-const INDEXABLE_EXTENSIONS = new Set(['.md', ...SOURCE_CODE_EXTENSIONS]);
+/** The include globs of a full scan: markdown plus every source-code extension. */
+const INDEXABLE_PATTERNS = ['**/*.md', ...SOURCE_CODE_EXTENSIONS.map((ext) => `**/*${ext}`)];
 
 /**
  * Check whether a relative file path should be excluded based on ignore patterns.
@@ -112,13 +117,20 @@ function isExcludedPath(relativePath: string): boolean {
 }
 
 /**
- * Check whether a file is indexable (markdown or recognized source code).
+ * The scan configuration of `rootPath`. An unreadable lux.yaml leaves the defaults in force, with a
+ * warning: the sync that calls this reports the same parse failure where it loads the config itself.
  */
-function isIndexableFile(relativePath: string): boolean {
-  const ext = extname(relativePath);
-  if (!INDEXABLE_EXTENSIONS.has(ext)) return false;
-  if (isExcludedPath(relativePath)) return false;
-  return true;
+function scanConfigFor(rootPath: string, reporter?: Reporter): ScanConfig | undefined {
+  try {
+    return loadLspConfig(rootPath).scan;
+  } catch (error) {
+    reporter?.warn(
+      `lux.yaml could not be read, so this sync used the default include, ignore and deny lists — ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -224,7 +236,14 @@ export function buildIncrementalPlan(
 ): IncrementalPlan {
   const toDelete: string[] = [];
   const toIndex: ScannedKnowledge[] = [];
+  const denied: string[] = [];
   let excluded = 0;
+
+  // The diff lists files git tracks; a full scan's include, ignore and deny lists then select
+  // from them exactly as a rebuild selects from `git ls-files` (file-universe.ts).
+  const scan = scanConfigFor(rootPath, reporter);
+  const isIndexableFile = fileSelector(INDEXABLE_PATTERNS, resolveIgnorePatterns(scan));
+  const denyPatterns = resolveDenyPatterns(scan);
 
   // Process deleted files
   for (const file of diff.deleted) {
@@ -242,6 +261,10 @@ export function buildIncrementalPlan(
       continue;
     }
     toDelete.push(join(rootPath, file));
+    if (isDeniedPath(file, denyPatterns)) {
+      denied.push(file);
+      continue;
+    }
     const entry = buildEntry(rootPath, file, reporter);
     if (entry) {
       toIndex.push(entry);
@@ -254,6 +277,10 @@ export function buildIncrementalPlan(
       excluded++;
       continue;
     }
+    if (isDeniedPath(file, denyPatterns)) {
+      denied.push(file);
+      continue;
+    }
     const entry = buildEntry(rootPath, file, reporter);
     if (entry) {
       toIndex.push(entry);
@@ -264,5 +291,6 @@ export function buildIncrementalPlan(
     toDelete,
     toIndex,
     unchanged: excluded,
+    denied: [...new Set(denied)].sort(),
   };
 }

@@ -88,8 +88,11 @@ Read and return the raw content of a file by path. The returned text is the file
 ```
 
 `file_path` may be absolute, or relative to the corpus root, which is the form Lux reports paths
-in (for example `filePath` in `lux_search` results). **Error behavior:** an unreadable/missing path returns
-`isError: true` with the text `Error reading file: <reason>`.
+in (for example `filePath` in `lux_search` results). Only a file in the index's file universe is
+served: in a git repository a tracked file, never an ignored, untracked or out-of-corpus one, and
+never a file on the credential deny list (docs/USAGE.md, "Which files are indexed"). **Error
+behavior:** an unreadable, missing or refused path returns `isError: true` with the text
+`Error reading file: <reason>`.
 
 ## `lux_rebuild_index`
 
@@ -101,7 +104,8 @@ inputs.
 {}
 ```
 
-Returns a JSON summary: `success`, `indexed.knowledge` (entry count), an `overlay` block
+Returns a JSON summary: `success`, `indexed.knowledge` (entry count), `deniedFiles` (credential
+files the deny list kept out, by corpus-relative path), an `overlay` block
 (`mode`, `trustLevel`, `surfaceCount`, `fileNodeCount`, `symbolNodeCount`, `warnings`), and the
 `runtime` (`corpusPath`, `dbPath`) that was rebuilt. Uses the same canonical overlay-complete rebuild
 semantics as the CLI `lux index rebuild`.

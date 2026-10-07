@@ -62,6 +62,7 @@
     "glob": "^13.0.6",
     "gray-matter": "^4.0.3",
     "jsonc-parser": "3.3.1",
+    "minimatch": "^10.2.5",
     "onnxruntime-web": "1.27.0",
     "tree-sitter-wasms": "^0.1.13",
     "vscode-languageserver-protocol": "^3.18.2",

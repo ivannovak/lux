@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { globSync } from 'glob';
+import { resolveFileUniverse, selectFilesSync } from './file-universe.js';
 import type { LuxDatabase } from '../db/index.js';
 import { loadLspConfig } from './config.js';
 import { resolveFirstPartyRoots } from './pack/first-party.js';
@@ -71,12 +71,11 @@ export function computeStructuralConfigFingerprint(rootPath: string, db: LuxData
   const knownInputs = projectResolutionInputs.get(rootPath);
   const inputs =
     knownInputs ??
-    globSync(PROJECT_CONFIG_PATTERNS, {
-      cwd: rootPath,
-      nodir: true,
-      dot: false,
-      ignore: ['**/node_modules/**', '**/.git/**', '**/vendor/**'],
-    })
+    selectFilesSync(rootPath, resolveFileUniverse(rootPath), PROJECT_CONFIG_PATTERNS, [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/vendor/**',
+    ])
       .map((path) => relative(rootPath, join(rootPath, path)).replaceAll('\\', '/'))
       .sort();
   for (const relativePath of inputs) {

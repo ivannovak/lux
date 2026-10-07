@@ -32,6 +32,15 @@ npm run scan:secrets
 
 The scan is intentionally fail-closed. Do not add allowlist entries merely to make CI green. Confirm that a finding is non-secret, document the rationale in review, and narrowly suppress only the exact false positive.
 
+## Credential files are never indexed
+
+Lux indexes the files git tracks, never ignored or untracked ones, and a built-in deny list keeps
+credential files out even when they are tracked: `auth.json`, `.env`, `.env.*` (except
+`.env.example`), `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `.npmrc` and `.netrc`. A run that
+skips one names it in one warning. `lux.yaml` `scan.deny_patterns` adds patterns; nothing removes a
+built-in one. The list lives in `src/scanner/file-universe.ts`; see docs/USAGE.md, "Which files are
+indexed".
+
 ## If a credential is committed
 
 1. Stop using and revoke or rotate it immediately.

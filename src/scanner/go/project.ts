@@ -1,4 +1,4 @@
-import { glob } from 'glob';
+import { resolveFileUniverse, selectFiles } from '../file-universe.js';
 import { confinedRead } from '../adapters/path-policy.js';
 import { DEFAULT_PARSER_LIMITS } from '../adapters/types.js';
 import { posix } from 'node:path';
@@ -62,10 +62,14 @@ export async function discoverGoProject(input: {
     return null;
   }
   const mod = parseGoMod(text, 'go.mod'),
+    // The scan's file universe (file-universe.ts): tracked files in a git repository, so an
+    // ignored or untracked .go file never becomes a package member.
     files = (
-      await glob(
+      await selectFiles(
+        input.corpusRoot,
+        resolveFileUniverse(input.corpusRoot),
         input.sourceRoots.map((r) => `${r === '.' ? '' : r + '/'}**/*.go`),
-        { cwd: input.corpusRoot, nodir: true, ignore: ['vendor/**', '.git/**'] }
+        ['vendor/**', '.git/**']
       )
     ).sort();
   if (files.length > input.maxFiles) throw new Error('go maxFiles exceeded');
