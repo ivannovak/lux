@@ -102,6 +102,38 @@ describe('buildIncrementalPlan', () => {
     expect(plan.unchanged).toBe(3);
   });
 
+  it('keeps a credential file on the deny list out, naming it, and deletes any old row', () => {
+    mkdirSync(join(testDir, 'config'), { recursive: true });
+    writeFileSync(join(testDir, 'config', 'auth.json'), '{"token":"x"}');
+    writeFileSync(join(testDir, 'auth.json'), '{"token":"y"}');
+    const diff: GitDiffResult = {
+      added: ['config/auth.json'],
+      modified: ['auth.json'],
+      deleted: [],
+    };
+    const plan = buildIncrementalPlan(testDir, diff);
+
+    expect(plan.toIndex).toEqual([]);
+    expect(plan.toDelete).toEqual([join(testDir, 'auth.json')]);
+    expect(plan.denied).toEqual(['auth.json', 'config/auth.json']);
+  });
+
+  it('selects with the same include and ignore globs as a rebuild', () => {
+    mkdirSync(join(testDir, 'public'), { recursive: true });
+    mkdirSync(join(testDir, '.github'), { recursive: true });
+    writeFileSync(join(testDir, 'public', 'app.js'), 'x');
+    writeFileSync(join(testDir, '.github', 'ci.yml'), 'x');
+    const diff: GitDiffResult = {
+      added: ['public/app.js', '.github/ci.yml'],
+      modified: [],
+      deleted: [],
+    };
+    const plan = buildIncrementalPlan(testDir, diff);
+
+    expect(plan.toIndex).toEqual([]);
+    expect(plan.unchanged).toBe(2);
+  });
+
   it('should infer markdown type from path', () => {
     mkdirSync(join(testDir, 'methodology'), { recursive: true });
     writeFileSync(join(testDir, 'methodology', 'guide.md'), '# Guide');

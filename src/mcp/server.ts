@@ -8,10 +8,17 @@ import {
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { TOOLS } from './tool-defs.js';
-import { SearchRefusalError, coerceSearchLimit, resolveStoredPath } from '../db/index.js';
+import {
+  SearchRefusalError,
+  coerceSearchLimit,
+  resolveStoredPath,
+  toStoredPath,
+} from '../db/index.js';
 import { buildSearchReport, buildSearchRefusalReport } from '../cli/search-envelope.js';
 import { GeneralScanner } from '../scanner/index.js';
-import { attachEnrichment } from '../scanner/general.js';
+import { attachEnrichment, resolveIgnorePatterns } from '../scanner/general.js';
+import { loadLspConfig } from '../scanner/config.js';
+import { isReadableInUniverse, resolveDenyPatterns } from '../scanner/file-universe.js';
 import { rebuildWithOverlay } from '../scanner/rebuild-orchestrator.js';
 import { persistRebuildTrustState } from '../scanner/overlay-trust-state.js';
 import { readFileSync } from 'fs';
@@ -282,7 +289,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         try {
           // Lux reports corpus-relative paths, so a relative path names a file under the corpus root.
-          const content = readFileSync(resolveStoredPath(corpusPath, file_path), 'utf-8');
+          const absolutePath = resolveStoredPath(corpusPath, file_path);
+          // Only a file the index may hold is served: the same file universe and deny list as a
+          // rebuild, so this tool cannot read an ignored, untracked or credential file.
+          const scanConfig = loadLspConfig(corpusPath).scan;
+          if (
+            !isReadableInUniverse(
+              corpusPath,
+              toStoredPath(corpusPath, absolutePath),
+              resolveIgnorePatterns(scanConfig),
+              resolveDenyPatterns(scanConfig)
+            )
+          ) {
+            throw new Error(
+              `${file_path} is not in the index's file universe (untracked, ignored, outside the ` +
+                'corpus, or on the credential deny list)'
+            );
+          }
+          const content = readFileSync(absolutePath, 'utf-8');
           return {
             content: [{ type: 'text', text: content }],
           };
@@ -346,6 +370,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   indexed: {
                     knowledge: scanResult.scan.knowledge.length,
                   },
+                  // Credential files the deny list kept out of the index (file-universe.ts).
+                  deniedFiles: scanResult.scan.denied ?? [],
                   overlay: {
                     mode: trustState.mode,
                     trustLevel:

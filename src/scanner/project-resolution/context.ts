@@ -14,6 +14,7 @@ import { discoverProjectConfigs } from './config-discovery.js';
 import { parseTsconfigAliases } from './tsconfig.js';
 import { parseViteAliases } from './vite-alias.js';
 import { discoverWorkspacePackages } from './workspaces.js';
+import { resolveFileUniverse } from '../file-universe.js';
 import { normalizeRepositoryPath, SOURCE_EXTENSIONS } from './candidates.js';
 
 export interface BuildProjectContextInputV1 {
@@ -43,7 +44,13 @@ export async function buildProjectResolutionContext(
       .filter((file): file is string => file !== null && isResolvableSource(file))
       .sort()
   );
-  const discovered = await discoverProjectConfigs(input.rootPath, input.allowedRoots);
+  const universe = resolveFileUniverse(input.rootPath);
+  const discovered = await discoverProjectConfigs(
+    input.rootPath,
+    input.allowedRoots,
+    undefined,
+    universe
+  );
   // Parse roots independently. This preserves competing nearest configs for resolver-time
   // ambiguity and prevents aliases from unrelated projects replacing one another by pattern.
   const tsconfigParts = await Promise.all(
@@ -65,7 +72,8 @@ export async function buildProjectResolutionContext(
   const workspace = await discoverWorkspacePackages(
     input.rootPath,
     input.allowedRoots,
-    sourceFiles
+    sourceFiles,
+    universe
   );
 
   const aliases: AliasRuleV1[] = [...tsconfig.rules, ...vite.rules]

@@ -310,6 +310,8 @@ describe('overlay CLI trust surface', () => {
 
   it('canonical rebuild preserves detected Laravel HTTP surfaces and detector edges', () => {
     writeLaravelHttpFixture(repoDir);
+    // A rebuild indexes tracked files (git's file universe); staging makes the fixture tracked.
+    git(repoDir, 'git add -A');
 
     const rebuild = runCli(repoDir, dbPath, ['index', 'rebuild']);
     expect(rebuild.status).toBe(0);
