@@ -1,6 +1,19 @@
+import { readFileSync } from 'node:fs';
+import { globSync } from 'glob';
 import { defineConfig } from 'vitest/config';
 
 const TESTS = 'src/**/__tests__/**/*.test.ts';
+
+/**
+ * Test files that replace a module (`vi.mock`, `vi.doMock`), found by reading every test file when
+ * the config loads, so a new one is classified without anyone listing it. They run isolated, each
+ * with a fresh module graph. Every other file shares its worker's module graph with the files the
+ * worker ran before it (`isolate: false`): importing Lux's modules again for each of 340 files was
+ * a tenth of the suite's time. A file that changes shared state must put it back, as these do.
+ */
+const MODULE_MOCKING_TESTS = globSync(TESTS).filter((file) =>
+  /\bvi\.(?:do)?[mM]ock\(/.test(readFileSync(file, 'utf8'))
+);
 
 /**
  * Test files that run one at a time, after everything else, because they cannot share the machine:
@@ -43,6 +56,16 @@ export default defineConfig({
         test: {
           name: 'parallel',
           include: [TESTS],
+          exclude: [...EXCLUSIVE_TESTS, ...MODULE_MOCKING_TESTS],
+          isolate: false,
+          sequence: { groupOrder: 0 },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'isolated',
+          include: MODULE_MOCKING_TESTS,
           exclude: EXCLUSIVE_TESTS,
           sequence: { groupOrder: 0 },
         },
