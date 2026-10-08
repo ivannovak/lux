@@ -201,6 +201,8 @@ indexCmd
         db.close();
         process.exit(1);
       }
+      // The rebuild replaces the whole index, so it syncs the file once, on close.
+      db.deferDurabilityUntilClose();
 
       const scanner = new GeneralScanner(corpusPath);
       const progress = createProgressReporter(options.quiet === true);
