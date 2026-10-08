@@ -1,5 +1,6 @@
 import type { Node } from '@babel/types';
-import { babelParse, parse, type SFCBlock } from '@vue/compiler-sfc';
+import type { SFCBlock, SFCParseResult } from '@vue/compiler-sfc';
+import { vueSfcCompiler } from './compilers.js';
 import type { SourceDiagnosticV1, SourceLocationV1 } from '../contracts/program.js';
 import { sourceLocationAt } from './source-map.js';
 import { extractVueTemplate } from './template-extract.js';
@@ -393,7 +394,7 @@ function parseScript(collector: EventCollector, scriptSetup: boolean): void {
     plugins.push('typescript');
   if (language === 'jsx' || language === 'tsx') plugins.push('jsx');
   try {
-    const ast = babelParse(collector.block.content, {
+    const ast = vueSfcCompiler().babelParse(collector.block.content, {
       sourceType: 'module',
       errorRecovery: false,
       plugins,
@@ -437,9 +438,9 @@ export function extractVueEvents(source: string, filePath: string): VueEventExtr
   const events: VueEventFactV1[] = [];
   const listeners: VueTemplateListenerV1[] = [];
   const diagnostics: SourceDiagnosticV1[] = [];
-  let parsed: ReturnType<typeof parse>;
+  let parsed: SFCParseResult;
   try {
-    parsed = parse(source, { filename: filePath, sourceMap: false });
+    parsed = vueSfcCompiler().parse(source, { filename: filePath, sourceMap: false });
   } catch (error) {
     // lux-intentional-swallow: returned as a diagnostic, which the caller reports.
     return {

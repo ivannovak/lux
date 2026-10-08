@@ -127,7 +127,7 @@ describe('MCP lux_rebuild_index — module dependencies', () => {
     expect(isError).toBe(false);
     expect(payload.success).toBe(true);
     expect(dependencyCount(dbPath)).toBe(2);
-  }, 60000);
+  });
 
   it('reports a failed dependency write as degraded, with the warning, and leaves no rows', async () => {
     const { corpus, dbPath } = makeCorpus();
@@ -143,5 +143,5 @@ describe('MCP lux_rebuild_index — module dependencies', () => {
         'the module dependency graph is empty until the next successful rebuild.'
     );
     expect(dependencyCount(dbPath)).toBe(0);
-  }, 60000);
+  });
 });

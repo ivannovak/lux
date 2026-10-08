@@ -784,6 +784,6 @@ describe.skipIf(!realWeightsCached)(
       expect(results.length).toBeGreaterThan(0);
       const vias = new Set(results.map((r) => r.matchedVia));
       expect(vias.has('both') || vias.has('semantic')).toBe(true);
-    }, 60_000);
+    });
   }
 );

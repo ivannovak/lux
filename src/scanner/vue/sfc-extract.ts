@@ -1,5 +1,6 @@
 import { posix } from 'node:path';
-import { parse, type SFCBlock } from '@vue/compiler-sfc';
+import type { SFCBlock, SFCParseResult } from '@vue/compiler-sfc';
+import { vueSfcCompiler } from './compilers.js';
 import Parser from 'web-tree-sitter';
 import {
   extractSource,
@@ -590,9 +591,9 @@ export async function extractVueSfc(
       diagnosticAt(filePath, source, 'limit', 'Vue SFC parser limits are invalid.'),
     ]);
   }
-  let parsed: ReturnType<typeof parse>;
+  let parsed: SFCParseResult;
   try {
-    parsed = parse(source, { filename: filePath, sourceMap: false });
+    parsed = vueSfcCompiler().parse(source, { filename: filePath, sourceMap: false });
   } catch (error) {
     const item = diagnosticAt(
       filePath,

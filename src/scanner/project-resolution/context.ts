@@ -14,7 +14,7 @@ import { discoverProjectConfigs } from './config-discovery.js';
 import { parseTsconfigAliases } from './tsconfig.js';
 import { parseViteAliases } from './vite-alias.js';
 import { discoverWorkspacePackages } from './workspaces.js';
-import { resolveFileUniverse } from '../file-universe.js';
+import { resolveFileUniverse, type FileUniverse } from '../file-universe.js';
 import { normalizeRepositoryPath, SOURCE_EXTENSIONS } from './candidates.js';
 
 export interface BuildProjectContextInputV1 {
@@ -23,6 +23,8 @@ export interface BuildProjectContextInputV1 {
   sourceFiles: ReadonlySet<string>;
   facts: readonly SourceFactsV1[];
   extractions: ReadonlyMap<string, Extraction>;
+  /** The universe the scan of `rootPath` selected from; resolved here when the caller has none. */
+  universe?: FileUniverse;
 }
 
 export interface BuildProjectContextResultV1 {
@@ -44,7 +46,7 @@ export async function buildProjectResolutionContext(
       .filter((file): file is string => file !== null && isResolvableSource(file))
       .sort()
   );
-  const universe = resolveFileUniverse(input.rootPath);
+  const universe = input.universe ?? resolveFileUniverse(input.rootPath);
   const discovered = await discoverProjectConfigs(
     input.rootPath,
     input.allowedRoots,

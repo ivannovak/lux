@@ -300,7 +300,12 @@ export class GeneralScanner {
       }
     }
 
-    return { knowledge, warnings, denied: [...new Set(denied)].sort(compareCodeUnits) };
+    return {
+      knowledge,
+      warnings,
+      denied: [...new Set(denied)].sort(compareCodeUnits),
+      universe,
+    };
   }
 
   /**

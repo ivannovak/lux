@@ -182,7 +182,7 @@ describe('scanner degradations reach the warnings channel', () => {
     } finally {
       db.close();
     }
-  }, 120000);
+  });
 
   it('a scoped refresh that absorbed a warning settles degraded, even over a complete overlay', () => {
     const dbDir = mkdtempSync(join(tmpdir(), 'lux-warn-channel-db-'));

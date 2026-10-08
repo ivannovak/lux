@@ -143,7 +143,7 @@ beforeAll(() => {
       JSON.parse(status.stdout) as { lspEnrichmentFailures: Failure[] }
     ).lspEnrichmentFailures;
   }
-}, 300_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });

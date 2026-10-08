@@ -146,7 +146,7 @@ describe('live processes contending for one index', () => {
     expect(wroteAgain.acquiredAt).toBeGreaterThanOrEqual(wrote.releasingAt);
     expect([read.code, wrote.code, wroteAgain.code]).toEqual([0, 0, 0]);
     expect(existsSync(`${dbPath}.lock`)).toBe(false);
-  }, 60000);
+  });
 
   // The adapter's signal handler closes every database and exits; the per-run language-server
   // storage is removed by an exit hook. A signalled run must leave neither a lock nor that directory.
@@ -199,5 +199,5 @@ describe('live processes contending for one index', () => {
     expect(results.filter((r) => r.stderr.includes(CLEARED))).toEqual([]);
     expect(results.filter((r) => r.code !== 0)).toEqual([]);
     expect(existsSync(`${dbPath}.lock`)).toBe(false);
-  }, 120000);
+  });
 });

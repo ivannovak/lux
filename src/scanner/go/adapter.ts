@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { dirname, join, posix } from 'node:path';
 import Parser from 'web-tree-sitter';
+import { initTreeSitterRuntime } from '../ast/tree-sitter-runtime.js';
 import { confinedRead } from '../adapters/path-policy.js';
 import { DEFAULT_PARSER_LIMITS } from '../adapters/types.js';
 import { ParseBudgetV1 } from '../adapters/infrastructure-types.js';
@@ -19,7 +20,7 @@ import { discoverGoProject, goImportToPackage } from './project.js';
 const require = createRequire(import.meta.url);
 let lang: Promise<Parser.Language> | undefined;
 async function grammar() {
-  await Parser.init();
+  await initTreeSitterRuntime();
   return (lang ??= Parser.Language.load(
     join(dirname(require.resolve('tree-sitter-wasms/package.json')), 'out/tree-sitter-go.wasm')
   ));

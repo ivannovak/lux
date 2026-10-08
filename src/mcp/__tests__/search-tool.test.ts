@@ -77,7 +77,7 @@ describe('MCP lux_search handler (over the wire)', () => {
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

@@ -172,7 +172,7 @@ export async function rebuildWithOverlay(
 ): Promise<{ result: RebuildResult; scanResult: GeneralScanResult }> {
   const config = loadLspConfig(rootPath);
   options.onProgress?.('Clearing existing content index and structural overlay...');
-  db.clearRebuildTrustState();
+  db.beginRebuild();
   db.clearOverlay();
   db.clearKnowledgeIndex();
 
@@ -241,7 +241,7 @@ export async function rebuildContentOnly(
   const config = loadLspConfig(rootPath);
   if (options.db) {
     options.onProgress?.('Clearing existing content index and structural overlay...');
-    options.db.clearRebuildTrustState();
+    options.db.beginRebuild();
     options.db.clearOverlay();
     options.db.clearKnowledgeIndex();
   }

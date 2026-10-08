@@ -72,7 +72,7 @@ describe('MCP Roots workspace selection (over the wire)', () => {
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

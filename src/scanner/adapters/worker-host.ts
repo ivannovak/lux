@@ -1,7 +1,9 @@
 import { constants as fsConstants } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
+import { layoutPath } from '../../utils/package-layout.js';
 
 import type { Extraction } from '../ast/extract.js';
 import type { AdapterInputV1 } from './types.js';
@@ -208,14 +210,14 @@ async function readConfinedSource(
 function workerEntryUrl(adapterId: string): URL {
   const vue = adapterId === 'vue-compiler-sfc';
   // Vitest executes sources; released code executes compiled .js from dist.
-  if (import.meta.url.endsWith('.ts')) {
-    return new URL(vue ? './vue-sfc-worker.ts' : './tree-sitter-worker.ts', import.meta.url);
-  }
-  return new URL(vue ? './vue-sfc-worker.js' : './tree-sitter-worker.js', import.meta.url);
+  // Named from the root of the tree: in the bundled CLI this module's URL is the bundle's.
+  const name = vue ? 'vue-sfc-worker' : 'tree-sitter-worker';
+  const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
+  return pathToFileURL(layoutPath(`scanner/adapters/${name}.${extension}`));
 }
 
 function tsxLoaderUrl(): string {
-  return new URL('../../../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
+  return pathToFileURL(layoutPath('../node_modules/tsx/dist/loader.mjs')).href;
 }
 
 function messageBytes(value: unknown): Uint8Array | undefined {

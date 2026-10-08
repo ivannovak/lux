@@ -10,13 +10,14 @@
 // equality: each test indexes the same fixture shape at two sizes and requires equal counts.
 // chunked-writes.test.ts covers the per-chunk term.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { indexedBaseline, type IndexedBaseline } from './scoped-sync-harness.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -157,34 +158,47 @@ function describeCounts(small: JournalCount, large: JournalCount): string {
   return `${render(`n=${SMALL}`, small)}\n${render(`n=${LARGE}`, large)}`;
 }
 
-/** Build a committed fixture of size `n` and return its repo + db paths. */
-function fixture(n: number): { repo: string; dbPath: string } {
-  const repo = tempDir('lux-commit-batching-repo-');
-  const dbPath = join(tempDir('lux-commit-batching-db-'), 'lux.db');
-  writeFixture(repo, n, 1);
-  git(repo, 'git init -q');
-  git(repo, 'git config user.email a@b.c');
-  git(repo, 'git config user.name t');
-  git(repo, 'git add -A');
-  git(repo, 'git commit -q -m init');
-  return { repo, dbPath };
+// Each fixture size is committed and rebuilt once for the file: the first test compares those
+// rebuilds' counts, and the sync tests restore the indexed fixture (indexedBaseline) and sync it.
+const indexed = new Map<number, { baseline: IndexedBaseline; rebuild: JournalCount }>();
+
+afterAll(() => {
+  for (const { baseline } of indexed.values()) baseline.dispose();
+});
+
+/** A committed fixture of size `n`, indexed by a counted `index rebuild`, as that rebuild left it. */
+function indexedFixture(n: number): { repo: string; dbPath: string; rebuild: JournalCount } {
+  const existing = indexed.get(n);
+  if (existing) {
+    existing.baseline.restore();
+    const { repo, dbPath } = existing.baseline;
+    return { repo, dbPath, rebuild: existing.rebuild };
+  }
+  let rebuild: JournalCount | undefined;
+  const baseline = indexedBaseline('lux-commit-batching', (repo, dbPath) => {
+    writeFixture(repo, n, 1);
+    git(repo, 'git init -q');
+    git(repo, 'git config user.email a@b.c');
+    git(repo, 'git config user.name t');
+    git(repo, 'git add -A');
+    git(repo, 'git commit -q -m init');
+    rebuild = runCountingCli(repo, dbPath, ['index', 'rebuild']);
+  });
+  indexed.set(n, { baseline, rebuild: rebuild! });
+  return { repo: baseline.repo, dbPath: baseline.dbPath, rebuild: rebuild! };
 }
 
 describe('commit batching (issue #15)', () => {
   it('commits a cold rebuild in a number of transactions that does not grow with the repository', () => {
-    const small = fixture(SMALL);
-    const large = fixture(LARGE);
-
-    const smallCount = runCountingCli(small.repo, small.dbPath, ['index', 'rebuild']);
-    const largeCount = runCountingCli(large.repo, large.dbPath, ['index', 'rebuild']);
+    const smallCount = indexedFixture(SMALL).rebuild;
+    const largeCount = indexedFixture(LARGE).rebuild;
 
     expect(largeCount.total, describeCounts(smallCount, largeCount)).toBe(smallCount.total);
-  }, 120_000);
+  });
 
   it('commits a sync that re-derives every file in a number of transactions that does not grow with the repository', () => {
     const counts = [SMALL, LARGE].map((n) => {
-      const { repo, dbPath } = fixture(n);
-      runCountingCli(repo, dbPath, ['index', 'rebuild']);
+      const { repo, dbPath } = indexedFixture(n);
       writeFixture(repo, n, 2);
       git(repo, 'git add -A');
       git(repo, 'git commit -q -m revise');
@@ -192,12 +206,11 @@ describe('commit batching (issue #15)', () => {
     });
 
     expect(counts[1].total, describeCounts(counts[0], counts[1])).toBe(counts[0].total);
-  }, 120_000);
+  });
 
   it('commits a content-only sync in a number of transactions that does not grow with the repository', () => {
     const counts = [SMALL, LARGE].map((n) => {
-      const { repo, dbPath } = fixture(n);
-      runCountingCli(repo, dbPath, ['index', 'rebuild']);
+      const { repo, dbPath } = indexedFixture(n);
       for (let i = 0; i < n; i++) {
         if (i % 2 === 0) rmSync(join(repo, `docs/guide-${i}.md`));
         else write(repo, `docs/guide-${i}.md`, `# Guide ${i}\n\nRevision 2 of guide ${i}.\n`);
@@ -208,5 +221,5 @@ describe('commit batching (issue #15)', () => {
     });
 
     expect(counts[1].total, describeCounts(counts[0], counts[1])).toBe(counts[0].total);
-  }, 120_000);
+  });
 });

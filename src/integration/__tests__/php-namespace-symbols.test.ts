@@ -180,7 +180,7 @@ beforeAll(() => {
   status = JSON.parse(runLux(root, dbPath, home, ['index', 'status', '--json']).stdout) as {
     symbolIdCollisions: { collidingIds: number };
   };
-}, 120_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });

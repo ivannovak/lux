@@ -1,0 +1,17 @@
+{
+  "$comment": "How the CLI and the parser workers are bundled (scripts/bundle-cli.ts for dist, test-build.ts for the test build). Paths are relative to the source and output trees. Every module keeps its imports of packages; only Lux's own modules are bundled.",
+  "entryPoints": [
+    { "in": "cli/index.ts", "out": "cli/index" },
+    { "in": "scanner/adapters/tree-sitter-worker.ts", "out": "scanner/adapters/tree-sitter-worker" },
+    { "in": "scanner/adapters/vue-sfc-worker.ts", "out": "scanner/adapters/vue-sfc-worker" }
+  ],
+  "options": {
+    "bundle": true,
+    "platform": "node",
+    "format": "esm",
+    "target": "es2022",
+    "packages": "external",
+    "legalComments": "none",
+    "logLevel": "warning"
+  }
+}

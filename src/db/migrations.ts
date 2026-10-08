@@ -1,12 +1,9 @@
 import type { LuxSqlite } from './sqlite-adapter.js';
 import { writeInChunks } from './chunked-writes.js';
 import { readFileSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { dbNotice } from './notices.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { layoutPath } from '../utils/package-layout.js';
 
 interface Migration {
   version: number;
@@ -29,7 +26,7 @@ export class MigrationRunner {
 
   constructor(db: LuxSqlite) {
     this.db = db;
-    this.migrationsPath = join(__dirname, 'migrations');
+    this.migrationsPath = layoutPath('db/migrations');
     this.initMigrationsTable();
   }
 
@@ -92,7 +89,7 @@ export class MigrationRunner {
    * Read-open policy uses this to reject schema skew before any writable handle exists.
    */
   static latestVersion(): number {
-    const migrationsPath = join(__dirname, 'migrations');
+    const migrationsPath = layoutPath('db/migrations');
     const versions = readdirSync(migrationsPath)
       .map((file) => /^(\d+)_.*\.sql$/.exec(file)?.[1])
       .filter((value): value is string => value !== undefined)

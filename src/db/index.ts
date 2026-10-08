@@ -108,6 +108,9 @@ function parseSampleFiles(sampleFiles: string | null): string[] {
   return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** index_metadata key present while a rebuild is unfinished (beginRebuild / finishRebuild). */
+const REBUILD_STARTED_KEY = 'rebuild_started';
+
 export class LuxDatabase {
   private db: LuxSqlite;
   private queries?: PreparedQueries;
@@ -1620,6 +1623,39 @@ export class LuxDatabase {
 
   clearRebuildTrustState(): void {
     this.deleteIndexMetadata('overlay_trust_state');
+  }
+
+  /**
+   * Start a rebuild: drop the trust state the index had, and record that a rebuild began. The record
+   * is removed when the rebuild records its outcome (finishRebuild), so a rebuild that dies part-way
+   * leaves it behind and the index reads as incomplete rather than as whatever it has on disk.
+   */
+  beginRebuild(): void {
+    this.transaction(() => {
+      this.deleteIndexMetadata('overlay_trust_state');
+      this.setIndexMetadata(
+        REBUILD_STARTED_KEY,
+        JSON.stringify({ startedAt: new Date().toISOString(), pid: process.pid })
+      );
+    });
+  }
+
+  /** The rebuild recorded its outcome: it is no longer in progress. */
+  finishRebuild(): void {
+    this.deleteIndexMetadata(REBUILD_STARTED_KEY);
+  }
+
+  /** When an unfinished rebuild started, or undefined when none is outstanding. */
+  unfinishedRebuildStartedAt(): string | undefined {
+    const raw = this.getIndexMetadata(REBUILD_STARTED_KEY);
+    if (raw === undefined) return undefined;
+    try {
+      const startedAt = (JSON.parse(raw) as { startedAt?: unknown }).startedAt;
+      return typeof startedAt === 'string' ? startedAt : 'an unknown time';
+    } catch {
+      // lux-intentional-swallow: a record Lux wrote but cannot read still says a rebuild is unfinished.
+      return 'an unknown time';
+    }
   }
 
   clearAll() {

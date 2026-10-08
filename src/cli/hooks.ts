@@ -1,12 +1,9 @@
 import { Command } from 'commander';
 import { copyFileSync, chmodSync, existsSync, readFileSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { resolveCorpusPath } from '../utils/runtime-paths.js';
 import { findLikelyNestedGitRoot } from '../scanner/git.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { layoutPath } from '../utils/package-layout.js';
 
 export function addHooksCommand(program: Command) {
   const hooksCmd = program.command('hooks').description('Manage git hooks');
@@ -37,7 +34,7 @@ export function addHooksCommand(program: Command) {
       const postCommitPath = join(hooksDir, 'post-commit');
 
       // Find the hook script
-      const hookScriptPath = join(__dirname, '../../bin/post-commit-hook.sh');
+      const hookScriptPath = layoutPath('../bin/post-commit-hook.sh');
 
       if (!existsSync(hookScriptPath)) {
         console.error(`Hook script not found: ${hookScriptPath}`);

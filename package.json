@@ -15,7 +15,8 @@
     "!dist/**/__tests__"
   ],
   "scripts": {
-    "build": "tsc && npm run copy-assets",
+    "build": "tsc && npm run copy-assets && npm run bundle",
+    "bundle": "tsx scripts/bundle-cli.ts",
     "copy-assets": "cp -r src/db/migrations dist/db/ && cp -r src/db/vendor dist/db/ && mkdir -p dist/scanner/adapters/hcl && cp src/scanner/adapters/hcl/tree-sitter-hcl.wasm dist/scanner/adapters/hcl/",
     "version": "tsx scripts/sync-plugin-version.ts",
     "dev": "tsc --watch",

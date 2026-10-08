@@ -85,7 +85,7 @@ describe('the vendor directory holds exactly the vendored engine', () => {
     'node-sqlite3-wasm/LICENSE': '9759019dbfadea5c126a4e3c70fb5a316bfc22894f7d4c4c24d0b17e3a53f4b6',
     'node-sqlite3-wasm/README.md': null, // prose about the copy; not code, so not pinned
     'node-sqlite3-wasm/node-sqlite3-wasm.cjs':
-      '154e4d4b623d2ebdb5874e17cb857b333dc1584da9e6ff571ad9aa639b80c2ce',
+      '4e07fe6ccc333e4a237e02f38266c1b0fd687c888334edb60cff663d1e175455',
     'node-sqlite3-wasm/node-sqlite3-wasm.d.cts':
       'd23bf430a63296b3fff77a0576779374beb581f6376de6615a3a8664dad10d5c',
     'node-sqlite3-wasm/node-sqlite3-wasm.wasm':
@@ -200,7 +200,9 @@ describe('nothing in src/ loads the npm package', () => {
     const loaders = sourceFiles(SRC)
       .filter((f) => !f.includes(`${join('db', 'vendor')}`) && !f.includes('__tests__'))
       .filter((f) =>
-        /require\(\s*['"][^'"]*node-sqlite3-wasm\.cjs['"]\s*\)/.test(readFileSync(f, 'utf8'))
+        /require\(\s*(?:layoutPath\(\s*)?['"][^'"]*node-sqlite3-wasm\.cjs['"]\s*\)/.test(
+          readFileSync(f, 'utf8')
+        )
       )
       .map((f) => relative(SRC, f));
     expect(loaders).toEqual([join('db', 'driver.ts')]);

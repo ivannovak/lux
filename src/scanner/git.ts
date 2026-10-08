@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join, posix } from 'path';
 
@@ -32,7 +32,7 @@ export function findLikelyNestedGitRoot(rootPath: string): string | null {
  * Get the current HEAD commit hash.
  */
 export function getHeadCommit(rootPath: string): string {
-  return execSync('git rev-parse HEAD', { cwd: rootPath, encoding: 'utf-8' }).trim();
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: rootPath, encoding: 'utf-8' }).trim();
 }
 
 /**
@@ -51,8 +51,9 @@ export function getGitDiff(
   // --no-renames: a rename is its old path deleted and its new path added. With rename detection on
   // (git's default) only the new path is listed, and everything indexed under the old one survives.
   const list = (filter: string): string[] => {
-    const output = execSync(
-      `git diff --no-renames --name-only --diff-filter=${filter} ${fromCommit} ${toCommit}`,
+    const output = execFileSync(
+      'git',
+      ['diff', '--no-renames', '--name-only', `--diff-filter=${filter}`, fromCommit, toCommit],
       { cwd: rootPath, encoding: 'utf-8' }
     ).trim();
     return output ? output.split('\n') : [];
@@ -73,7 +74,7 @@ export function getGitDiff(
 /** Tracked symlinks at `commit` whose target (resolved against the link's directory) is in `paths`. */
 function symlinksInto(rootPath: string, commit: string, paths: ReadonlySet<string>): string[] {
   if (paths.size === 0) return [];
-  const tree = execSync(`git ls-tree -r ${commit}`, {
+  const tree = execFileSync('git', ['ls-tree', '-r', commit], {
     cwd: rootPath,
     encoding: 'utf-8',
     maxBuffer: 256 * 1024 * 1024,
@@ -82,7 +83,10 @@ function symlinksInto(rootPath: string, commit: string, paths: ReadonlySet<strin
   for (const line of tree.split('\n')) {
     const match = /^120000 blob ([0-9a-f]+)\t(.+)$/u.exec(line);
     if (!match) continue;
-    const target = execSync(`git cat-file -p ${match[1]}`, { cwd: rootPath, encoding: 'utf-8' });
+    const target = execFileSync('git', ['cat-file', '-p', match[1]], {
+      cwd: rootPath,
+      encoding: 'utf-8',
+    });
     const resolved = posix.normalize(posix.join(posix.dirname(match[2]), target.trim()));
     if (paths.has(resolved)) links.push(match[2]);
   }
@@ -94,7 +98,11 @@ function symlinksInto(rootPath: string, commit: string, paths: ReadonlySet<strin
  */
 export function commitExists(rootPath: string, commitHash: string): boolean {
   try {
-    execSync(`git cat-file -t ${commitHash}`, { cwd: rootPath, encoding: 'utf-8', stdio: 'pipe' });
+    execFileSync('git', ['cat-file', '-t', commitHash], {
+      cwd: rootPath,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
     return true;
   } catch {
     // lux-intentional-swallow: a probe; the negative result is the answer, not a failure.

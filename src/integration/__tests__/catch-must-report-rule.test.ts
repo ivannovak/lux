@@ -58,7 +58,7 @@ describe('lux/catch-must-report', () => {
         'lux/catch-must-report'
       );
     }
-  }, 60000);
+  });
 
   it('rejects each evasion', async () => {
     for (const sample of SWALLOWING) {
@@ -66,7 +66,7 @@ describe('lux/catch-must-report', () => {
         'lux/catch-must-report'
       );
     }
-  }, 60000);
+  });
 });
 
 describe('console restriction in run code', () => {
@@ -78,5 +78,5 @@ describe('console restriction in run code', () => {
         );
       }
     }
-  }, 60000);
+  });
 });

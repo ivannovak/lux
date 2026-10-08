@@ -10,6 +10,7 @@ import type { EdgeType, StructuralEdge, StructuralNode } from '../../../db/types
 import { LuxSqlite } from '../../../db/sqlite-adapter.js';
 import { SCAN_ORDER_SEED_ENV } from '../../../scanner/scan-order.js';
 import { builtCli } from './built-cli.js';
+import { seedIndex } from './seed-index.js';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const CLI_ENTRY = builtCli();
@@ -306,6 +307,7 @@ export function runLux(
   };
   delete env[SCAN_ORDER_SEED_ENV];
   if (seed !== undefined) env[SCAN_ORDER_SEED_ENV] = seed;
+  seedIndex(db);
   const result = spawnSync(process.execPath, [CLI_ENTRY, '--db', db, '--corpus', corpus, ...args], {
     cwd: PROJECT_ROOT,
     encoding: 'utf-8',

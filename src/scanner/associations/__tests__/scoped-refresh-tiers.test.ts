@@ -61,6 +61,8 @@ async function openRebuilt(repo: string): Promise<{ db: LuxDatabase; dbPath: str
   const dbPath = join(dbDir, 'lux.db');
   const db = new LuxDatabase(dbPath);
   await rebuildWithOverlay(db, repo);
+  // The CLI ends the rebuild once it has recorded the rebuild's outcome; settleAsCli records one.
+  db.finishRebuild();
   return { db, dbPath };
 }
 

@@ -95,7 +95,7 @@ beforeAll(() => {
         : {},
     });
   }
-}, 600_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });

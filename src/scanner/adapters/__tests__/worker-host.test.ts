@@ -178,7 +178,7 @@ describe('bounded parser worker host', () => {
       ok: false,
       diagnostic: { code: 'timeout', message: WORKER_DIAGNOSTICS.timeout },
     });
-  }, 60_000);
+  });
 
   it('calls terminate and waits no longer than the 250 ms grace', async () => {
     const root = await temporaryRoot();
@@ -398,7 +398,7 @@ describe('bounded parser worker host', () => {
     expect(freshOver).toEqual(warmOver);
     expect(warmOverTimers.armed).toEqual([START_LIMIT_MS, 300]);
     expect(persistentParserWorkersStarted()).toBe(startedBefore);
-  }, 60_000);
+  });
 
   it('discards and terminates a persistent worker that never starts, re-runs the parse in a fresh worker, and stops using the pool', async () => {
     const root = await temporaryRoot();
@@ -430,7 +430,7 @@ describe('bounded parser worker host', () => {
     // instead of waiting out the start limit again.
     expect(persistentParserWorkersStarted() - before).toBe(1);
     expect(timers.armed.filter((delay) => delay === START_LIMIT_MS)).toHaveLength(3);
-  }, 60_000);
+  });
 
   it('reports a fresh worker that never starts as start-timeout, and terminates it', async () => {
     const root = await temporaryRoot();
@@ -450,7 +450,7 @@ describe('bounded parser worker host', () => {
 
     expect(result).toEqual(START_TIMEOUT);
     expect(timers.armed).toEqual([START_LIMIT_MS, 250]);
-  }, 60_000);
+  });
 
   it('fails fast for the rest of the run once neither a persistent nor a fresh worker starts', async () => {
     const root = await temporaryRoot();
@@ -489,7 +489,7 @@ describe('bounded parser worker host', () => {
     await timers.expire(START_LIMIT_MS);
     expect(await nextRun).toEqual(START_TIMEOUT);
     expect(workers.created).toHaveLength(2);
-  }, 60_000);
+  });
 });
 
 // These cases run on the real clock, with limits short enough to wait out. Each asserts the
@@ -513,7 +513,7 @@ describe('bounded parser worker host — real clock', () => {
       ok: false,
       diagnostic: { code: 'timeout', message: WORKER_DIAGNOSTICS.timeout },
     });
-  }, 60_000);
+  });
 
   it('times out a persistent worker whose parse hangs, and terminates it', async () => {
     const root = await temporaryRoot();
@@ -534,7 +534,7 @@ describe('bounded parser worker host — real clock', () => {
     });
     expect(persistentParserWorkersStarted() - before).toBe(1);
     expect(terminate).toHaveBeenCalledTimes(1);
-  }, 60_000);
+  });
 
   it('gives up on workers that never start, once, and fails the remaining files at once', async () => {
     const root = await temporaryRoot();
@@ -569,5 +569,5 @@ describe('bounded parser worker host — real clock', () => {
     ]);
     expect(workers.created).toHaveLength(1);
     expect(persistentParserWorkersStarted() - before).toBe(1);
-  }, 60_000);
+  });
 });

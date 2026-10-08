@@ -164,7 +164,7 @@ describe.skipIf(!INTELEPHENSE)('intelephense with those excludes', () => {
     expect(await declaredIn('Client')).toEqual(['vendor/acme/lib/src/Client.php']);
     expect(await declaredIn('Copy')).toEqual([]);
     expect(await declaredIn('Hidden')).toEqual([]);
-  }, 120_000);
+  });
 });
 
 // Asks for the `intelephense` settings after `initialized`, records the answer, then reports its

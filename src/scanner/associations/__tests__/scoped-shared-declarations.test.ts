@@ -197,7 +197,7 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
     expect(after).toEqual(declaredFacts(coldAfter));
     coldAfter.close();
     db.close();
-  }, 120_000);
+  });
 
   // Nova, on by default, widens a PHP change to every PHP file by itself. With it off, only the
   // PHP widening keeps the census whole, so both settings are covered.
@@ -231,6 +231,6 @@ describe('scoped refresh of facts that a second file starts or stops declaring',
       expect(facts).toEqual(declaredFacts(cold));
       cold.close();
       db.close();
-    }, 120_000);
+    });
   }
 });
