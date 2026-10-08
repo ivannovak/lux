@@ -5,7 +5,7 @@
 // Warnings are forced with SQLite triggers in the database file and with git states the sync
 // recovers from. Clean runs need an overlay with no warnings, which takes a real TypeScript LSP.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -14,6 +14,7 @@ import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { indexedBaseline, type IndexedBaseline } from './scoped-sync-harness.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -71,6 +72,11 @@ function tempDir(prefix: string): string {
 /** A git repo with one commit holding the given lux.yaml, a doc and a small TypeScript project. */
 function newRepo(luxYaml: string, opts: { commit?: boolean } = {}): string {
   const repo = tempDir('lux-run-warnings-');
+  fillRepo(repo, luxYaml, opts);
+  return repo;
+}
+
+function fillRepo(repo: string, luxYaml: string, opts: { commit?: boolean } = {}): void {
   git(repo, 'git init -q');
   git(repo, 'git config user.email a@b.c');
   git(repo, 'git config user.name x');
@@ -94,7 +100,6 @@ function newRepo(luxYaml: string, opts: { commit?: boolean } = {}): string {
   );
   writeFileSync(join(repo, 'docs', 'guide.md'), '# Guide\n');
   if (opts.commit !== false) commitAll(repo, 'base');
-  return repo;
 }
 
 /** A migrated, empty database, so the run under test does not print the migration log. */
@@ -248,13 +253,24 @@ describe('one warnings list per run (issue #6)', () => {
 });
 
 describe('clean runs close on ✓ (issue #6)', () => {
+  // The LSP-backed rebuild is the slowest call here, and every case below but one starts from the
+  // same one: it is built once and restored for each case (indexedBaseline).
+  let indexed: IndexedBaseline | undefined;
+  afterAll(() => indexed?.dispose());
+
   /** A TypeScript repo indexed by a clean, LSP-backed rebuild. */
   function cleanlyIndexed(): { repo: string; dbPath: string } {
-    const repo = newRepo(TS_LSP_YAML);
-    const dbPath = newDbPath();
-    const rebuild = runLux(repo, dbPath, ['index', 'rebuild']);
-    expectClean(rebuild, '✓ Index rebuilt successfully');
-    return { repo, dbPath };
+    if (indexed) {
+      indexed.restore();
+    } else {
+      indexed = indexedBaseline('lux-run-warnings-clean', (repo, dbPath) => {
+        fillRepo(repo, TS_LSP_YAML);
+        new LuxDatabase(dbPath).close();
+        const rebuild = runLux(repo, dbPath, ['index', 'rebuild']);
+        expectClean(rebuild, '✓ Index rebuilt successfully');
+      });
+    }
+    return { repo: indexed.repo, dbPath: indexed.dbPath };
   }
 
   it(

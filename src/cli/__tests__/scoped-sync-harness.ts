@@ -7,7 +7,8 @@
 // reader can see exactly what the comparison does not look at.
 
 import { execSync, spawnSync, type SpawnSyncReturns } from 'child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { LuxSqlite } from '../../db/sqlite-adapter.js';
@@ -93,6 +94,66 @@ export function initRepo(repo: string): void {
   git(repo, 'git init -q');
   git(repo, 'git config user.email a@b.c');
   git(repo, 'git config user.name x');
+}
+
+/**
+ * A repository and its index at one commit, built once and put back before each test that starts
+ * from it.
+ *
+ * Most tests here start the same way: commit a fixture as A and index it with `lux index rebuild`,
+ * then change something and drive the CLI again. Indexing A is the same work each time, so a file
+ * builds it once and restore() puts the repository (with its `.git`) and the index directory back,
+ * at the paths they were built at, as the rebuild left them. What a test then sees is what a fresh
+ * rebuild of the same commit would have left, wall-clock columns aside. Restoring in place relies
+ * on the tests of a file running one after another, which they do.
+ */
+export interface IndexedBaseline {
+  /** The repository; at commit A after restore(). */
+  readonly repo: string;
+  /** The index directory; as the rebuild of A left it after restore(). */
+  readonly dbDir: string;
+  /** The index database inside dbDir. */
+  readonly dbPath: string;
+  restore(): void;
+  /** Remove the repository, the index and their snapshot. */
+  dispose(): void;
+}
+
+/**
+ * Build a baseline. `build(repo, dbPath, dbDir)` creates the repository in the empty directory
+ * `repo`, commits A and indexes it, asserting its own success.
+ */
+export function indexedBaseline(
+  prefix: string,
+  build: (repo: string, dbPath: string, dbDir: string) => void,
+  dbFile = 'lux.db'
+): IndexedBaseline {
+  const root = mkdtempSync(join(tmpdir(), `${prefix}-`));
+  const repo = join(root, 'repo');
+  const dbDir = join(root, 'db');
+  const dbPath = join(dbDir, dbFile);
+  const snapshot = join(root, 'snapshot');
+  const copy = (from: string, to: string) =>
+    cpSync(from, to, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+  mkdirSync(repo);
+  mkdirSync(dbDir);
+  build(repo, dbPath, dbDir);
+  copy(repo, join(snapshot, 'repo'));
+  copy(dbDir, join(snapshot, 'db'));
+  return {
+    repo,
+    dbDir,
+    dbPath,
+    restore() {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dbDir, { recursive: true, force: true });
+      copy(join(snapshot, 'repo'), repo);
+      copy(join(snapshot, 'db'), dbDir);
+    },
+    dispose() {
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
 }
 
 export function runCli(

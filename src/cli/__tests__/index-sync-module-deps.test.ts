@@ -11,7 +11,7 @@
 // Every step is driven through the real CLI subprocess, so the assertion covers what an operator runs.
 // Write failures are injected with a SQLite trigger in the database file, which the subprocess honours.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -20,6 +20,7 @@ import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { indexedBaseline, type IndexedBaseline } from './scoped-sync-harness.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -105,12 +106,16 @@ function writeModule(repo: string, name: string, file: string, content: string):
 function newRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'lux-sync-deps-'));
   roots.push(repo);
+  initFixture(repo);
+  return repo;
+}
+
+function initFixture(repo: string): void {
   git(repo, 'git init -q');
   git(repo, 'git config user.email a@b.c');
   git(repo, 'git config user.name x');
   writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'sync-deps-fx' }));
   writeFileSync(join(repo, 'lux.yaml'), LUX_YAML);
-  return repo;
 }
 
 /** Commit A: Users → Orders. */
@@ -143,6 +148,51 @@ function failSecondDependencyInsert(dbPath: string): void {
   } finally {
     raw.close();
   }
+}
+
+// Most cases start from the same index: commit A, rebuilt (or, for degradedAtA, commits A and B
+// rebuilt over a failing write). Each is built once for the file and restored for every case that
+// starts from it (indexedBaseline), at the same paths and as the rebuild left it.
+const baselines: Record<'indexed' | 'degraded', IndexedBaseline | undefined> = {
+  indexed: undefined,
+  degraded: undefined,
+};
+
+afterAll(() => {
+  for (const baseline of Object.values(baselines)) baseline?.dispose();
+});
+
+function fromBaseline(
+  name: 'indexed' | 'degraded',
+  build: (repo: string, dbPath: string) => void
+): { repo: string; dbPath: string } {
+  const existing = baselines[name];
+  if (existing) existing.restore();
+  const baseline = existing ?? indexedBaseline(`lux-sync-deps-${name}`, build);
+  baselines[name] = baseline;
+  return { repo: baseline.repo, dbPath: baseline.dbPath };
+}
+
+/** Repo at commit A, indexed by a clean `index rebuild --quiet`. */
+function indexedAtA(): { repo: string; dbPath: string } {
+  return fromBaseline('indexed', (repo, dbPath) => {
+    initFixture(repo);
+    commitA(repo);
+    const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
+    expect(rebuildA.status, rebuildA.stderr).toBe(0);
+  });
+}
+
+/** Repo at commit B whose rebuild hit a failed write, so its trust state carries the warning. */
+function degradedAtB(): { repo: string; dbPath: string } {
+  return fromBaseline('degraded', (repo, dbPath) => {
+    initFixture(repo);
+    commitA(repo);
+    commitB(repo);
+    failSecondDependencyInsert(dbPath);
+    const rebuild = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
+    expect(rebuild.status, rebuild.stderr).toBe(0);
+  });
 }
 
 function persistedTrustState(dbPath: string): { mode: string; warnings: string[] } {
@@ -187,12 +237,7 @@ describe('index sync — module dependencies after a full-rebuild escalation (is
   it(
     'a config-changed full rebuild leaves module_dependencies equal to a cold rebuild',
     () => {
-      const repo = newRepo();
-      commitA(repo);
-
-      const dbPath = newDbPath();
-      const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuildA.status, rebuildA.stderr).toBe(0);
+      const { repo, dbPath } = indexedAtA();
       const rowsA = dependencyRows(dbPath);
       expect(rowsA.length).toBeGreaterThan(0);
 
@@ -220,11 +265,7 @@ describe('index sync — module dependencies after a full-rebuild escalation (is
   it(
     'a --force sync leaves module_dependencies equal to a cold rebuild',
     () => {
-      const repo = newRepo();
-      commitA(repo);
-      const dbPath = newDbPath();
-      const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuildA.status, rebuildA.stderr).toBe(0);
+      const { repo, dbPath } = indexedAtA();
       const rowsA = dependencyRows(dbPath);
 
       commitB(repo);
@@ -294,11 +335,7 @@ describe('index rebuild / sync — a failed module-dependency write is reported,
   it(
     'a sync that escalates to a full rebuild shows the warning and persists it',
     () => {
-      const repo = newRepo();
-      commitA(repo);
-      const dbPath = newDbPath();
-      const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuildA.status, rebuildA.stderr).toBe(0);
+      const { repo, dbPath } = indexedAtA();
       failSecondDependencyInsert(dbPath);
 
       commitB(repo);
@@ -344,14 +381,10 @@ describe('--quiet rebuild and sync paths never claim success over a failed write
   }
 
   /** Repo at commit A, indexed with a working write; the next write will fail. */
-  function indexedAtA(): { repo: string; dbPath: string } {
-    const repo = newRepo();
-    commitA(repo);
-    const dbPath = newDbPath();
-    const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-    expect(rebuildA.status, rebuildA.stderr).toBe(0);
-    failSecondDependencyInsert(dbPath);
-    return { repo, dbPath };
+  function failingAtA(): { repo: string; dbPath: string } {
+    const indexed = indexedAtA();
+    failSecondDependencyInsert(indexed.dbPath);
+    return indexed;
   }
 
   it(
@@ -385,7 +418,7 @@ describe('--quiet rebuild and sync paths never claim success over a failed write
   it(
     'index sync --quiet escalating to a full rebuild',
     () => {
-      const { repo, dbPath } = indexedAtA();
+      const { repo, dbPath } = failingAtA();
       commitB(repo);
 
       expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
@@ -396,7 +429,7 @@ describe('--quiet rebuild and sync paths never claim success over a failed write
   it(
     'index sync --force --quiet',
     () => {
-      const { repo, dbPath } = indexedAtA();
+      const { repo, dbPath } = failingAtA();
       commitB(repo);
 
       expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--force', '--quiet']));
@@ -419,18 +452,6 @@ describe('closing lines report warnings instead of success, with or without --qu
     const output = `${r.stdout}\n${r.stderr}`;
     expect(output).not.toContain('✓');
     expect(output).not.toContain('successfully');
-  }
-
-  /** Repo at commit A whose rebuild hit a failed write, so its trust state carries the warning. */
-  function degradedAtA(): { repo: string; dbPath: string } {
-    const repo = newRepo();
-    commitA(repo);
-    commitB(repo);
-    const dbPath = newDbPath();
-    failSecondDependencyInsert(dbPath);
-    const rebuild = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-    expect(rebuild.status, rebuild.stderr).toBe(0);
-    return { repo, dbPath };
   }
 
   it(
@@ -470,11 +491,7 @@ describe('closing lines report warnings instead of success, with or without --qu
   it(
     'index sync escalating to a full rebuild',
     () => {
-      const repo = newRepo();
-      commitA(repo);
-      const dbPath = newDbPath();
-      const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuildA.status, rebuildA.stderr).toBe(0);
+      const { repo, dbPath } = indexedAtA();
       failSecondDependencyInsert(dbPath);
       commitB(repo);
 
@@ -489,11 +506,7 @@ describe('closing lines report warnings instead of success, with or without --qu
   it(
     'index sync --force',
     () => {
-      const repo = newRepo();
-      commitA(repo);
-      const dbPath = newDbPath();
-      const rebuildA = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuildA.status, rebuildA.stderr).toBe(0);
+      const { repo, dbPath } = indexedAtA();
       failSecondDependencyInsert(dbPath);
       commitB(repo);
 
@@ -508,7 +521,7 @@ describe('closing lines report warnings instead of success, with or without --qu
   it(
     'an incremental index sync carrying the warning',
     () => {
-      const { repo, dbPath } = degradedAtA();
+      const { repo, dbPath } = degradedAtB();
       writeFileSync(join(repo, 'notes.md'), '# notes\n');
       commitAll(repo, 'docs only');
 
@@ -522,7 +535,7 @@ describe('closing lines report warnings instead of success, with or without --qu
   it(
     'an incremental index sync --quiet carrying the warning',
     () => {
-      const { repo, dbPath } = degradedAtA();
+      const { repo, dbPath } = degradedAtB();
       writeFileSync(join(repo, 'notes.md'), '# notes\n');
       commitAll(repo, 'docs only');
 
