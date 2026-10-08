@@ -45,6 +45,8 @@ jobs:
         run: npm run build
 
       - name: Test
+        # The suite's ceiling. A step that needs longer has a slow test in it: find it, do not raise this.
+        timeout-minutes: 5
         run: npm test
 
       - name: Architecture lint
