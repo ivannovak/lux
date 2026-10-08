@@ -164,6 +164,21 @@ export function resolveFileUniverse(rootPath: string): FileUniverse {
 }
 
 /**
+ * What lies under `rootPath` outside its git universe: untracked and ignored paths, as git lists
+ * them with `--directory` — a directory that holds nothing tracked is one entry ending in `/`, not
+ * its files. Paths are relative to `rootPath`, `/`-separated. Empty outside a git work tree, where
+ * every file is in the universe. A language server started on `rootPath` walks the directory
+ * itself and would otherwise read all of it: other checkouts of the repository, tool state.
+ */
+export function outsideGitUniverse(rootPath: string): string[] {
+  if (!isGitWorkTree(rootPath)) return [];
+  return gitOutput(rootPath, ['ls-files', '-z', '--others', '--directory', '--no-empty-directory'])
+    .split('\0')
+    .filter((path) => path.length > 0)
+    .sort();
+}
+
+/**
  * A predicate for one corpus-relative path: true when it matches `patterns` and no `ignore`
  * pattern, with `glob`'s semantics — include patterns skip dotfiles and dot-directories, ignore
  * patterns do not.

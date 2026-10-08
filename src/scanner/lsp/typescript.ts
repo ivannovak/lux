@@ -87,6 +87,11 @@ export class TypeScriptLspEnricher implements LspEnricher {
     return this._isReady && this.client?.initialized === true;
   }
 
+  /** Why the server can no longer be asked anything, or null while it can (see LspEnricher). */
+  get lostReason(): string | null {
+    return this.client?.lostReason ?? null;
+  }
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------

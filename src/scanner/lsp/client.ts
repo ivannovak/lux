@@ -17,6 +17,7 @@ import {
   type NotificationMessage,
 } from 'vscode-languageserver-protocol';
 import { lspTrace, type LspTrace } from './trace.js';
+import { describeServerExit, StderrTail } from './server-exit.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,6 +134,13 @@ const UNANSWERED_ATTEMPTS_BEFORE_LOST = 2 * (1 + REQUEST_TIMEOUT_RETRIES);
 /** How long a server has to exit after SIGTERM before it is sent SIGKILL. */
 const KILL_GRACE_MS = 2_000;
 
+/**
+ * How long, after a server died, its stderr is read for the lines it wrote as it went (an
+ * out-of-memory report, a stack) before its death is reported. The exit can be seen before the
+ * last of the pipe has been read; a worker the server forked can hold the pipe open indefinitely.
+ */
+const STDERR_DRAIN_MS = 500;
+
 // ---------------------------------------------------------------------------
 // Semaphore for concurrency limiting
 // ---------------------------------------------------------------------------
@@ -216,6 +224,13 @@ export class LspClient {
   private _shutdownRequested = false;
   /** Set when the server process died or errored without a shutdown having been requested. */
   private _transportLost: string | null = null;
+  /**
+   * Set while a server that died has its stderr read to the end; requests wait for it, so each
+   * reports the death with the server's last words.
+   */
+  private exitSettling: Promise<void> | null = null;
+  /** The last lines the server wrote to stderr. Read always: an unread pipe fills and blocks it. */
+  private stderrTail = new StderrTail();
   /** Attempts in a row that got no response within their timeout or the wait after it. */
   private unansweredAttempts = 0;
   /** Set when the server stopped answering; nothing is sent to it after that. */
@@ -240,6 +255,14 @@ export class LspClient {
   /** The server's capabilities, available after initialization. */
   get serverCapabilities(): InitializeResult | null {
     return this._serverCapabilities;
+  }
+
+  /**
+   * Why the server can no longer be asked anything — it died (with its exit status and last stderr
+   * lines) or stopped answering — or null while it can.
+   */
+  get lostReason(): string | null {
+    return this._transportLost ?? this._stoppedAnswering;
   }
 
   // -------------------------------------------------------------------------
@@ -338,6 +361,7 @@ export class LspClient {
    * @throws On timeout, server error, or transport failure.
    */
   async request<T = unknown>(method: string, params: unknown, timeoutMs?: number): Promise<T> {
+    await this.exitSettling;
     this.assertReady();
     for (let attempt = 0; ; attempt++) {
       try {
@@ -383,6 +407,7 @@ export class LspClient {
     text: string,
     fn: () => Promise<T>
   ): Promise<T> {
+    await this.exitSettling;
     this.assertReady();
     let doc = this.openDocs.get(uri);
     if (doc) {
@@ -425,23 +450,60 @@ export class LspClient {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    this.process.stdout!.on('data', (data: Buffer) => {
+    this.stderrTail = new StderrTail();
+    const child = this.process;
+
+    child.stdout!.on('data', (data: Buffer) => {
       this.handleData(data);
     });
 
-    this.process.on('error', (err) => {
-      this._transportLost = `Language server process error: ${err.message}`;
+    child.stderr!.setEncoding('utf-8');
+    child.stderr!.on('data', (text: string) => {
+      for (const line of this.stderrTail.push(text)) this.trace?.('stderr', { text: line });
+    });
+
+    child.on('error', (err) => {
+      this._transportLost = `${this.label} language server process error: ${err.message}`;
       this.rejectAll(new LspTransientError('transport', this._transportLost));
       this.cleanup();
     });
 
-    this.process.on('exit', (code) => {
-      if (!this._shutdownRequested) {
-        this._transportLost = `Language server exited unexpectedly with code ${code ?? 'null'}`;
-        this.rejectAll(new LspTransientError('transport', this._transportLost));
+    child.on('exit', (code, signal) => {
+      this.trace?.('exit', { exitCode: code, signal });
+      if (this._shutdownRequested) {
+        this.cleanup();
+        return;
       }
-      this.cleanup();
+      // Nothing more can be written to it; requests from here on wait for the report below.
+      child.stdin?.destroy();
+      const describe = (): string =>
+        describeServerExit({
+          languageId: this.label,
+          exitCode: code,
+          signal,
+          stderr: this.stderrTail.snapshot(),
+        });
+      this._transportLost = describe();
+      this.exitSettling = new Promise<void>((resolve) => {
+        const settle = (): void => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(settle, STDERR_DRAIN_MS);
+        if (!child.stderr || child.stderr.readableEnded || child.stderr.destroyed) settle();
+        else child.stderr.once('close', settle).once('end', settle);
+      }).then(() => {
+        this._transportLost = describe();
+        this.exitSettling = null;
+        this.rejectAll(new LspTransientError('transport', this._transportLost));
+        this.cleanup();
+      });
     });
+  }
+
+  /** What to call the server in a message: its language, or failing that its command. */
+  private get label(): string {
+    return this.options.serverLabel ?? this.options.serverCommand;
   }
 
   private cleanup(): void {
@@ -472,7 +534,7 @@ export class LspClient {
     }
 
     this._initialized = false;
-    this.rejectAll(new LspTransientError('transport', 'Client shut down'));
+    this.rejectAll(new LspTransientError('transport', this._transportLost ?? 'Client shut down'));
   }
 
   // -------------------------------------------------------------------------
@@ -600,7 +662,12 @@ export class LspClient {
     return new Promise<unknown>((resolve, reject) => {
       if (!this.process?.stdin?.writable) {
         settle();
-        reject(new LspTransientError('transport', 'Language server stdin is not writable'));
+        reject(
+          new LspTransientError(
+            'transport',
+            this._transportLost ?? `${this.label} language server stdin is not writable`
+          )
+        );
         return;
       }
 

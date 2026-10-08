@@ -149,6 +149,12 @@ export interface LspEnricher {
   readonly isReady: boolean;
 
   /**
+   * Why a server that started can no longer be asked anything — it died, with its exit status and
+   * last stderr lines, or stopped answering — or null while it can.
+   */
+  readonly lostReason?: string | null;
+
+  /**
    * True when the server was still indexing the workspace when its wait bound ran out: its answers
    * then depend on how far indexing got. Undefined for servers that answer from open documents.
    */
@@ -490,7 +496,7 @@ function assertEnricherRunning(enricher: LspEnricher): void {
   if (!enricher.isReady) {
     throw new LspTransientError(
       'transport',
-      `${enricher.languageId} language server is not running`
+      enricher.lostReason ?? `${enricher.languageId} language server is not running`
     );
   }
 }

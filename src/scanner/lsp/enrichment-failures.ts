@@ -6,11 +6,14 @@
 // "." (stage `index`): every answer it gave may reflect a partial index. A server that failed to
 // start is recorded the same way at stage `init`: its language has no LSP data at all. A server
 // that stopped answering part-way is recorded once per stage it was needed for, with the number of
-// files that stage could not complete (reason `unresponsive`), not once per file.
+// files that stage could not complete (reason `unresponsive`), not once per file. A server that died
+// part-way is recorded the same way (reason `transport`), with its exit status and the last lines
+// it wrote to stderr.
 // `lux index status --json` lists them; an empty list means the run's LSP output is complete.
 
 import type { LuxDatabase } from '../../db/index.js';
 import type { LspRequestIssue } from './requester.js';
+import { parseServerExit } from './server-exit.js';
 
 const LSP_ENRICHMENT_FAILURES_KEY = 'lsp_enrichment_failures_v1';
 /** `filePath` of an entry about a whole language rather than one file. */
@@ -61,10 +64,16 @@ export interface LspEnrichmentFailure {
   /** For an `error` reason: what was thrown, since no other field says. */
   message?: string;
   /**
-   * For an `unresponsive` reason with `filePath` ".": how many files the stage could not complete
-   * because the server had stopped answering.
+   * For an `unresponsive` or `transport` reason with `filePath` ".": how many files the stage
+   * could not complete because the server had stopped answering, or had died.
    */
   fileCount?: number;
+  /** For a server that died: its exit code, or null when a signal ended it. */
+  exitCode?: number | null;
+  /** For a server that died: the signal that ended it, or null when it exited on its own. */
+  signal?: string | null;
+  /** For a server that died: the last lines it wrote to stderr. */
+  stderr?: string[];
   reason: LspEnrichmentFailureReason;
 }
 
@@ -97,11 +106,11 @@ export function mergeLspEnrichmentFailures(
 ): void {
   const refreshed = new Set(refreshedPaths);
   // A scoped run restarts the servers, so its workspace-wide outcomes replace the recorded ones —
-  // except a count of files an unresponsive server left behind, which stands for those files and
-  // is only made good by a run that asks about all of them again.
+  // except a count of files a server that stopped answering or died left behind, which stands for
+  // those files and is only made good by a run that asks about all of them again.
   const kept = loadLspEnrichmentFailures(db).filter((failure) =>
     failure.filePath === WORKSPACE
-      ? failure.reason === 'unresponsive'
+      ? failure.fileCount !== undefined
       : !refreshed.has(failure.filePath)
   );
   persistLspEnrichmentFailures(db, [...kept, ...failures]);
@@ -138,19 +147,19 @@ function isFailure(item: unknown): item is LspEnrichmentFailure {
 }
 
 /**
- * One entry per stage and language for the files a server that stopped answering left behind:
- * thousands of identical per-file entries would say no more than their count.
+ * One entry per stage and language for the files a server that stopped answering, or died, left
+ * behind: thousands of identical per-file entries would say no more than their count.
  */
-function collapseUnresponsive(failures: readonly LspEnrichmentFailure[]): LspEnrichmentFailure[] {
+function collapseLostServers(failures: readonly LspEnrichmentFailure[]): LspEnrichmentFailure[] {
   const collapsed = new Map<string, LspEnrichmentFailure>();
   const counted = new Set<string>();
   const rest: LspEnrichmentFailure[] = [];
   for (const failure of failures) {
-    if (failure.reason !== 'unresponsive') {
+    if (!isLostServerEntry(failure)) {
       rest.push(failure);
       continue;
     }
-    const key = `${failure.stage}\0${failure.languageId ?? ''}`;
+    const key = `${failure.stage}\0${failure.reason}\0${failure.languageId ?? ''}`;
     // A file reported twice is one file. An entry that is already a count is added as it stands.
     if (failure.filePath !== WORKSPACE) {
       if (counted.has(`${key}\0${failure.filePath}`)) continue;
@@ -159,18 +168,32 @@ function collapseUnresponsive(failures: readonly LspEnrichmentFailure[]): LspEnr
     const entry = collapsed.get(key) ?? {
       filePath: WORKSPACE,
       stage: failure.stage,
-      reason: 'unresponsive' as const,
+      reason: failure.reason,
       languageId: failure.languageId,
       fileCount: 0,
     };
     entry.fileCount = (entry.fileCount ?? 0) + (failure.fileCount ?? 1);
+    if (failure.reason === 'transport') {
+      entry.exitCode = failure.exitCode ?? null;
+      entry.signal = failure.signal ?? null;
+      // A request that failed while the server's stderr was still being read saw fewer lines.
+      const stderr = failure.stderr ?? [];
+      if (stderr.length >= (entry.stderr?.length ?? 0)) entry.stderr = stderr;
+    }
     collapsed.set(key, entry);
   }
   return [...rest, ...collapsed.values()];
 }
 
+/** A file a stopped or dead server could not be asked about, or the count of such files. */
+function isLostServerEntry(failure: LspEnrichmentFailure): boolean {
+  if (failure.stage !== 'symbols' && failure.stage !== 'calls') return false;
+  if (failure.reason === 'unresponsive') return true;
+  return failure.reason === 'transport' && failure.exitCode !== undefined;
+}
+
 function sortFailures(input: readonly LspEnrichmentFailure[]): LspEnrichmentFailure[] {
-  const failures = collapseUnresponsive(input);
+  const failures = collapseLostServers(input);
   const key = (failure: LspEnrichmentFailure) =>
     [
       failure.filePath,
@@ -235,14 +258,16 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
   const lines: string[] = [];
   for (const stage of STAGES) {
     const all = sortFailures(failures.filter((failure) => failure.stage === stage));
-    for (const lost of all.filter((entry) => entry.reason === 'unresponsive')) {
+    for (const lost of all.filter((entry) => entry.filePath === WORKSPACE && entry.fileCount)) {
+      const what =
+        lost.reason === 'unresponsive' ? 'stopped answering' : `exited (${exitStatus(lost)})`;
       lines.push(
-        `LSP output incomplete — ${stage}: the ${lost.languageId} language server stopped ` +
-          `answering and was not asked about ${lost.fileCount} file(s); ` +
+        `LSP output incomplete — ${stage}: the ${lost.languageId} language server ${what} and ` +
+          `was not asked about ${lost.fileCount} file(s)${lastStderr(lost)}; ` +
           'see lspEnrichmentFailures in `lux index status --json`.'
       );
     }
-    const entries = all.filter((entry) => entry.reason !== 'unresponsive');
+    const entries = all.filter((entry) => !(entry.filePath === WORKSPACE && entry.fileCount));
     if (entries.length === 0) continue;
     const reasons = [...new Set(entries.map((entry) => entry.reason))].sort().join(', ');
     // Timeouts, lost transports and error answers explain themselves; anything else is shown.
@@ -267,6 +292,24 @@ export function summarizeLspFailures(failures: readonly LspEnrichmentFailure[]):
   return lines;
 }
 
+/** `code 1`, `signal SIGKILL`: how a server that died ended. */
+function exitStatus(entry: LspEnrichmentFailure): string {
+  return entry.signal ? `signal ${entry.signal}` : `code ${entry.exitCode ?? 'unknown'}`;
+}
+
+/** A stderr line that names a failure, as against a log line or a heading. */
+const STDERR_FAILURE = /\b(error|fatal|exception|panic|abort(ed)?|killed)\b/i;
+
+/**
+ * `; stderr: <line>` — the line most likely to say why the server died: the last that names a
+ * failure, or the last line, when the server wrote any.
+ */
+function lastStderr(entry: LspEnrichmentFailure): string {
+  const lines = (entry.stderr ?? []).filter((text) => text.trim() !== '');
+  const line = lines.filter((text) => STDERR_FAILURE.test(text)).at(-1) ?? lines.at(-1);
+  return line ? `; stderr: ${line.trim()}` : '';
+}
+
 /** `N file(s) (reasons), e.g. a.php, b.php, c.php` — a count, and enough paths to start looking. */
 function fileStageDetail(entries: readonly LspEnrichmentFailure[], reasons: string): string {
   const files = [...new Set(entries.map((entry) => entry.filePath))];
@@ -276,24 +319,41 @@ function fileStageDetail(entries: readonly LspEnrichmentFailure[], reasons: stri
 
 /**
  * The entry for a server that started and has since died, found when its language's files come up
- * for enrichment: none of them is asked about, so the language is recorded, once. `started` is the
- * set of languages whose server started; the language is taken out of it so it is recorded once.
+ * for enrichment: none of them is asked about, so the language is recorded, once, with how it
+ * ended when that is known. `started` is the set of languages whose server started; the language
+ * is taken out of it so it is recorded once.
  */
 export function lostServerFailure(
-  enricher: { languageId: string; isReady: boolean },
+  enricher: { languageId: string; isReady: boolean; lostReason?: string | null },
   started: Set<string>
 ): LspEnrichmentFailure | undefined {
   if (enricher.isReady || !started.delete(enricher.languageId)) return undefined;
   return failedStartFailure(
     enricher.languageId,
-    `${enricher.languageId} language server is not running`
+    enricher.lostReason ?? `${enricher.languageId} language server is not running`
   );
 }
 
-/** The reason a failure message classifies as, with the message itself kept for an `error`. */
+/**
+ * The reason a failure message classifies as, with the message itself kept for an `error`, and
+ * the language, exit status and last stderr lines kept for a server that died.
+ */
 function reasonOf(
   message: string
-): Pick<LspEnrichmentFailure, 'reason' | 'message' | 'languageId' | 'method'> {
+): Pick<
+  LspEnrichmentFailure,
+  'reason' | 'message' | 'languageId' | 'method' | 'exitCode' | 'signal' | 'stderr'
+> {
+  const exit = parseServerExit(message);
+  if (exit) {
+    return {
+      reason: 'transport',
+      languageId: exit.languageId,
+      exitCode: exit.exitCode,
+      signal: exit.signal,
+      stderr: exit.stderr,
+    };
+  }
   const reason = classifyLspEnrichmentError(message);
   if (reason === 'empty') return { reason, method: EMPTY_ANSWER.exec(message)?.[1] };
   if (reason === 'unresponsive')
