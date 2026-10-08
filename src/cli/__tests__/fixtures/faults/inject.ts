@@ -7,6 +7,8 @@
 //   embedder         — the API embedder cannot be constructed (pair with LUX_EMBEDDING_TOKEN).
 //   embed-pass       — the API embedder is built, but every embed request fails (same pairing).
 //   model-fetch      — every network fetch fails (the `--embeddings` model download).
+//   die-mid-rebuild  — the process is killed (SIGKILL) as soon as a rebuild has cleared the overlay,
+//                      the state a rebuild killed part-way leaves.
 
 const faults = new Set((process.env.LUX_TEST_FAULTS ?? '').split(',').filter(Boolean));
 
@@ -33,6 +35,15 @@ if (faults.has('embed-pass')) {
 
 if (faults.has('model-fetch')) {
   globalThis.fetch = () => Promise.reject(new Error('injected fetch failure'));
+}
+
+if (faults.has('die-mid-rebuild')) {
+  const { LuxDatabase } = await import('../../../../db/index.js');
+  const clearOverlay = LuxDatabase.prototype.clearOverlay;
+  LuxDatabase.prototype.clearOverlay = function (this: InstanceType<typeof LuxDatabase>) {
+    clearOverlay.call(this);
+    process.kill(process.pid, 'SIGKILL');
+  };
 }
 
 export {};
