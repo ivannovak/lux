@@ -1,13 +1,12 @@
-import {
-  NodeTypes,
-  parse,
-  type AttributeNode,
-  type CompilerError,
-  type DirectiveNode,
-  type ElementNode,
-  type RootNode,
-  type TemplateChildNode,
+import type {
+  AttributeNode,
+  CompilerError,
+  DirectiveNode,
+  ElementNode,
+  RootNode,
+  TemplateChildNode,
 } from '@vue/compiler-dom';
+import { vueDomCompiler } from './compilers.js';
 import type { SourceDiagnosticV1 } from '../contracts/program.js';
 import { sourceLocationAt } from './source-map.js';
 import type { VueTemplateElementV1, VueTemplateListenerV1 } from './types.js';
@@ -83,18 +82,20 @@ function isComponentTag(tag: string): boolean {
 
 function attribute(node: ElementNode, name: string): AttributeNode | undefined {
   return node.props.find(
-    (prop): prop is AttributeNode => prop.type === NodeTypes.ATTRIBUTE && prop.name === name
+    (prop): prop is AttributeNode =>
+      prop.type === vueDomCompiler().NodeTypes.ATTRIBUTE && prop.name === name
   );
 }
 
 function directive(node: ElementNode, name: string): DirectiveNode[] {
   return node.props.filter(
-    (prop): prop is DirectiveNode => prop.type === NodeTypes.DIRECTIVE && prop.name === name
+    (prop): prop is DirectiveNode =>
+      prop.type === vueDomCompiler().NodeTypes.DIRECTIVE && prop.name === name
   );
 }
 
 function staticArgument(item: DirectiveNode): string | undefined {
-  return item.arg?.type === NodeTypes.SIMPLE_EXPRESSION && item.arg.isStatic
+  return item.arg?.type === vueDomCompiler().NodeTypes.SIMPLE_EXPRESSION && item.arg.isStatic
     ? item.arg.content
     : undefined;
 }
@@ -103,7 +104,8 @@ function childrenOf(node: RootNode | TemplateChildNode): readonly TemplateChildN
   if ('children' in node && Array.isArray(node.children)) {
     return node.children.filter((child): child is TemplateChildNode => typeof child !== 'string');
   }
-  if (node.type === NodeTypes.IF) return node.branches.flatMap((branch) => branch.children);
+  if (node.type === vueDomCompiler().NodeTypes.IF)
+    return node.branches.flatMap((branch) => branch.children);
   return [];
 }
 
@@ -122,7 +124,7 @@ export function extractVueTemplate(
   let root: RootNode;
 
   try {
-    root = parse(templateSource, {
+    root = vueDomCompiler().parse(templateSource, {
       onError(error) {
         compilerDiagnostics.push(
           compilerDiagnostic(error, filePath, sfcSource, templateStartOffset)
@@ -170,7 +172,7 @@ export function extractVueTemplate(
     for (const child of [...childrenOf(item.node)].reverse()) {
       pending.push({ node: child, depth: item.depth + 1 });
     }
-    if (item.node.type !== NodeTypes.ELEMENT) continue;
+    if (item.node.type !== vueDomCompiler().NodeTypes.ELEMENT) continue;
 
     const element = item.node;
     const location = diagnosticLocation(

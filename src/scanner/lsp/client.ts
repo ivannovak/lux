@@ -5,18 +5,23 @@
 // spawn -> initialize -> requests -> shutdown -> exit.
 
 import { spawn, type ChildProcess } from 'child_process';
-import {
-  InitializeRequest,
-  InitializedNotification,
-  ShutdownRequest,
-  ExitNotification,
-  type InitializeParams,
-  type InitializeResult,
-  type RequestMessage,
-  type ResponseMessage,
-  type NotificationMessage,
+import type {
+  InitializeParams,
+  InitializeResult,
+  RequestMessage,
+  ResponseMessage,
+  NotificationMessage,
 } from 'vscode-languageserver-protocol';
 import { lspTrace, type LspTrace } from './trace.js';
+
+// The lifecycle methods by their names in the protocol. Importing them from
+// vscode-languageserver-protocol would load that package (about 35 ms) on every `lux` command.
+const LSP_METHODS = {
+  initialize: 'initialize',
+  initialized: 'initialized',
+  shutdown: 'shutdown',
+  exit: 'exit',
+} as const;
 import { describeServerExit, StderrTail } from './server-exit.js';
 
 // ---------------------------------------------------------------------------
@@ -286,7 +291,7 @@ export class LspClient {
     let result: InitializeResult;
     try {
       result = (await this.sendRequestRaw(
-        InitializeRequest.method,
+        LSP_METHODS.initialize,
         params,
         this.options.initTimeoutMs
       )) as InitializeResult;
@@ -301,7 +306,7 @@ export class LspClient {
     this._serverCapabilities = result;
     this._firstRequestSent = false;
 
-    this.sendNotification(InitializedNotification.method, {});
+    this.sendNotification(LSP_METHODS.initialized, {});
     this._initialized = true;
 
     return result;
@@ -322,7 +327,7 @@ export class LspClient {
 
     // A server that stopped answering is not asked to shut down, only told to exit and killed.
     if (this._stoppedAnswering) {
-      this.sendNotification(ExitNotification.method, undefined);
+      this.sendNotification(LSP_METHODS.exit, undefined);
       this._initialized = false;
       this.cleanup();
       return;
@@ -331,13 +336,13 @@ export class LspClient {
     try {
       // Not queued behind the request slot: a slot still held for a cancelled request must not
       // delay the exit.
-      await this.sendRequestRaw(ShutdownRequest.method, null, this.options.requestTimeoutMs);
+      await this.sendRequestRaw(LSP_METHODS.shutdown, null, this.options.requestTimeoutMs);
     } catch {
       // lux-intentional-swallow: shutting down a server that may already have exited.
       // Best-effort — server may already be dead
     }
 
-    this.sendNotification(ExitNotification.method, undefined);
+    this.sendNotification(LSP_METHODS.exit, undefined);
     this._initialized = false;
 
     this.cleanup();
