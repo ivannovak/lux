@@ -13,6 +13,7 @@
 import { createRequire } from 'node:module';
 import { dirname, join, extname } from 'node:path';
 import Parser from 'web-tree-sitter';
+import { initTreeSitterRuntime } from './tree-sitter-runtime.js';
 
 type TsNode = Parser.SyntaxNode;
 
@@ -949,7 +950,7 @@ function extractPhp(root: TsNode, file: string): Extraction {
 
 /** Initialize the tree-sitter runtime and load all grammars once. */
 export async function initGrammars(): Promise<Map<AstLang, Parser.Language>> {
-  await Parser.init();
+  await initTreeSitterRuntime();
   const grammars = new Map<AstLang, Parser.Language>();
   for (const lang of Object.keys(GRAMMAR_WASM) as AstLang[]) {
     grammars.set(lang, await Parser.Language.load(GRAMMAR_WASM[lang]));

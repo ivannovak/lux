@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Parser from 'web-tree-sitter';
+import { initTreeSitterRuntime } from '../../ast/tree-sitter-runtime.js';
 import type { AdapterInputV1 } from '../types.js';
 import type {
   DeclarationFactV1,
@@ -20,7 +21,7 @@ import { confinedRead } from '../path-policy.js';
 import { hclRange, hclString } from './normalize.js';
 let language: Promise<Parser.Language> | undefined;
 async function grammar() {
-  await Parser.init();
+  await initTreeSitterRuntime();
   const asset = new URL(`./tree-sitter-hcl.wasm`, import.meta.url);
   return (language ??= Parser.Language.load(fileURLToPath(asset)));
 }
