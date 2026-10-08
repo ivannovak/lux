@@ -24,7 +24,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
       // Each documentSymbol answer takes 400 ms, so the PHP files of R cannot finish in 1 s.
       s = runScenario({
         lspBudgetMs: 1000,
-        env: { FAKE_LSP_DELAY_MS: '400' },
+        syncEnv: { FAKE_LSP_DELAY_MS: '400' },
         change: {
           'src/Module/Users/Account.php': BASE_TREE['src/Module/Users/Account.php'].replace(
             'return $exporter->build();',
@@ -53,7 +53,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
       // Each server takes 700 ms to answer initialize, so the 1 s budget runs out during start-up.
       s = runScenario({
         lspBudgetMs: 1000,
-        env: { FAKE_LSP_INIT_DELAY_MS: '700' },
+        syncEnv: { FAKE_LSP_INIT_DELAY_MS: '700' },
         change: {
           'src/Module/Users/Account.php': BASE_TREE['src/Module/Users/Account.php'] + '\n',
         },

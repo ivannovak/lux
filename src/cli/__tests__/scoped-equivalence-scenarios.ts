@@ -175,6 +175,11 @@ export interface ScenarioDef {
   /** Extra lux.yaml lines. */
   extraYaml?: string;
   env?: Record<string, string>;
+  /**
+   * Environment for the sync alone, on top of `env`: a slow fake language server is what the sync
+   * under test has to cope with, and the rebuilds around it would only wait for it.
+   */
+  syncEnv?: Record<string, string>;
   syncArgs?: string[];
 }
 
@@ -223,7 +228,10 @@ export function runScenario(def: ScenarioDef): Scenario {
   writeTree(repo, def.change);
   commitAll(repo, 'B');
 
-  const sync = runCli(repo, scopedDb, ['index', 'sync', ...(def.syncArgs ?? ['--scoped'])], env);
+  const sync = runCli(repo, scopedDb, ['index', 'sync', ...(def.syncArgs ?? ['--scoped'])], {
+    ...env,
+    ...def.syncEnv,
+  });
   expect(sync.status, sync.stderr).toBe(0);
   const rebuildB = runCli(repo, coldDb, ['index', 'rebuild'], env);
   expect(rebuildB.status, rebuildB.stderr).toBe(0);
