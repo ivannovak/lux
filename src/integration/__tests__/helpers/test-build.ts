@@ -15,12 +15,13 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { transformSync } from 'esbuild';
+import { buildSync, transformSync, type BuildOptions } from 'esbuild';
 
 export const PROJECT_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -36,6 +37,8 @@ export const TEST_BUILD_ENV = 'LUX_TEST_BUILD_DIR';
 /** Prefix of a build directory; each run makes one beside `src` and removes it afterwards. */
 export const TEST_BUILD_PREFIX = '.test-build-';
 const STAMP_FILE = 'test-build-stamp.json';
+/** The unbundled CLI entry the build keeps beside the bundle (built-cli.ts builtModularCli). */
+export const MODULAR_CLI_ENTRY = 'index.modules.js';
 
 interface SourceFile {
   /** Path relative to `src`, with forward slashes. */
@@ -116,7 +119,29 @@ export function buildTestTree(outDir: string, source: BuildSource = PROJECT_SOUR
     });
     writeFileSync(to.replace(/\.ts$/, '.js'), output.code);
   }
+  if (source.root === SOURCE_ROOT) bundleLikeDist(outDir);
   writeFileSync(join(outDir, STAMP_FILE), JSON.stringify({ fingerprint }));
+}
+
+/**
+ * Replace the CLI and the parser workers with bundles, as `npm run build` does in dist
+ * (config/cli-bundle.json, scripts/bundle-cli.ts), so the CLI the tests spawn is the one that ships.
+ */
+function bundleLikeDist(outDir: string): void {
+  // Keep the unbundled entry for tests that inject faults into Lux's modules (builtModularCli).
+  renameSync(join(outDir, 'cli', 'index.js'), join(outDir, 'cli', MODULAR_CLI_ENTRY));
+  const config = JSON.parse(
+    readFileSync(join(PROJECT_ROOT, 'config', 'cli-bundle.json'), 'utf8')
+  ) as { entryPoints: Array<{ in: string; out: string }>; options: BuildOptions };
+  buildSync({
+    ...config.options,
+    entryPoints: config.entryPoints.map((entry) => ({
+      in: join(SOURCE_ROOT, entry.in),
+      out: entry.out,
+    })),
+    outdir: outDir,
+    sourcemap: 'inline',
+  });
 }
 
 /** The fingerprint a build directory was made from, or undefined when it holds no finished build. */

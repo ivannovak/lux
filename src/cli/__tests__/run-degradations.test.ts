@@ -15,11 +15,13 @@ import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { loadOverlayTrustState } from '../../scanner/overlay-trust-state.js';
-import { built, builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { built, builtCli, builtModularCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const CLI_ENTRY = builtCli();
+// A fault is injected into Lux's modules, which only the unbundled CLI loads from their own files.
+const FAULT_CLI_ENTRY = builtModularCli();
 const HOOK = join(PROJECT_ROOT, 'bin', 'post-commit-hook.sh');
 const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 const SOURCE_CLI = join(__dirname, 'fixtures', 'hook-cli', 'lux-from-source.sh');
@@ -82,7 +84,15 @@ function runLux(
   const preload = opts.faults ? ['--import', FAULTS] : [];
   const r = spawnSync(
     process.execPath,
-    [...preload, CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args],
+    [
+      ...preload,
+      opts.faults ? FAULT_CLI_ENTRY : CLI_ENTRY,
+      '--db',
+      dbPath,
+      '--corpus',
+      repo,
+      ...args,
+    ],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',
@@ -183,7 +193,7 @@ describe('scoped refresh reports what it absorbed (issue #6)', () => {
         LUX_TEST_NODE: process.execPath,
         LUX_SKIP_SYNC: '',
         LUX_TEST_FAULTS: 'laravel-detector',
-        LUX_TEST_CLI_ENTRY: CLI_ENTRY,
+        LUX_TEST_CLI_ENTRY: FAULT_CLI_ENTRY,
         NODE_OPTIONS: `--import ${FAULTS}`,
         FORCE_COLOR: '0',
         NO_COLOR: '1',

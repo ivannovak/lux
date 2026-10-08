@@ -200,7 +200,9 @@ describe('nothing in src/ loads the npm package', () => {
     const loaders = sourceFiles(SRC)
       .filter((f) => !f.includes(`${join('db', 'vendor')}`) && !f.includes('__tests__'))
       .filter((f) =>
-        /require\(\s*['"][^'"]*node-sqlite3-wasm\.cjs['"]\s*\)/.test(readFileSync(f, 'utf8'))
+        /require\(\s*(?:layoutPath\(\s*)?['"][^'"]*node-sqlite3-wasm\.cjs['"]\s*\)/.test(
+          readFileSync(f, 'utf8')
+        )
       )
       .map((f) => relative(SRC, f));
     expect(loaders).toEqual([join('db', 'driver.ts')]);

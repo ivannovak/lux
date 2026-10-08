@@ -7,11 +7,13 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
-import { built, builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { built, builtCli, builtModularCli } from '../../integration/__tests__/helpers/built-cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 export const CLI_ENTRY = builtCli();
+// A fault is injected into Lux's modules, which only the unbundled CLI loads from their own files.
+export const FAULT_CLI_ENTRY = builtModularCli();
 export const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 
 // spawnSync blocks the event loop, so the per-call timeout is the hang guard and the test timeout
@@ -100,7 +102,16 @@ export function runLux(
   const preload = opts.faults ? ['--import', FAULTS] : [];
   const r = spawnSync(
     process.execPath,
-    [...preload, CLI_ENTRY, ...(opts.globalArgs ?? []), '--db', dbPath, '--corpus', repo, ...args],
+    [
+      ...preload,
+      opts.faults ? FAULT_CLI_ENTRY : CLI_ENTRY,
+      ...(opts.globalArgs ?? []),
+      '--db',
+      dbPath,
+      '--corpus',
+      repo,
+      ...args,
+    ],
     {
       cwd: PROJECT_ROOT,
       encoding: 'utf-8',

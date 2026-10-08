@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Parser from 'web-tree-sitter';
 import { initTreeSitterRuntime } from '../../ast/tree-sitter-runtime.js';
+import { layoutPath } from '../../../utils/package-layout.js';
 import type { AdapterInputV1 } from '../types.js';
 import type {
   DeclarationFactV1,
@@ -22,8 +22,9 @@ import { hclRange, hclString } from './normalize.js';
 let language: Promise<Parser.Language> | undefined;
 async function grammar() {
   await initTreeSitterRuntime();
-  const asset = new URL(`./tree-sitter-hcl.wasm`, import.meta.url);
-  return (language ??= Parser.Language.load(fileURLToPath(asset)));
+  return (language ??= Parser.Language.load(
+    layoutPath('scanner/adapters/hcl/tree-sitter-hcl.wasm')
+  ));
 }
 export class HclArtifactAdapter {
   readonly id = 'hcl-tree-sitter';
