@@ -9,7 +9,6 @@ import { join } from 'path';
 import { git, runCli, selectRows, type IndexDump } from './scoped-sync-harness.js';
 import {
   BASE_TREE,
-  SCENARIO_TIMEOUT_MS,
   expectEquivalent,
   runScenario,
   disposeScenarios,
@@ -49,7 +48,7 @@ describe('index sync — scoped sync converges on a cold rebuild: declarations a
             provider('UsersServiceProvider', 'Notify') + '\n',
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('records the event boundary against the same file as a cold rebuild', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -68,38 +67,30 @@ describe('index sync — scoped sync converges on a cold rebuild: declarations a
     const surfaces = (dump: IndexDump) =>
       selectRows(dump, 'structural_nodes', (r) => r.includes('node_type=capability-surface'));
 
-    it(
-      'qualifies both surfaces by file when a second file declares the route',
-      () => {
-        const s = runScenario({
-          lspBudgetMs: 600_000,
-          extraBase: { 'routes/web.php': WEB },
-          change: { 'routes/other.php': OTHER },
-        });
-        expect(s.syncStdout).toContain('scoped refresh complete');
-        expect(surfaces(s.cold).filter((r) => r.includes('/dup#file:'))).toHaveLength(2);
-        expect(surfaces(s.scoped)).toEqual(surfaces(s.cold));
-        expectEquivalent(s);
-      },
-      SCENARIO_TIMEOUT_MS
-    );
+    it('qualifies both surfaces by file when a second file declares the route', () => {
+      const s = runScenario({
+        lspBudgetMs: 600_000,
+        extraBase: { 'routes/web.php': WEB },
+        change: { 'routes/other.php': OTHER },
+      });
+      expect(s.syncStdout).toContain('scoped refresh complete');
+      expect(surfaces(s.cold).filter((r) => r.includes('/dup#file:'))).toHaveLength(2);
+      expect(surfaces(s.scoped)).toEqual(surfaces(s.cold));
+      expectEquivalent(s);
+    });
 
-    it(
-      'returns to the bare surface id when the second declaration goes',
-      () => {
-        const s = runScenario({
-          lspBudgetMs: 600_000,
-          extraBase: { 'routes/web.php': WEB, 'routes/other.php': OTHER },
-          change: { 'routes/other.php': null },
-        });
-        expect(s.syncStdout).toContain('scoped refresh complete');
-        expect(surfaces(s.cold).some((r) => r.includes('/dup#file:'))).toBe(false);
-        expect(surfaces(s.cold).some((r) => r.includes('id=surface:http:GET:/dup |'))).toBe(true);
-        expect(surfaces(s.scoped)).toEqual(surfaces(s.cold));
-        expectEquivalent(s);
-      },
-      SCENARIO_TIMEOUT_MS
-    );
+    it('returns to the bare surface id when the second declaration goes', () => {
+      const s = runScenario({
+        lspBudgetMs: 600_000,
+        extraBase: { 'routes/web.php': WEB, 'routes/other.php': OTHER },
+        change: { 'routes/other.php': null },
+      });
+      expect(s.syncStdout).toContain('scoped refresh complete');
+      expect(surfaces(s.cold).some((r) => r.includes('/dup#file:'))).toBe(false);
+      expect(surfaces(s.cold).some((r) => r.includes('id=surface:http:GET:/dup |'))).toBe(true);
+      expect(surfaces(s.scoped)).toEqual(surfaces(s.cold));
+      expectEquivalent(s);
+    });
   });
 
   describe('a renamed file and a symlink whose target changed', () => {
@@ -113,7 +104,7 @@ describe('index sync — scoped sync converges on a cold rebuild: declarations a
         },
         change: { 'docs/AGENTS.md': '# Agents\n\nRevised guidance.\n' },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('drops what was indexed under the old path of a renamed file', () => {
       const oldPath = (dump: IndexDump, table: string) =>
@@ -162,7 +153,7 @@ describe('index sync — scoped sync converges on a cold rebuild: declarations a
           expect(build.status, build.stdout + build.stderr).toBe(0);
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('merges the vendor pack a cold rebuild merges', () => {
       // The merged pack is every app file's resolution universe: no scoped refresh can follow it.

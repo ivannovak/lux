@@ -79,7 +79,7 @@ beforeAll(() => {
   execFileSync('git', ['add', '-A'], { cwd: repo, env });
   execFileSync('git', ['commit', '-q', '-m', 'change'], { cwd: repo, env });
   incremental = runLux(repo, db, home, ['index', 'sync']);
-}, 300_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });

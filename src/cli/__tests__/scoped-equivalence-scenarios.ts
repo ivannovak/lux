@@ -27,8 +27,6 @@ import {
   type IndexedBaseline,
 } from './scoped-sync-harness.js';
 
-export const SCENARIO_TIMEOUT_MS = 240_000;
-
 function luxYaml(lspBudgetMs: number, extra = ''): string {
   const enricher = (languageId: string) =>
     [

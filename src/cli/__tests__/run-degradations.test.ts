@@ -24,10 +24,9 @@ const HOOK = join(PROJECT_ROOT, 'bin', 'post-commit-hook.sh');
 const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 const SOURCE_CLI = join(__dirname, 'fixtures', 'hook-cli', 'lux-from-source.sh');
 
-// spawnSync blocks the event loop, so the per-call timeout is the hang guard and the per-case
-// timeout only bounds total duration.
+// spawnSync blocks the event loop, so the per-call timeout is the hang guard and the test timeout
+// (vitest.config.ts) only bounds total duration.
 const CALL_TIMEOUT_MS = 45000;
-const CASE_TIMEOUT_MS = 120000;
 
 const LSP_LESS = 'lsp:\n  enabled: false\n  enrichers: []\ndeps:\n  enabled: false\n';
 const ROUTES_A =
@@ -150,242 +149,202 @@ afterEach(() => {
 });
 
 describe('scoped refresh reports what it absorbed (issue #6)', () => {
-  it(
-    'a detector fault on `index sync --quiet`',
-    () => {
-      const { repo, dbPath } = routesRepoReadyForScopedSync();
+  it('a detector fault on `index sync --quiet`', () => {
+    const { repo, dbPath } = routesRepoReadyForScopedSync();
 
-      const r = runLux(repo, dbPath, ['index', 'sync', '--quiet'], { faults: 'laravel-detector' });
+    const r = runLux(repo, dbPath, ['index', 'sync', '--quiet'], { faults: 'laravel-detector' });
 
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(r, DETECTOR_FAULT, /^⚠ scoped refresh complete .* with \d+ warning\(s\) in /m);
-      const db = new LuxDatabase(dbPath);
-      const trust = loadOverlayTrustState(db);
-      db.close();
-      expect(trust?.mode).toBe('degraded-overlay');
-      expect(trust?.warnings).toContain(DETECTOR_FAULT);
-    },
-    CASE_TIMEOUT_MS
-  );
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(r, DETECTOR_FAULT, /^⚠ scoped refresh complete .* with \d+ warning\(s\) in /m);
+    const db = new LuxDatabase(dbPath);
+    const trust = loadOverlayTrustState(db);
+    db.close();
+    expect(trust?.mode).toBe('degraded-overlay');
+    expect(trust?.warnings).toContain(DETECTOR_FAULT);
+  });
 
-  it(
-    'a detector fault relayed by the post-commit hook',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'composer.json': '{}',
-        'routes/web.php': ROUTES_A,
-      });
-      const dbPath = join(repo, '.lux', 'lux.db');
-      const rebuild = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(rebuild.status, rebuild.stderr).toBe(0);
-      commitFile(repo, 'routes/web.php', ROUTES_B);
+  it('a detector fault relayed by the post-commit hook', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'composer.json': '{}',
+      'routes/web.php': ROUTES_A,
+    });
+    const dbPath = join(repo, '.lux', 'lux.db');
+    const rebuild = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
+    expect(rebuild.status, rebuild.stderr).toBe(0);
+    commitFile(repo, 'routes/web.php', ROUTES_B);
 
-      const r = spawnSync('bash', [HOOK], {
-        cwd: repo,
-        encoding: 'utf-8',
-        env: {
-          ...process.env,
-          LUX_CLI: SOURCE_CLI,
-          LUX_TEST_NODE: process.execPath,
-          LUX_SKIP_SYNC: '',
-          LUX_TEST_FAULTS: 'laravel-detector',
-          LUX_TEST_CLI_ENTRY: CLI_ENTRY,
-          NODE_OPTIONS: `--import ${FAULTS}`,
-          FORCE_COLOR: '0',
-          NO_COLOR: '1',
-        },
-        timeout: CALL_TIMEOUT_MS,
-      });
-      if (r.error) throw new Error(`post-commit hook did not finish: ${r.error.message}`);
+    const r = spawnSync('bash', [HOOK], {
+      cwd: repo,
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        LUX_CLI: SOURCE_CLI,
+        LUX_TEST_NODE: process.execPath,
+        LUX_SKIP_SYNC: '',
+        LUX_TEST_FAULTS: 'laravel-detector',
+        LUX_TEST_CLI_ENTRY: CLI_ENTRY,
+        NODE_OPTIONS: `--import ${FAULTS}`,
+        FORCE_COLOR: '0',
+        NO_COLOR: '1',
+      },
+      timeout: CALL_TIMEOUT_MS,
+    });
+    if (r.error) throw new Error(`post-commit hook did not finish: ${r.error.message}`);
 
-      expect(r.status).toBe(0);
-      expect(r.stderr).toContain(`Warning: ${DETECTOR_FAULT}`);
-      expect(r.stderr).toMatch(
-        /^⚠ Lux index synced with \d+ warning\(s\) \(1 file\(s\) updated\)$/m
-      );
-      expect(r.stderr).not.toContain('✓');
-    },
-    CASE_TIMEOUT_MS
-  );
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain(`Warning: ${DETECTOR_FAULT}`);
+    expect(r.stderr).toMatch(/^⚠ Lux index synced with \d+ warning\(s\) \(1 file\(s\) updated\)$/m);
+    expect(r.stderr).not.toContain('✓');
+  });
 });
 
 describe('degradations outside the scanner channel (issue #6)', () => {
-  it(
-    'an enricher that fails to start',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': [
-          'lsp:',
-          '  enabled: true',
-          '  enrichers:',
-          '    - language_id: typescript',
-          '      enabled: true',
-          '      server_command: lux-test-no-such-language-server',
-          '',
-        ].join('\n'),
-        'package.json': '{}',
-        'a.ts': 'export const a = 1;\n',
-      });
+  it('an enricher that fails to start', () => {
+    const repo = repoWith({
+      'lux.yaml': [
+        'lsp:',
+        '  enabled: true',
+        '  enrichers:',
+        '    - language_id: typescript',
+        '      enabled: true',
+        '      server_command: lux-test-no-such-language-server',
+        '',
+      ].join('\n'),
+      'package.json': '{}',
+      'a.ts': 'export const a = 1;\n',
+    });
 
-      const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet']);
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(
-        r,
-        'Failed to initialize typescript enricher',
-        /^⚠ index rebuild complete with \d+ warning\(s\) in /m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet']);
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(
+      r,
+      'Failed to initialize typescript enricher',
+      /^⚠ index rebuild complete with \d+ warning\(s\) in /m
+    );
+  });
 
-  it(
-    'a configured enricher with no implementation',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': [
-          'lsp:',
-          '  enabled: true',
-          '  enrichers:',
-          '    - language_id: cobol',
-          '      enabled: true',
-          '      server_command: cobol-ls',
-          '',
-        ].join('\n'),
-        'package.json': '{}',
-        'a.ts': 'export const a = 1;\n',
-      });
+  it('a configured enricher with no implementation', () => {
+    const repo = repoWith({
+      'lux.yaml': [
+        'lsp:',
+        '  enabled: true',
+        '  enrichers:',
+        '    - language_id: cobol',
+        '      enabled: true',
+        '      server_command: cobol-ls',
+        '',
+      ].join('\n'),
+      'package.json': '{}',
+      'a.ts': 'export const a = 1;\n',
+    });
 
-      const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet']);
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(
-        r,
-        'LSP enricher for "cobol" was configured but is not supported',
-        /^⚠ index rebuild complete with \d+ warning\(s\) in /m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet']);
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(
+      r,
+      'LSP enricher for "cobol" was configured but is not supported',
+      /^⚠ index rebuild complete with \d+ warning\(s\) in /m
+    );
+  });
 
-  it(
-    'a failed event log on an incremental sync',
-    () => {
-      const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'docs/a.md': '# a\n' });
-      const dbPath = newDbPath();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      installTrigger(
-        dbPath,
-        `CREATE TRIGGER fail_events BEFORE INSERT ON events
+  it('a failed event log on an incremental sync', () => {
+    const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'docs/a.md': '# a\n' });
+    const dbPath = newDbPath();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    installTrigger(
+      dbPath,
+      `CREATE TRIGGER fail_events BEFORE INSERT ON events
          BEGIN SELECT RAISE(ABORT, 'injected events failure'); END;`
-      );
-      commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
+    );
+    commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain('Sync path: incremental content sync');
-      expectWarned(r, 'Failed to log sync event', /^⚠ Synced with \d+ warning\(s\): /m);
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('Sync path: incremental content sync');
+    expectWarned(r, 'Failed to log sync event', /^⚠ Synced with \d+ warning\(s\): /m);
+  });
 
-  it(
-    'a failed event log on a sync that escalates to a full rebuild',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'composer.lock': '{"content-hash":"a"}\n',
-        'a.ts': 'export const a = 1;\n',
-      });
-      const dbPath = newDbPath();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      installTrigger(
-        dbPath,
-        `CREATE TRIGGER fail_events BEFORE INSERT ON events
+  it('a failed event log on a sync that escalates to a full rebuild', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'composer.lock': '{"content-hash":"a"}\n',
+      'a.ts': 'export const a = 1;\n',
+    });
+    const dbPath = newDbPath();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    installTrigger(
+      dbPath,
+      `CREATE TRIGGER fail_events BEFORE INSERT ON events
          BEGIN SELECT RAISE(ABORT, 'injected events failure'); END;`
-      );
-      writeFileSync(join(repo, 'a.ts'), 'export const a = 2;\n');
-      commitFile(repo, 'composer.lock', '{"content-hash":"b"}\n');
+    );
+    writeFileSync(join(repo, 'a.ts'), 'export const a = 2;\n');
+    commitFile(repo, 'composer.lock', '{"content-hash":"b"}\n');
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain('Sync path: full rebuild (config-changed)');
-      expectWarned(
-        r,
-        'Failed to log sync event',
-        /^⚠ Sync escalated to full overlay rebuild with \d+ warning\(s\) \(/m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('Sync path: full rebuild (config-changed)');
+    expectWarned(
+      r,
+      'Failed to log sync event',
+      /^⚠ Sync escalated to full overlay rebuild with \d+ warning\(s\) \(/m
+    );
+  });
 
-  it(
-    'an embedder that cannot be constructed',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'a.ts': 'export function greet(name: string): string {\n  return `hi ${name}`;\n}\n',
-      });
+  it('an embedder that cannot be constructed', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'a.ts': 'export function greet(name: string): string {\n  return `hi ${name}`;\n}\n',
+    });
 
-      const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet'], {
-        faults: 'embedder',
-        env: { LUX_EMBEDDING_TOKEN: 'test-token-never-sent' },
-      });
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(
-        r,
-        'anchor embedder unavailable, skipped the embed pass: injected embedder fault',
-        /^⚠ index rebuild complete with \d+ warning\(s\) in /m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet'], {
+      faults: 'embedder',
+      env: { LUX_EMBEDDING_TOKEN: 'test-token-never-sent' },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(
+      r,
+      'anchor embedder unavailable, skipped the embed pass: injected embedder fault',
+      /^⚠ index rebuild complete with \d+ warning\(s\) in /m
+    );
+  });
 
-  it(
-    'an embed pass stopped by a failed embed request',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'a.ts': 'export function greet(name: string): string {\n  return `hi ${name}`;\n}\n',
-      });
+  it('an embed pass stopped by a failed embed request', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'a.ts': 'export function greet(name: string): string {\n  return `hi ${name}`;\n}\n',
+    });
 
-      const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet'], {
-        faults: 'embed-pass',
-        env: { LUX_EMBEDDING_TOKEN: 'test-token-never-sent' },
-      });
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(
-        r,
-        'anchor embed pass failed after embedding 0 node(s): injected embed request failure',
-        /^⚠ index rebuild complete with \d+ warning\(s\) in /m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, newDbPath(), ['index', 'rebuild', '--quiet'], {
+      faults: 'embed-pass',
+      env: { LUX_EMBEDDING_TOKEN: 'test-token-never-sent' },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(
+      r,
+      'anchor embed pass failed after embedding 0 node(s): injected embed request failure',
+      /^⚠ index rebuild complete with \d+ warning\(s\) in /m
+    );
+  });
 
-  it(
-    'an AST extraction limit on one file',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'good.js': 'export function good() {}\n',
-        'big.js': `export function big() {}\n${' '.repeat(2.2 * 1024 * 1024)}`,
-      });
-      const dbPath = newDbPath();
+  it('an AST extraction limit on one file', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'good.js': 'export function good() {}\n',
+      'big.js': `export function big() {}\n${' '.repeat(2.2 * 1024 * 1024)}`,
+    });
+    const dbPath = newDbPath();
 
-      const r = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
-      expect(r.status, r.stderr).toBe(0);
-      expectWarned(r, 'AST extraction limit for big.js', /^⚠ index rebuild complete with /m);
-      const db = new LuxDatabase(dbPath);
-      const trust = loadOverlayTrustState(db);
-      db.close();
-      expect(trust?.warnings.some((w) => w.startsWith('AST extraction limit for big.js'))).toBe(
-        true
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'rebuild', '--quiet']);
+    expect(r.status, r.stderr).toBe(0);
+    expectWarned(r, 'AST extraction limit for big.js', /^⚠ index rebuild complete with /m);
+    const db = new LuxDatabase(dbPath);
+    const trust = loadOverlayTrustState(db);
+    db.close();
+    expect(trust?.warnings.some((w) => w.startsWith('AST extraction limit for big.js'))).toBe(true);
+  });
 });

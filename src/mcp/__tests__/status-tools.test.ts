@@ -146,7 +146,7 @@ describe('MCP parity trio — over the wire (ListTools + CallTool)', () => {
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

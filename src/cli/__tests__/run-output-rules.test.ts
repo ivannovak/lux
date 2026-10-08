@@ -18,10 +18,9 @@ const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const CLI_ENTRY = builtCli();
 const FAULTS = built(join(__dirname, 'fixtures', 'faults', 'inject.ts'));
 
-// spawnSync blocks the event loop, so the per-call timeout is the hang guard and the per-case
-// timeout only bounds total duration; the clean-quiet case makes five LSP-backed runs.
+// spawnSync blocks the event loop, so the per-call timeout is the hang guard and the test timeout
+// (vitest.config.ts) only bounds total duration.
 const CALL_TIMEOUT_MS = 45000;
-const CASE_TIMEOUT_MS = 240000;
 
 const LSP_LESS = 'lsp:\n  enabled: false\n  enrichers: []\ndeps:\n  enabled: false\n';
 const TS_LSP = [
@@ -134,274 +133,232 @@ afterEach(() => {
 });
 
 describe('run output rules (issue #6)', () => {
-  it(
-    'prints a warning raised both now and by an earlier run once, as this run’s',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': MISSING_TS_SERVER,
-        'package.json': '{}',
-        'a.ts': 'export const a = 1;\n',
-      });
-      const dbPath = dbPathIn();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      commitFile(repo, 'a.ts', 'export const a = 2;\n');
+  it('prints a warning raised both now and by an earlier run once, as this run’s', () => {
+    const repo = repoWith({
+      'lux.yaml': MISSING_TS_SERVER,
+      'package.json': '{}',
+      'a.ts': 'export const a = 1;\n',
+    });
+    const dbPath = dbPathIn();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    commitFile(repo, 'a.ts', 'export const a = 2;\n');
 
-      const r = runLux(repo, dbPath, ['index', 'sync', '--mark-only']);
-      expect(r.status, r.stderr).toBe(0);
-      const lines = linesMatching(r.stderr, 'Failed to initialize typescript enricher');
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toMatch(/^Warning: Failed to initialize typescript enricher/);
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'sync', '--mark-only']);
+    expect(r.status, r.stderr).toBe(0);
+    const lines = linesMatching(r.stderr, 'Failed to initialize typescript enricher');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^Warning: Failed to initialize typescript enricher/);
+  });
 
-  it(
-    'warns about malformed frontmatter and still indexes the file, on rebuild and on sync',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'bad.md': BAD_FRONTMATTER,
-      });
-      const dbPath = dbPathIn();
-      const contentOf = (): string | undefined => {
-        const db = new LuxDatabase(dbPath);
-        try {
-          return db.getKnowledgeEntryByPath('bad.md')?.content;
-        } finally {
-          db.close();
-        }
-      };
-
-      const rebuild = runLux(repo, dbPath, ['index', 'rebuild']);
-      expect(rebuild.status, rebuild.stderr).toBe(0);
-      expect(rebuild.stderr).toMatch(/^Warning: malformed frontmatter in bad\.md; /m);
-      expect(rebuild.stdout).toMatch(/^⚠ Index rebuilt with \d+ warning\(s\)$/m);
-      expect(contentOf()).toContain('body text that must stay indexed');
-
-      commitFile(repo, 'bad.md', BAD_FRONTMATTER + 'and a second line\n');
-      const sync = runLux(repo, dbPath, ['index', 'sync']);
-      expect(sync.status, sync.stderr).toBe(0);
-      expect(sync.stdout).toContain('Sync path: incremental content sync');
-      expect(sync.stderr).toMatch(/^Warning: malformed frontmatter in bad\.md; /m);
-      expect(sync.stdout).toMatch(/^⚠ Synced with \d+ warning\(s\): /m);
-      expect(contentOf()).toContain('and a second line');
-    },
-    CASE_TIMEOUT_MS
-  );
-
-  it(
-    'warns when `index rebuild --embeddings` cannot fetch the model',
-    () => {
-      const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
-
-      const r = runLux(repo, dbPathIn(), ['index', 'rebuild', '--embeddings'], {
-        faults: 'model-fetch',
-        env: { HOME: tempDir('lux-output-home-') },
-      });
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stderr).toMatch(
-        /^Warning: could not fetch the embedding model \(.*injected fetch failure.*\); continued without anchor embeddings$/m
-      );
-      expect(r.stdout).toMatch(/^⚠ Index rebuilt with \d+ warning\(s\)$/m);
-      expect(`${r.stdout}${r.stderr}`).not.toContain('✓');
-    },
-    CASE_TIMEOUT_MS
-  );
-
-  it(
-    'prints nothing from a clean `--quiet` run on every rebuild and sync path',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': TS_LSP,
-        'package.json': JSON.stringify({ name: 'quiet-fx', private: true, type: 'module' }),
-        'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022' } }),
-        'a.ts': 'export function a(): number {\n  return 1;\n}\n',
-      });
-      const dbPath = dbPathIn();
-
-      expectSilent(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
-
-      commitFile(repo, 'a.ts', 'export function a(): number {\n  return 2;\n}\n');
-      const scoped = runLux(repo, dbPath, ['index', 'sync', '--quiet']);
-      expectSilent(scoped);
-
-      commitFile(repo, 'notes.md', '# notes\n');
-      expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
-
-      commitFile(repo, 'lux.yaml', TS_LSP + '# config edit\n');
-      expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
-
-      expectSilent(runLux(repo, dbPath, ['index', 'sync', '--force', '--quiet']));
-    },
-    CASE_TIMEOUT_MS
-  );
-
-  it(
-    'prints migrations only under --verbose, and never under --quiet',
-    () => {
-      const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
-
-      const plain = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only']);
-      expect(plain.status, plain.stderr).toBe(0);
-      expect(`${plain.stdout}${plain.stderr}`).not.toContain('migration');
-
-      const verbose = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only'], {
-        globalArgs: ['--verbose'],
-      });
-      expect(verbose.status, verbose.stderr).toBe(0);
-      expect(verbose.stderr).toContain('Applying migration 1: initial_schema');
-
-      const both = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only', '--quiet'], {
-        globalArgs: ['--verbose'],
-      });
-      expectSilent(both);
-    },
-    CASE_TIMEOUT_MS
-  );
-
-  it(
-    'labels a carried warning, and a scoped sync that re-runs its component cleanly retires it',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'composer.json': '{}',
-        'routes/web.php': ROUTES_A,
-        'docs/a.md': '# a\n',
-      });
-      const dbPath = dbPathIn();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      const FAULT = 'detector "laravel-http-surfaces" threw — injected detector fault';
-
-      // A scoped sync with the detector broken raises the warning as its own.
-      commitFile(repo, 'routes/web.php', ROUTES_B);
-      const faulted = runLux(repo, dbPath, ['index', 'sync', '--quiet'], {
-        faults: 'laravel-detector',
-      });
-      expect(faulted.stderr).toContain(`Warning: ${FAULT}`);
-
-      // A docs-only sync re-runs no detector: the warning is still there, labelled as carried.
-      commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
-      const carried = runLux(repo, dbPath, ['index', 'sync']);
-      expect(carried.status, carried.stderr).toBe(0);
-      expect(carried.stderr).toContain(`Warning: carried from an earlier run: ${FAULT}`);
-
-      // A scoped sync whose detector runs cleanly retires it.
-      commitFile(repo, 'routes/web.php', ROUTES_C);
-      const cleared = runLux(repo, dbPath, ['index', 'sync']);
-      expect(cleared.status, cleared.stderr).toBe(0);
-      expect(cleared.stdout).toContain('scoped overlay refresh');
-      expect(`${cleared.stdout}${cleared.stderr}`).not.toContain(FAULT);
+  it('warns about malformed frontmatter and still indexes the file, on rebuild and on sync', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'bad.md': BAD_FRONTMATTER,
+    });
+    const dbPath = dbPathIn();
+    const contentOf = (): string | undefined => {
       const db = new LuxDatabase(dbPath);
-      const trust = loadOverlayTrustState(db);
-      db.close();
-      expect(trust?.warnings).not.toContain(FAULT);
-    },
-    CASE_TIMEOUT_MS
-  );
+      try {
+        return db.getKnowledgeEntryByPath('bad.md')?.content;
+      } finally {
+        db.close();
+      }
+    };
 
-  it(
-    'warns when the embed step cannot read lux.yaml and falls back to the local model',
-    () => {
-      const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
-      const dbPath = dbPathIn();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      // Broken after indexing, so the no-change sync's embed step is the only reader.
-      writeFileSync(join(repo, 'lux.yaml'), 'lsp: [unclosed\n');
+    const rebuild = runLux(repo, dbPath, ['index', 'rebuild']);
+    expect(rebuild.status, rebuild.stderr).toBe(0);
+    expect(rebuild.stderr).toMatch(/^Warning: malformed frontmatter in bad\.md; /m);
+    expect(rebuild.stdout).toMatch(/^⚠ Index rebuilt with \d+ warning\(s\)$/m);
+    expect(contentOf()).toContain('body text that must stay indexed');
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain('Index matches HEAD');
-      expect(r.stderr).toMatch(
-        /^Warning: lux\.yaml could not be read for its embedding settings, so the local model was used — /m
-      );
-    },
-    CASE_TIMEOUT_MS
-  );
+    commitFile(repo, 'bad.md', BAD_FRONTMATTER + 'and a second line\n');
+    const sync = runLux(repo, dbPath, ['index', 'sync']);
+    expect(sync.status, sync.stderr).toBe(0);
+    expect(sync.stdout).toContain('Sync path: incremental content sync');
+    expect(sync.stderr).toMatch(/^Warning: malformed frontmatter in bad\.md; /m);
+    expect(sync.stdout).toMatch(/^⚠ Synced with \d+ warning\(s\): /m);
+    expect(contentOf()).toContain('and a second line');
+  });
 
-  it(
-    'does not label warnings derived from the current index as carried',
-    () => {
-      const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'docs/a.md': '# a\n' });
-      const dbPath = dbPathIn();
-      // A content-only rebuild records no trust state, so no earlier run raised any warning.
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--content-only', '--quiet']).status).toBe(
-        0
-      );
-      commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
+  it('warns when `index rebuild --embeddings` cannot fetch the model', () => {
+    const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stderr).toMatch(/^Warning: /m);
-      expect(r.stderr).not.toContain('carried from an earlier run');
-    },
-    CASE_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPathIn(), ['index', 'rebuild', '--embeddings'], {
+      faults: 'model-fetch',
+      env: { HOME: tempDir('lux-output-home-') },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toMatch(
+      /^Warning: could not fetch the embedding model \(.*injected fetch failure.*\); continued without anchor embeddings$/m
+    );
+    expect(r.stdout).toMatch(/^⚠ Index rebuilt with \d+ warning\(s\)$/m);
+    expect(`${r.stdout}${r.stderr}`).not.toContain('✓');
+  });
 
-  it(
-    'does not label inferred warnings as carried on a scoped sync either',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': LSP_LESS,
-        'package.json': '{}',
-        'a.ts': 'export function a(): number {\n  return 1;\n}\n',
+  it('prints nothing from a clean `--quiet` run on every rebuild and sync path', () => {
+    const repo = repoWith({
+      'lux.yaml': TS_LSP,
+      'package.json': JSON.stringify({ name: 'quiet-fx', private: true, type: 'module' }),
+      'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022' } }),
+      'a.ts': 'export function a(): number {\n  return 1;\n}\n',
+    });
+    const dbPath = dbPathIn();
+
+    expectSilent(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
+
+    commitFile(repo, 'a.ts', 'export function a(): number {\n  return 2;\n}\n');
+    const scoped = runLux(repo, dbPath, ['index', 'sync', '--quiet']);
+    expectSilent(scoped);
+
+    commitFile(repo, 'notes.md', '# notes\n');
+    expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
+
+    commitFile(repo, 'lux.yaml', TS_LSP + '# config edit\n');
+    expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
+
+    expectSilent(runLux(repo, dbPath, ['index', 'sync', '--force', '--quiet']));
+  });
+
+  it('prints migrations only under --verbose, and never under --quiet', () => {
+    const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
+
+    const plain = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only']);
+    expect(plain.status, plain.stderr).toBe(0);
+    expect(`${plain.stdout}${plain.stderr}`).not.toContain('migration');
+
+    const verbose = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only'], {
+      globalArgs: ['--verbose'],
+    });
+    expect(verbose.status, verbose.stderr).toBe(0);
+    expect(verbose.stderr).toContain('Applying migration 1: initial_schema');
+
+    const both = runLux(repo, dbPathIn(), ['index', 'rebuild', '--content-only', '--quiet'], {
+      globalArgs: ['--verbose'],
+    });
+    expectSilent(both);
+  });
+
+  it('labels a carried warning, and a scoped sync that re-runs its component cleanly retires it', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'composer.json': '{}',
+      'routes/web.php': ROUTES_A,
+      'docs/a.md': '# a\n',
+    });
+    const dbPath = dbPathIn();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    const FAULT = 'detector "laravel-http-surfaces" threw — injected detector fault';
+
+    // A scoped sync with the detector broken raises the warning as its own.
+    commitFile(repo, 'routes/web.php', ROUTES_B);
+    const faulted = runLux(repo, dbPath, ['index', 'sync', '--quiet'], {
+      faults: 'laravel-detector',
+    });
+    expect(faulted.stderr).toContain(`Warning: ${FAULT}`);
+
+    // A docs-only sync re-runs no detector: the warning is still there, labelled as carried.
+    commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
+    const carried = runLux(repo, dbPath, ['index', 'sync']);
+    expect(carried.status, carried.stderr).toBe(0);
+    expect(carried.stderr).toContain(`Warning: carried from an earlier run: ${FAULT}`);
+
+    // A scoped sync whose detector runs cleanly retires it.
+    commitFile(repo, 'routes/web.php', ROUTES_C);
+    const cleared = runLux(repo, dbPath, ['index', 'sync']);
+    expect(cleared.status, cleared.stderr).toBe(0);
+    expect(cleared.stdout).toContain('scoped overlay refresh');
+    expect(`${cleared.stdout}${cleared.stderr}`).not.toContain(FAULT);
+    const db = new LuxDatabase(dbPath);
+    const trust = loadOverlayTrustState(db);
+    db.close();
+    expect(trust?.warnings).not.toContain(FAULT);
+  });
+
+  it('warns when the embed step cannot read lux.yaml and falls back to the local model', () => {
+    const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'a.md': '# a\n' });
+    const dbPath = dbPathIn();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    // Broken after indexing, so the no-change sync's embed step is the only reader.
+    writeFileSync(join(repo, 'lux.yaml'), 'lsp: [unclosed\n');
+
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('Index matches HEAD');
+    expect(r.stderr).toMatch(
+      /^Warning: lux\.yaml could not be read for its embedding settings, so the local model was used — /m
+    );
+  });
+
+  it('does not label warnings derived from the current index as carried', () => {
+    const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}', 'docs/a.md': '# a\n' });
+    const dbPath = dbPathIn();
+    // A content-only rebuild records no trust state, so no earlier run raised any warning.
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--content-only', '--quiet']).status).toBe(0);
+    commitFile(repo, 'docs/a.md', '# a\n\nmore\n');
+
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toMatch(/^Warning: /m);
+    expect(r.stderr).not.toContain('carried from an earlier run');
+  });
+
+  it('does not label inferred warnings as carried on a scoped sync either', () => {
+    const repo = repoWith({
+      'lux.yaml': LSP_LESS,
+      'package.json': '{}',
+      'a.ts': 'export function a(): number {\n  return 1;\n}\n',
+    });
+    const dbPath = dbPathIn();
+    expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
+    // With the persisted trust state gone, the next sync infers one from the DB's shape.
+    const db = new LuxDatabase(dbPath);
+    db.clearRebuildTrustState();
+    db.close();
+    commitFile(repo, 'a.ts', 'export function a(): number {\n  return 2;\n}\n');
+
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('scoped overlay refresh');
+    expect(r.stderr).toMatch(/^Warning: /m);
+    expect(r.stderr).not.toContain('carried from an earlier run');
+  });
+
+  it('keeps a clean --quiet sync silent when it clears a stale lock, and --verbose shows the notice', () => {
+    const repo = repoWith({
+      'lux.yaml': TS_LSP,
+      'package.json': JSON.stringify({ name: 'lock-fx', private: true, type: 'module' }),
+      'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022' } }),
+      'a.ts': 'export function a(): number {\n  return 1;\n}\n',
+    });
+    const dbPath = dbPathIn();
+    expectSilent(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
+    const NOTE = 'Note: cleared a stale database lock';
+
+    // A lock left by a crashed run: its owner token names a pid that is not running, so the next
+    // open reclaims it. (A lock that names no owner is never reclaimed.)
+    const crashedRunLeavesLock = (): void => {
+      mkdirSync(`${dbPath}.lock/4194303-0123456789ab@${encodeURIComponent(hostname())}`, {
+        recursive: true,
       });
-      const dbPath = dbPathIn();
-      expect(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']).status).toBe(0);
-      // With the persisted trust state gone, the next sync infers one from the DB's shape.
-      const db = new LuxDatabase(dbPath);
-      db.clearRebuildTrustState();
-      db.close();
-      commitFile(repo, 'a.ts', 'export function a(): number {\n  return 2;\n}\n');
+    };
+    commitFile(repo, 'notes.md', '# notes\n');
+    crashedRunLeavesLock();
+    expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain('scoped overlay refresh');
-      expect(r.stderr).toMatch(/^Warning: /m);
-      expect(r.stderr).not.toContain('carried from an earlier run');
-    },
-    CASE_TIMEOUT_MS
-  );
+    // Notices print by default, not only under --verbose.
+    commitFile(repo, 'notes.md', '# notes\n\nmore\n');
+    crashedRunLeavesLock();
+    const plain = runLux(repo, dbPath, ['index', 'sync']);
+    expect(plain.status, plain.stderr).toBe(0);
+    expect(plain.stderr).toContain(NOTE);
 
-  it(
-    'keeps a clean --quiet sync silent when it clears a stale lock, and --verbose shows the notice',
-    () => {
-      const repo = repoWith({
-        'lux.yaml': TS_LSP,
-        'package.json': JSON.stringify({ name: 'lock-fx', private: true, type: 'module' }),
-        'tsconfig.json': JSON.stringify({ compilerOptions: { target: 'ES2022' } }),
-        'a.ts': 'export function a(): number {\n  return 1;\n}\n',
-      });
-      const dbPath = dbPathIn();
-      expectSilent(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
-      const NOTE = 'Note: cleared a stale database lock';
-
-      // A lock left by a crashed run: its owner token names a pid that is not running, so the next
-      // open reclaims it. (A lock that names no owner is never reclaimed.)
-      const crashedRunLeavesLock = (): void => {
-        mkdirSync(`${dbPath}.lock/4194303-0123456789ab@${encodeURIComponent(hostname())}`, {
-          recursive: true,
-        });
-      };
-      commitFile(repo, 'notes.md', '# notes\n');
-      crashedRunLeavesLock();
-      expectSilent(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
-
-      // Notices print by default, not only under --verbose.
-      commitFile(repo, 'notes.md', '# notes\n\nmore\n');
-      crashedRunLeavesLock();
-      const plain = runLux(repo, dbPath, ['index', 'sync']);
-      expect(plain.status, plain.stderr).toBe(0);
-      expect(plain.stderr).toContain(NOTE);
-
-      commitFile(repo, 'notes.md', '# notes\n\nmore\n\nagain\n');
-      crashedRunLeavesLock();
-      const verbose = runLux(repo, dbPath, ['index', 'sync'], { globalArgs: ['--verbose'] });
-      expect(verbose.status, verbose.stderr).toBe(0);
-      expect(verbose.stderr).toContain(NOTE);
-    },
-    CASE_TIMEOUT_MS
-  );
+    commitFile(repo, 'notes.md', '# notes\n\nmore\n\nagain\n');
+    crashedRunLeavesLock();
+    const verbose = runLux(repo, dbPath, ['index', 'sync'], { globalArgs: ['--verbose'] });
+    expect(verbose.status, verbose.stderr).toBe(0);
+    expect(verbose.stderr).toContain(NOTE);
+  });
 
   it('describes --quiet as it behaves, on rebuild and on sync', () => {
     const repo = repoWith({ 'lux.yaml': LSP_LESS, 'package.json': '{}' });

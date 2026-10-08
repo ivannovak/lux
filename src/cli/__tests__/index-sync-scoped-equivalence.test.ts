@@ -20,7 +20,6 @@ import {
 } from './scoped-sync-harness.js';
 import {
   BASE_TREE,
-  SCENARIO_TIMEOUT_MS,
   expectEquivalent,
   runScenario,
   trustState,
@@ -44,21 +43,17 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
           'src/Module/Users/Account.php': BASE_TREE['src/Module/Users/Account.php'] + '\n',
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
-    it(
-      'reports no difference between two cold rebuilds of the same commit',
-      () => {
-        const second = join(s.coldDb + '.second');
-        const rebuild = runCli(s.repo, second, ['index', 'rebuild'], {
-          LUX_PACK_CACHE: join(s.coldDb, '..', 'packs'),
-        });
-        expect(rebuild.status, rebuild.stderr).toBe(0);
-        const differences = diffIndexes(s.cold, dumpIndex(second, s.repo));
-        expect(differences, formatDifferences(differences)).toEqual([]);
-      },
-      SCENARIO_TIMEOUT_MS
-    );
+    it('reports no difference between two cold rebuilds of the same commit', () => {
+      const second = join(s.coldDb + '.second');
+      const rebuild = runCli(s.repo, second, ['index', 'rebuild'], {
+        LUX_PACK_CACHE: join(s.coldDb, '..', 'packs'),
+      });
+      expect(rebuild.status, rebuild.stderr).toBe(0);
+      const differences = diffIndexes(s.cold, dumpIndex(second, s.repo));
+      expect(differences, formatDifferences(differences)).toEqual([]);
+    });
 
     it('reports a single planted difference in a copy of the cold index', () => {
       const planted = s.coldDb + '.planted';
@@ -93,7 +88,7 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
           ),
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('keeps the group prefix on every HTTP surface', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -134,7 +129,7 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
           ].replace('const count = 1;', 'const count = 2;\nconst limit = 9;'),
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('materializes the same LSP symbol nodes as a cold rebuild', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -174,7 +169,7 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
             "Route::get('/invoices', [BulkDownloadController::class, 'show']);\n",
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('refreshes module_dependencies (defect 4)', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -208,7 +203,7 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
           'resources/js/types/cart.ts': 'export interface CartLine {\n  id: number;\n}\n',
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('materializes the same framework nodes as a cold rebuild', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -238,7 +233,7 @@ describe('index sync — scoped sync converges on a cold rebuild', () => {
           db.close();
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('degrades the refreshed trust state with the warning, as a rebuild does', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');

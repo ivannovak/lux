@@ -152,7 +152,7 @@ describe('a rebuild phase that fails part-way', () => {
         'injected write failure. 502 file node(s) and 0 symbol node(s) were persisted before it stopped.'
     );
     expect(files).toBe(502);
-  }, 60_000);
+  });
 
   it('degrades and counts the symbols on disk when AST materialization stops, without LSP', async () => {
     const dir = repo(4);

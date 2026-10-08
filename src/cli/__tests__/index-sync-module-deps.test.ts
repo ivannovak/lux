@@ -28,12 +28,10 @@ const CLI_ENTRY = builtCli();
 
 const roots: string[] = [];
 
-// spawnSync blocks the event loop, so vitest applies the per-case timeout only after the body
-// returns: the 30 s per-call timeout is the real hang guard (a hung CLI fails on its own message),
-// and the 60 s per-case timeout is a total-duration check. Measured: one call takes 2-4 s at load
-// ~24 and about 8 s at load ~60, a case makes at most four, and the slowest case took ~25 s.
+// spawnSync blocks the event loop, so vitest applies the test timeout (vitest.config.ts) only after
+// the body returns: the 30 s per-call timeout is the real hang guard (a hung CLI fails on its own
+// message), and the test timeout is a total-duration check.
 const CLI_CALL_TIMEOUT_MS = 30000;
-const CLI_TIMEOUT_MS = 60000;
 
 const LUX_YAML =
   'lsp:\n  enabled: false\n  enrichers: []\ndeps:\n  enabled: true\n  module_boundary: "src/Module/{name}"\n';
@@ -234,139 +232,115 @@ afterEach(() => {
 });
 
 describe('index sync — module dependencies after a full-rebuild escalation (issue #6)', () => {
-  it(
-    'a config-changed full rebuild leaves module_dependencies equal to a cold rebuild',
-    () => {
-      const { repo, dbPath } = indexedAtA();
-      const rowsA = dependencyRows(dbPath);
-      expect(rowsA.length).toBeGreaterThan(0);
+  it('a config-changed full rebuild leaves module_dependencies equal to a cold rebuild', () => {
+    const { repo, dbPath } = indexedAtA();
+    const rowsA = dependencyRows(dbPath);
+    expect(rowsA.length).toBeGreaterThan(0);
 
-      commitB(repo);
-      const sync = runLux(repo, dbPath, ['index', 'sync']);
-      expect(sync.status, sync.stderr).toBe(0);
-      expect(sync.stdout).toContain('Sync path: full rebuild (config-changed)');
+    commitB(repo);
+    const sync = runLux(repo, dbPath, ['index', 'sync']);
+    expect(sync.status, sync.stderr).toBe(0);
+    expect(sync.stdout).toContain('Sync path: full rebuild (config-changed)');
 
-      const coldDbPath = newDbPath();
-      const coldB = runLux(repo, coldDbPath, ['index', 'rebuild', '--quiet']);
-      expect(coldB.status, coldB.stderr).toBe(0);
-      const rowsColdB = dependencyRows(coldDbPath);
-      expect(rowsColdB).not.toEqual(rowsA);
+    const coldDbPath = newDbPath();
+    const coldB = runLux(repo, coldDbPath, ['index', 'rebuild', '--quiet']);
+    expect(coldB.status, coldB.stderr).toBe(0);
+    const rowsColdB = dependencyRows(coldDbPath);
+    expect(rowsColdB).not.toEqual(rowsA);
 
-      expect(dependencyRows(dbPath)).toEqual(rowsColdB);
+    expect(dependencyRows(dbPath)).toEqual(rowsColdB);
 
-      const graph = runLux(repo, dbPath, ['deps', 'graph', '--json']);
-      expect(graph.status, graph.stderr).toBe(0);
-      const parsed = JSON.parse(graph.stdout) as { data: unknown[] };
-      expect(parsed.data.length).toBeGreaterThan(0);
-    },
-    CLI_TIMEOUT_MS
-  );
+    const graph = runLux(repo, dbPath, ['deps', 'graph', '--json']);
+    expect(graph.status, graph.stderr).toBe(0);
+    const parsed = JSON.parse(graph.stdout) as { data: unknown[] };
+    expect(parsed.data.length).toBeGreaterThan(0);
+  });
 
-  it(
-    'a --force sync leaves module_dependencies equal to a cold rebuild',
-    () => {
-      const { repo, dbPath } = indexedAtA();
-      const rowsA = dependencyRows(dbPath);
+  it('a --force sync leaves module_dependencies equal to a cold rebuild', () => {
+    const { repo, dbPath } = indexedAtA();
+    const rowsA = dependencyRows(dbPath);
 
-      commitB(repo);
-      const sync = runLux(repo, dbPath, ['index', 'sync', '--force']);
-      expect(sync.status, sync.stderr).toBe(0);
-      expect(sync.stdout).toContain('Force flag set, running full rebuild');
+    commitB(repo);
+    const sync = runLux(repo, dbPath, ['index', 'sync', '--force']);
+    expect(sync.status, sync.stderr).toBe(0);
+    expect(sync.stdout).toContain('Force flag set, running full rebuild');
 
-      const coldDbPath = newDbPath();
-      const coldB = runLux(repo, coldDbPath, ['index', 'rebuild', '--quiet']);
-      expect(coldB.status, coldB.stderr).toBe(0);
-      const rowsColdB = dependencyRows(coldDbPath);
-      expect(rowsColdB).not.toEqual(rowsA);
+    const coldDbPath = newDbPath();
+    const coldB = runLux(repo, coldDbPath, ['index', 'rebuild', '--quiet']);
+    expect(coldB.status, coldB.stderr).toBe(0);
+    const rowsColdB = dependencyRows(coldDbPath);
+    expect(rowsColdB).not.toEqual(rowsA);
 
-      expect(dependencyRows(dbPath)).toEqual(rowsColdB);
-    },
-    CLI_TIMEOUT_MS
-  );
+    expect(dependencyRows(dbPath)).toEqual(rowsColdB);
+  });
 
-  it(
-    'a content-only rebuild writes the dependencies its scan computed',
-    () => {
-      const repo = newRepo();
-      writeModule(repo, 'Users', 'UserService.php', USERS_B);
-      writeModule(repo, 'Orders', 'OrderService.php', ORDERS);
-      writeModule(repo, 'Billing', 'BillingService.php', BILLING);
-      commitAll(repo, 'A');
+  it('a content-only rebuild writes the dependencies its scan computed', () => {
+    const repo = newRepo();
+    writeModule(repo, 'Users', 'UserService.php', USERS_B);
+    writeModule(repo, 'Orders', 'OrderService.php', ORDERS);
+    writeModule(repo, 'Billing', 'BillingService.php', BILLING);
+    commitAll(repo, 'A');
 
-      const overlayDb = newDbPath();
-      const overlay = runLux(repo, overlayDb, ['index', 'rebuild', '--quiet']);
-      expect(overlay.status, overlay.stderr).toBe(0);
+    const overlayDb = newDbPath();
+    const overlay = runLux(repo, overlayDb, ['index', 'rebuild', '--quiet']);
+    expect(overlay.status, overlay.stderr).toBe(0);
 
-      const contentDb = newDbPath();
-      const content = runLux(repo, contentDb, ['index', 'rebuild', '--content-only', '--quiet']);
-      expect(content.status, content.stderr).toBe(0);
+    const contentDb = newDbPath();
+    const content = runLux(repo, contentDb, ['index', 'rebuild', '--content-only', '--quiet']);
+    expect(content.status, content.stderr).toBe(0);
 
-      const rows = dependencyRows(contentDb);
-      expect(rows.length).toBeGreaterThan(0);
-      expect(rows).toEqual(dependencyRows(overlayDb));
-    },
-    CLI_TIMEOUT_MS
-  );
+    const rows = dependencyRows(contentDb);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows).toEqual(dependencyRows(overlayDb));
+  });
 });
 
 describe('index rebuild / sync — a failed module-dependency write is reported, not hidden (issue #6)', () => {
-  it(
-    'index rebuild leaves no rows, degrades the run and shows the warning',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild leaves no rows, degrades the run and shows the warning', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      const r = runLux(repo, dbPath, ['index', 'rebuild']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stdout).toContain('Mode: degraded-overlay');
-      expect(r.stderr).toContain(FAILURE_LINE);
+    const r = runLux(repo, dbPath, ['index', 'rebuild']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain('Mode: degraded-overlay');
+    expect(r.stderr).toContain(FAILURE_LINE);
 
-      expect(dependencyRows(dbPath)).toEqual([]);
-      const trust = persistedTrustState(dbPath);
-      expect(trust.mode).toBe('degraded-overlay');
-      expect(trust.warnings.some((w) => FAILURE_LINE.endsWith(w))).toBe(true);
-    },
-    CLI_TIMEOUT_MS
-  );
+    expect(dependencyRows(dbPath)).toEqual([]);
+    const trust = persistedTrustState(dbPath);
+    expect(trust.mode).toBe('degraded-overlay');
+    expect(trust.warnings.some((w) => FAILURE_LINE.endsWith(w))).toBe(true);
+  });
 
-  it(
-    'a sync that escalates to a full rebuild shows the warning and persists it',
-    () => {
-      const { repo, dbPath } = indexedAtA();
-      failSecondDependencyInsert(dbPath);
+  it('a sync that escalates to a full rebuild shows the warning and persists it', () => {
+    const { repo, dbPath } = indexedAtA();
+    failSecondDependencyInsert(dbPath);
 
-      commitB(repo);
-      const sync = runLux(repo, dbPath, ['index', 'sync']);
-      expect(sync.status, sync.stderr).toBe(0);
-      expect(sync.stdout).toContain('Sync path: full rebuild (config-changed)');
-      expect(sync.stdout).toContain('Mode: degraded-overlay');
-      expect(sync.stderr).toContain(FAILURE_LINE);
+    commitB(repo);
+    const sync = runLux(repo, dbPath, ['index', 'sync']);
+    expect(sync.status, sync.stderr).toBe(0);
+    expect(sync.stdout).toContain('Sync path: full rebuild (config-changed)');
+    expect(sync.stdout).toContain('Mode: degraded-overlay');
+    expect(sync.stderr).toContain(FAILURE_LINE);
 
-      expect(dependencyRows(dbPath)).toEqual([]);
-      expect(persistedTrustState(dbPath).warnings.some((w) => FAILURE_LINE.endsWith(w))).toBe(true);
-    },
-    CLI_TIMEOUT_MS
-  );
+    expect(dependencyRows(dbPath)).toEqual([]);
+    expect(persistedTrustState(dbPath).warnings.some((w) => FAILURE_LINE.endsWith(w))).toBe(true);
+  });
 
-  it(
-    'index rebuild --content-only shows the warning',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild --content-only shows the warning', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      const r = runLux(repo, dbPath, ['index', 'rebuild', '--content-only']);
-      expect(r.status, r.stderr).toBe(0);
-      expect(r.stderr).toContain(FAILURE_LINE);
-      expect(dependencyRows(dbPath)).toEqual([]);
-    },
-    CLI_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'rebuild', '--content-only']);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(FAILURE_LINE);
+    expect(dependencyRows(dbPath)).toEqual([]);
+  });
 });
 
 describe('--quiet rebuild and sync paths never claim success over a failed write (issue #6)', () => {
@@ -387,55 +361,39 @@ describe('--quiet rebuild and sync paths never claim success over a failed write
     return indexed;
   }
 
-  it(
-    'index rebuild --quiet',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild --quiet', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      expectQuietWarning(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectQuietWarning(runLux(repo, dbPath, ['index', 'rebuild', '--quiet']));
+  });
 
-  it(
-    'index rebuild --content-only --quiet',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild --content-only --quiet', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      expectQuietWarning(runLux(repo, dbPath, ['index', 'rebuild', '--content-only', '--quiet']));
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectQuietWarning(runLux(repo, dbPath, ['index', 'rebuild', '--content-only', '--quiet']));
+  });
 
-  it(
-    'index sync --quiet escalating to a full rebuild',
-    () => {
-      const { repo, dbPath } = failingAtA();
-      commitB(repo);
+  it('index sync --quiet escalating to a full rebuild', () => {
+    const { repo, dbPath } = failingAtA();
+    commitB(repo);
 
-      expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--quiet']));
+  });
 
-  it(
-    'index sync --force --quiet',
-    () => {
-      const { repo, dbPath } = failingAtA();
-      commitB(repo);
+  it('index sync --force --quiet', () => {
+    const { repo, dbPath } = failingAtA();
+    commitB(repo);
 
-      expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--force', '--quiet']));
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectQuietWarning(runLux(repo, dbPath, ['index', 'sync', '--force', '--quiet']));
+  });
 });
 
 describe('closing lines report warnings instead of success, with or without --quiet (issue #6)', () => {
@@ -454,97 +412,73 @@ describe('closing lines report warnings instead of success, with or without --qu
     expect(output).not.toContain('successfully');
   }
 
-  it(
-    'index rebuild',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      expectWarnedRun(
-        runLux(repo, dbPath, ['index', 'rebuild']),
-        /^⚠ Index rebuilt with \d+ warning\(s\)$/m
-      );
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectWarnedRun(
+      runLux(repo, dbPath, ['index', 'rebuild']),
+      /^⚠ Index rebuilt with \d+ warning\(s\)$/m
+    );
+  });
 
-  it(
-    'index rebuild --content-only',
-    () => {
-      const repo = newRepo();
-      commitA(repo);
-      commitB(repo);
-      const dbPath = newDbPath();
-      failSecondDependencyInsert(dbPath);
+  it('index rebuild --content-only', () => {
+    const repo = newRepo();
+    commitA(repo);
+    commitB(repo);
+    const dbPath = newDbPath();
+    failSecondDependencyInsert(dbPath);
 
-      expectWarnedRun(
-        runLux(repo, dbPath, ['index', 'rebuild', '--content-only']),
-        /^⚠ Index rebuilt with \d+ warning\(s\)$/m
-      );
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectWarnedRun(
+      runLux(repo, dbPath, ['index', 'rebuild', '--content-only']),
+      /^⚠ Index rebuilt with \d+ warning\(s\)$/m
+    );
+  });
 
-  it(
-    'index sync escalating to a full rebuild',
-    () => {
-      const { repo, dbPath } = indexedAtA();
-      failSecondDependencyInsert(dbPath);
-      commitB(repo);
+  it('index sync escalating to a full rebuild', () => {
+    const { repo, dbPath } = indexedAtA();
+    failSecondDependencyInsert(dbPath);
+    commitB(repo);
 
-      expectWarnedRun(
-        runLux(repo, dbPath, ['index', 'sync']),
-        /^⚠ Sync escalated to full overlay rebuild with \d+ warning\(s\) \(/m
-      );
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectWarnedRun(
+      runLux(repo, dbPath, ['index', 'sync']),
+      /^⚠ Sync escalated to full overlay rebuild with \d+ warning\(s\) \(/m
+    );
+  });
 
-  it(
-    'index sync --force',
-    () => {
-      const { repo, dbPath } = indexedAtA();
-      failSecondDependencyInsert(dbPath);
-      commitB(repo);
+  it('index sync --force', () => {
+    const { repo, dbPath } = indexedAtA();
+    failSecondDependencyInsert(dbPath);
+    commitB(repo);
 
-      expectWarnedRun(
-        runLux(repo, dbPath, ['index', 'sync', '--force']),
-        /^⚠ Full rebuild complete with \d+ warning\(s\) \(/m
-      );
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectWarnedRun(
+      runLux(repo, dbPath, ['index', 'sync', '--force']),
+      /^⚠ Full rebuild complete with \d+ warning\(s\) \(/m
+    );
+  });
 
-  it(
-    'an incremental index sync carrying the warning',
-    () => {
-      const { repo, dbPath } = degradedAtB();
-      writeFileSync(join(repo, 'notes.md'), '# notes\n');
-      commitAll(repo, 'docs only');
+  it('an incremental index sync carrying the warning', () => {
+    const { repo, dbPath } = degradedAtB();
+    writeFileSync(join(repo, 'notes.md'), '# notes\n');
+    commitAll(repo, 'docs only');
 
-      const r = runLux(repo, dbPath, ['index', 'sync']);
-      expect(r.stdout).toContain('Sync path: incremental content sync');
-      expectWarnedRun(r, /^⚠ Synced with \d+ warning\(s\): \+1 indexed/m, true);
-    },
-    CLI_TIMEOUT_MS
-  );
+    const r = runLux(repo, dbPath, ['index', 'sync']);
+    expect(r.stdout).toContain('Sync path: incremental content sync');
+    expectWarnedRun(r, /^⚠ Synced with \d+ warning\(s\): \+1 indexed/m, true);
+  });
 
-  it(
-    'an incremental index sync --quiet carrying the warning',
-    () => {
-      const { repo, dbPath } = degradedAtB();
-      writeFileSync(join(repo, 'notes.md'), '# notes\n');
-      commitAll(repo, 'docs only');
+  it('an incremental index sync --quiet carrying the warning', () => {
+    const { repo, dbPath } = degradedAtB();
+    writeFileSync(join(repo, 'notes.md'), '# notes\n');
+    commitAll(repo, 'docs only');
 
-      expectWarnedRun(
-        runLux(repo, dbPath, ['index', 'sync', '--quiet']),
-        /^⚠ Synced with \d+ warning\(s\): \+1 indexed/m,
-        true
-      );
-    },
-    CLI_TIMEOUT_MS
-  );
+    expectWarnedRun(
+      runLux(repo, dbPath, ['index', 'sync', '--quiet']),
+      /^⚠ Synced with \d+ warning\(s\): \+1 indexed/m,
+      true
+    );
+  });
 });

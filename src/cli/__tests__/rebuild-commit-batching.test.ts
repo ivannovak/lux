@@ -194,7 +194,7 @@ describe('commit batching (issue #15)', () => {
     const largeCount = indexedFixture(LARGE).rebuild;
 
     expect(largeCount.total, describeCounts(smallCount, largeCount)).toBe(smallCount.total);
-  }, 120_000);
+  });
 
   it('commits a sync that re-derives every file in a number of transactions that does not grow with the repository', () => {
     const counts = [SMALL, LARGE].map((n) => {
@@ -206,7 +206,7 @@ describe('commit batching (issue #15)', () => {
     });
 
     expect(counts[1].total, describeCounts(counts[0], counts[1])).toBe(counts[0].total);
-  }, 120_000);
+  });
 
   it('commits a content-only sync in a number of transactions that does not grow with the repository', () => {
     const counts = [SMALL, LARGE].map((n) => {
@@ -221,5 +221,5 @@ describe('commit batching (issue #15)', () => {
     });
 
     expect(counts[1].total, describeCounts(counts[0], counts[1])).toBe(counts[0].total);
-  }, 120_000);
+  });
 });

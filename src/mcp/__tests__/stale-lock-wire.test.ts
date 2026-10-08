@@ -93,7 +93,7 @@ describe('MCP open path with a leftover lock (over the wire)', () => {
     expect(res.isError).toBe(false);
     expect(res.text).toContain('docs/settlement.md');
     expect(existsSync(`${fx.dbPath}.lock`)).toBe(false);
-  }, 60000);
+  });
 
   it('leaves a live or foreign owner’s lock in place', async () => {
     const live = lockedIndex(process.pid, hostname()); // this test process is alive
@@ -107,5 +107,5 @@ describe('MCP open path with a leftover lock (over the wire)', () => {
     expect(foreignRes.isError).toBe(true);
     expect(readdirSync(`${foreign.dbPath}.lock`)).toHaveLength(1);
     expect(foreignRes.text).toContain(`owner pid ${DEAD_PID} is on another host`);
-  }, 120000);
+  });
 });

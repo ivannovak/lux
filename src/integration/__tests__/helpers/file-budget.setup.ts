@@ -11,8 +11,12 @@
 import { performance } from 'node:perf_hooks';
 import { afterAll, beforeAll } from 'vitest';
 
-/** Measured on the hosted runner, the slowest file takes about half of this. */
-export const TEST_FILE_BUDGET_MS = 120_000;
+/**
+ * The slowest file takes about 38 s on the hosted runner and about 40 s on a loaded workstation; most
+ * take under 10 s. A minute leaves room for a slower runner without letting a new file of that size
+ * pass unnoticed.
+ */
+export const TEST_FILE_BUDGET_MS = 60_000;
 
 function budgetMs(): number {
   const override = Number(process.env.LUX_TEST_FILE_BUDGET_MS);

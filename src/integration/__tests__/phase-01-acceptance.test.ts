@@ -370,7 +370,7 @@ describe('Phase 1 acceptance: independent non-creating read safety (T2)', () => 
     expect(records.every((record) => record.telemetry.reason === 'read-only-index')).toBe(true);
     expect(records.filter((record) => record.exitCode === 1)).toHaveLength(4 * 26);
     expect(records.filter((record) => record.exitCode === 0)).toHaveLength(26);
-  }, 60_000);
+  });
 
   it('scores the green battery at 1.0/1.0 and rejects missing, forbidden, duplicate, and dangling controls', () => {
     const testCase = loadCases()[4];

@@ -58,7 +58,7 @@ describe('lux_get_file reads only the file universe', () => {
         stderr: 'ignore',
       })
     );
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

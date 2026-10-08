@@ -170,14 +170,14 @@ describe('a server that dies before its files are enriched', () => {
     expect(status(repo)).toContainEqual(PHP_LOST);
     expect(output).toMatch(WARNING);
     expect(output).toMatch(/⚠/);
-  }, 120_000);
+  });
 
   it("is recorded by the incremental sync's own enrichment loop, which warns", () => {
     const repo = rebuiltThenChanged('mark-only');
     const output = lux(repo, ['index', 'sync', '--mark-only', '--quiet']);
     expect(status(repo)).toContainEqual(PHP_LOST);
     expect(output).toMatch(WARNING);
-  }, 120_000);
+  });
 
   it('is recorded by a scoped refresh, which warns', () => {
     const repo = rebuiltThenChanged('scoped');
@@ -185,5 +185,5 @@ describe('a server that dies before its files are enriched', () => {
     expect(output).toMatch(/scoped/i);
     expect(status(repo)).toContainEqual(PHP_LOST);
     expect(output).toMatch(WARNING);
-  }, 120_000);
+  });
 });

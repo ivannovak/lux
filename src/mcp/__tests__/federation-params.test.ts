@@ -113,7 +113,7 @@ describe('MCP federation params — lux_trace / lux_search `with` (over the wire
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

@@ -23,11 +23,15 @@ export default defineConfig({
     globalSetup: ['./src/integration/__tests__/helpers/cli-build.global-setup.ts'],
     // Fails a test file that runs over its time budget (the file says how long and why).
     setupFiles: ['./src/integration/__tests__/helpers/file-budget.setup.ts'],
-    // The suite includes CLI integration tests that spawn multiple lux
-    // subprocesses plus a real language server and run a full overlay rebuild.
-    // The default 5s is too tight for those on slower CI runners (they take
-    // ~6s there vs ~1.5s locally), so raise the ceiling for the whole suite.
-    testTimeout: 20000,
+    // The per-test and per-hook budgets. The slowest test takes about 15 s on the hosted runner
+    // and the slowest hook (a beforeAll that indexes fixtures and runs a battery of CLI commands)
+    // about 35 s, so these leave each twice its time. A test does not raise its own: one that needs
+    // longer is made faster or split. (The one exception is the opt-in LUX_EMBED_SMOKE suite, which
+    // downloads and runs the real embedding model and is never part of a default run.) A test that
+    // blocks on spawnSync is checked when it returns, so its CLI calls carry their own kill timeouts
+    // as hang guards.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     // Test files run side by side, each in its own process. Four at a time is what a CI runner
     // has cores for; more than that on a large machine starves the tests that spawn the CLI or
     // a language server.

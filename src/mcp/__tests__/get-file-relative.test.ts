@@ -46,7 +46,7 @@ describe('MCP paths are corpus-relative (over the wire)', () => {
         stderr: 'ignore',
       })
     );
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

@@ -8,7 +8,6 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { selectRows, type IndexDump } from './scoped-sync-harness.js';
 import {
   BASE_TREE,
-  SCENARIO_TIMEOUT_MS,
   expectEquivalent,
   runScenario,
   disposeScenarios,
@@ -32,7 +31,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
           ),
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('leaves no typed-receiver call edge stale or missing', () => {
       // A refresh whose LSP tier cannot finish cannot reproduce the rebuild; it escalates.
@@ -58,7 +57,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
           'src/Module/Users/Account.php': BASE_TREE['src/Module/Users/Account.php'] + '\n',
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('escalates, exits, and states the same facts as a cold rebuild', () => {
       expect(s.syncStatus).toBe(0);
@@ -91,7 +90,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
         },
         change: { 'resources/js/caller.ts': caller(' + 1') },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('resolves an import into an unchanged file, as a rebuild does', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');
@@ -133,7 +132,7 @@ describe('index sync — scoped sync converges on a cold rebuild: the LSP tier',
           ),
         },
       });
-    }, SCENARIO_TIMEOUT_MS);
+    });
 
     it('rewrites the knowledge entry of every re-enriched file', () => {
       expect(s.syncStdout).toContain('scoped refresh complete');

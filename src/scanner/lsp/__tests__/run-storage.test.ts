@@ -62,7 +62,7 @@ describe('per-run server storage', () => {
         expect(readdirSync(root).sort()).toEqual(['other-1-abc123', `srv-${process.pid}-live01`]),
       { timeout: 30_000 }
     );
-  }, 60_000);
+  });
 
   it('hands the leftovers to be removed without deleting them itself', () => {
     const root = base();

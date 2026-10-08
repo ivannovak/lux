@@ -89,7 +89,7 @@ beforeAll(() => {
   write('ignored-dir/code.ts', `export const t = '${TOKENS.ignoredDir}';\n`);
 
   rebuild = runLux(repo, db, home, ['index', 'rebuild']);
-}, 300_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });
@@ -164,7 +164,7 @@ describe('an index built before the git file universe', () => {
     plantLegacyCredential();
     migrate = runLux(repo, db, home, ['migrate', 'up']);
     afterMigrate = migrate.status === 0 ? searchPaths(TOKENS.legacyCredential) : ['<not run>'];
-  }, 300_000);
+  });
 
   it('a read refuses the old index rather than serve it', () => {
     expect(read.status).not.toBe(0);

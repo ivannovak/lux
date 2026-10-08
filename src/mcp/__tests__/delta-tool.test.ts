@@ -147,7 +147,7 @@ describe('lux_delta MCP tool — over the wire (ListTools + CallTool, SC-8)', ()
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();
@@ -283,7 +283,7 @@ describe('lux_delta MCP tool — min_confidence enum guard over the wire (fix)',
       stderr: 'ignore',
     });
     await client.connect(transport);
-  }, 60000);
+  });
 
   afterAll(async () => {
     await client.close();

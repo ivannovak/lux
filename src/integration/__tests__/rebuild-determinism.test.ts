@@ -57,7 +57,7 @@ beforeAll(() => {
       battery: rebuild.status === 0 ? runBattery(root, db, home) : {},
     });
   }
-}, 600_000);
+});
 
 afterAll(() => {
   if (base) rmSync(base, { recursive: true, force: true });
@@ -188,7 +188,7 @@ describe('cold index rebuild determinism', () => {
     const graph = runCommand(runs[1].root, planted, runs[1].home, 'deps-graph');
     expect(graph.startsWith('exit=0\n')).toBe(true);
     expect(graph).not.toBe(runs[1].battery['deps-graph']);
-  }, 120_000);
+  });
 });
 
 // The rebuild writes rows in processing order, and SQLite returns rows that tie on every ORDER BY
@@ -226,7 +226,7 @@ describe('--json output from rows written in two orders', () => {
         )
       );
     }
-  }, 300_000);
+  });
 
   afterAll(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
