@@ -1,5 +1,5 @@
 import { LuxSqlite } from './sqlite-adapter.js';
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { PreparedQueries } from './queries.js';
 import { MigrationRunner } from './migrations.js';
@@ -108,19 +108,16 @@ function parseSampleFiles(sampleFiles: string | null): string[] {
   return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** index_metadata key present while a rebuild is unfinished (beginRebuild / finishRebuild). */
+export const REBUILD_STARTED_KEY = 'rebuild_started';
+
 export class LuxDatabase {
   private db: LuxSqlite;
   private queries?: PreparedQueries;
   private migrations: MigrationRunner;
-  private readonly dbPath: string;
-  private readonly readOnly: boolean;
-  /** Set by deferDurabilityUntilClose(): close() syncs the database file once. */
-  private syncOnClose = false;
 
   constructor(dbPath: string, autoMigrate = true, options: LuxDatabaseOptions = {}) {
     const readOnly = options.readOnly ?? false;
-    this.dbPath = dbPath;
-    this.readOnly = readOnly;
 
     // Read-only opens (openSiblingReadOnly) must not build or repair someone else's index. Skip the
     // directory-creating mkdir (never build a tree under a sibling worktree) — the two writable
@@ -1628,6 +1625,39 @@ export class LuxDatabase {
     this.deleteIndexMetadata('overlay_trust_state');
   }
 
+  /**
+   * Start a rebuild: drop the trust state the index had, and record that a rebuild began. The record
+   * is removed when the rebuild records its outcome (finishRebuild), so a rebuild that dies part-way
+   * leaves it behind and the index reads as incomplete rather than as whatever it has on disk.
+   */
+  beginRebuild(): void {
+    this.transaction(() => {
+      this.deleteIndexMetadata('overlay_trust_state');
+      this.setIndexMetadata(
+        REBUILD_STARTED_KEY,
+        JSON.stringify({ startedAt: new Date().toISOString(), pid: process.pid })
+      );
+    });
+  }
+
+  /** The rebuild recorded its outcome: it is no longer in progress. */
+  finishRebuild(): void {
+    this.deleteIndexMetadata(REBUILD_STARTED_KEY);
+  }
+
+  /** When an unfinished rebuild started, or undefined when none is outstanding. */
+  unfinishedRebuildStartedAt(): string | undefined {
+    const raw = this.getIndexMetadata(REBUILD_STARTED_KEY);
+    if (raw === undefined) return undefined;
+    try {
+      const startedAt = (JSON.parse(raw) as { startedAt?: unknown }).startedAt;
+      return typeof startedAt === 'string' ? startedAt : 'an unknown time';
+    } catch {
+      // lux-intentional-swallow: a record Lux wrote but cannot read still says a rebuild is unfinished.
+      return 'an unknown time';
+    }
+  }
+
   clearAll() {
     const queries = this.getQueries();
     this.clearOverlay();
@@ -1646,32 +1676,7 @@ export class LuxDatabase {
     };
   }
 
-  /**
-   * For a write that replaces the whole index (a rebuild): commit without syncing to disk, and sync
-   * the database file once when it closes.
-   *
-   * Under the rollback journal each commit syncs the journal and the database file, and a rebuild
-   * commits dozens of times (one per chunk of rows, one per metadata row). The index between a
-   * rebuild's first commit and its last is never one anybody can use, so syncing it buys nothing; a
-   * process that dies mid-rebuild still rolls back cleanly on reopen, because the journal is still
-   * written, and only an operating-system crash or power loss during the rebuild can leave a file
-   * that needs `lux index rebuild` again, which is what an interrupted rebuild needs anyway.
-   */
-  deferDurabilityUntilClose(): void {
-    if (this.readOnly) return;
-    this.db.pragma('synchronous = OFF');
-    this.syncOnClose = true;
-  }
-
   close() {
     this.db.close();
-    if (this.syncOnClose && existsSync(this.dbPath)) {
-      const fd = openSync(this.dbPath, 'r+');
-      try {
-        fsyncSync(fd);
-      } finally {
-        closeSync(fd);
-      }
-    }
   }
 }

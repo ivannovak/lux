@@ -43,7 +43,12 @@ function persistOverlayTrustState(
 ): PersistedOverlayTrustState {
   // The repository's location is a fact about this machine, not about the index: it is left out of
   // what is stored, and status output fills it from the corpus path the reader is running with.
-  db.setIndexMetadata(OVERLAY_TRUST_STATE_KEY, JSON.stringify({ ...state, repoPath: undefined }));
+  // Recording the outcome and ending the rebuild are one commit, so no reader sees one without the
+  // other.
+  db.transaction(() => {
+    db.setIndexMetadata(OVERLAY_TRUST_STATE_KEY, JSON.stringify({ ...state, repoPath: undefined }));
+    if (state.sourceAction === 'index-rebuild') db.finishRebuild();
+  });
   return state;
 }
 
@@ -221,6 +226,9 @@ export function loadOverlayTrustState(db: LuxDatabase): PersistedOverlayTrustSta
 }
 
 export function inspectOverlayTrustState(db: LuxDatabase): OverlayTrustInspection {
+  const unfinished = unfinishedRebuildState(db);
+  if (unfinished) return { state: unfinished, source: 'derived' };
+
   const persisted = loadOverlayTrustState(db);
   if (persisted) {
     return { state: persisted, source: 'persisted' };
@@ -331,6 +339,45 @@ export function markOverlayTrustAfterSync(
     lastIndexedCommit: details.lastIndexedCommit,
     sourceAction: 'index-sync',
   });
+}
+
+/**
+ * The state of an index whose last rebuild never recorded an outcome: it was killed, or is still
+ * running. Whatever it holds is part of a rebuild, so it is degraded whatever its shape suggests.
+ */
+function unfinishedRebuildState(db: LuxDatabase): PersistedOverlayTrustState | null {
+  const startedAt = db.unfinishedRebuildStartedAt();
+  if (startedAt === undefined) return null;
+  const shape = deriveOverlayTrustStateFromDb(db);
+  const warning =
+    `The rebuild started at ${startedAt} has not finished (it was interrupted, or is still ` +
+    'running), so the index holds only part of it. Run "lux index rebuild".';
+  const base: PersistedOverlayTrustState = shape ?? {
+    mode: 'degraded-overlay',
+    repoPath: '',
+    configSource: 'lux.yaml',
+    configLspEnabled: false,
+    surfaceCount: 0,
+    detectorEdgeCount: 0,
+    propagatedEdgeCount: 0,
+    fileNodeCount: 0,
+    symbolNodeCount: 0,
+    controllerBackedCount: 0,
+    closureBackedCount: 0,
+    unknownProviderKindCount: 0,
+    enrichmentStatus: 'inactive',
+    propagationStatus: 'skipped',
+    warnings: [],
+    recordedAt: '',
+    lastIndexedCommit: db.getIndexMetadata('last_indexed_commit'),
+    sourceAction: 'derived',
+  };
+  return {
+    ...base,
+    mode: 'degraded-overlay',
+    warnings: [warning, ...base.warnings],
+    warningComponents: { ...(base.warningComponents ?? {}), [warning]: OVERLAY_STATE_COMPONENT },
+  };
 }
 
 function deriveOverlayTrustStateFromDb(db: LuxDatabase): PersistedOverlayTrustState | null {

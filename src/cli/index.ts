@@ -203,8 +203,6 @@ indexCmd
         db.close();
         process.exit(1);
       }
-      // The rebuild replaces the whole index, so it syncs the file once, on close.
-      db.deferDurabilityUntilClose();
 
       const scanner = new GeneralScanner(corpusPath);
       const progress = createProgressReporter(options.quiet === true);
@@ -374,6 +372,9 @@ indexCmd
           lastIndexedCommit: headCommitForTrustState,
         });
         persistStructuralConfigFingerprint(corpusPath, db);
+      } else {
+        // A content-only rebuild records no trust state; its writes are done.
+        db.finishRebuild();
       }
 
       const rebuildResult = overlayResult ?? contentOnlyResult;
@@ -480,12 +481,18 @@ indexCmd
         }
 
         const lastCommit = db.getIndexMetadata('last_indexed_commit');
+        // A rebuild that never finished left part of an index: nothing can be synced onto it.
+        const unfinishedRebuild = db.unfinishedRebuildStartedAt();
 
-        // If --force or no stored commit, fall back to full rebuild
-        if (options.force || !lastCommit) {
+        // If --force, no stored commit, or an unfinished rebuild, fall back to full rebuild
+        if (options.force || !lastCommit || unfinishedRebuild !== undefined) {
           if (!options.quiet) {
             if (options.force) {
               console.log('Force flag set, running full rebuild...');
+            } else if (unfinishedRebuild !== undefined) {
+              console.log(
+                `The rebuild started at ${unfinishedRebuild} did not finish, running full rebuild...`
+              );
             } else {
               console.log('No previous index commit found, running full rebuild...');
             }
