@@ -1,7 +1,7 @@
 # Vendored: node-sqlite3-wasm
 
 Lux's SQLite engine. A copy of the published build of
-[node-sqlite3-wasm](https://github.com/tndrle/node-sqlite3-wasm), with four small edits to its
+[node-sqlite3-wasm](https://github.com/tndrle/node-sqlite3-wasm), with five small edits to its
 JavaScript glue.
 
 |                 |                                                                    |
@@ -45,6 +45,18 @@ b25396e066dbcb9661e26062b3a80f2570d4181a4873302c4c55dbca2c8799b2  dist/node-sqli
 3. In `_nodejsUnlock`: `fs.rmdirSync(...)` becomes `Module.lockHooks.unlock(...)`, same argument.
 4. In `class Statement`, before `_reset()`, a public method:
    `reset(){this._assertReady();this._reset()}`
+5. After `var _emscripten_get_now=()=>performance.now();`, a clock that sleeps when it is polled:
+   `var _sleepCell=new Int32Array(new SharedArrayBuffer(4)),_lastPoll=-Infinity;var _emscripten_get_now_polled=()=>{var now=performance.now();if(now-_lastPoll<1){Atomics.wait(_sleepCell,0,0,1);now=performance.now()}_lastPoll=now;return now};`
+   and in the import table `a:_emscripten_get_now,` becomes `a:_emscripten_get_now_polled,`.
+
+   SQLite waits for a lock another process holds by sleeping between attempts (the busy timeout),
+   and the engine's sleep is Emscripten's `usleep`, which spins on this clock until the time has
+   passed: a reader that waited 2 s for a writer spent 2 s of CPU doing it. The clock the WebAssembly
+   reads now blocks the thread for a millisecond when it is read again within a millisecond, which
+   is what that loop does and nothing else in SQLite does. A search that waited 2 s for a writer then
+   spent 0.3 s of CPU, what it spends without waiting, instead of 2.2 s, and a wait ends at most a
+   millisecond later than it would have. The clock the glue's own timers read
+   is unchanged.
 
 The hooks keep upstream's error contract: `lock` throwing an error whose `code` is `EEXIST` means
 busy, any other error is an I/O error; `unlock` throwing `ENOENT` means already unlocked.
