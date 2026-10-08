@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { execSync, spawnSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
+import { seedIndex } from '../../integration/__tests__/helpers/seed-index.js';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 import { indexedBaseline, type IndexedBaseline } from './scoped-sync-harness.js';
 
@@ -104,7 +105,7 @@ function fillRepo(repo: string, luxYaml: string, opts: { commit?: boolean } = {}
 /** A migrated, empty database, so the run under test does not print the migration log. */
 function newDbPath(): string {
   const dbPath = join(tempDir('lux-run-warnings-db-'), 'lux.db');
-  new LuxDatabase(dbPath).close();
+  seedIndex(dbPath);
   return dbPath;
 }
 

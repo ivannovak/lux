@@ -13,6 +13,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { LuxSqlite } from '../../db/sqlite-adapter.js';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
+import { seedIndex } from '../../integration/__tests__/helpers/seed-index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -162,6 +163,7 @@ export function runCli(
   args: string[],
   env: Record<string, string> = {}
 ): SpawnSyncReturns<string> {
+  seedIndex(dbPath);
   return spawnSync(process.execPath, [CLI_ENTRY, '--db', dbPath, '--corpus', repo, ...args], {
     cwd: PROJECT_ROOT,
     encoding: 'utf-8',

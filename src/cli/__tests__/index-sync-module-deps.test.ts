@@ -21,6 +21,7 @@ import Database from 'better-sqlite3';
 import { LuxDatabase } from '../../db/index.js';
 import { builtCli } from '../../integration/__tests__/helpers/built-cli.js';
 import { indexedBaseline, type IndexedBaseline } from './scoped-sync-harness.js';
+import { seedIndex } from '../../integration/__tests__/helpers/seed-index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -93,7 +94,9 @@ function runLux(repo: string, dbPath: string, args: string[]) {
 function newDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lux-sync-deps-db-'));
   roots.push(dir);
-  return join(dir, 'lux.db');
+  const dbPath = join(dir, 'lux.db');
+  seedIndex(dbPath);
+  return dbPath;
 }
 
 function writeModule(repo: string, name: string, file: string, content: string): void {
