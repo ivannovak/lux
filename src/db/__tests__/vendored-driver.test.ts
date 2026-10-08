@@ -85,7 +85,7 @@ describe('the vendor directory holds exactly the vendored engine', () => {
     'node-sqlite3-wasm/LICENSE': '9759019dbfadea5c126a4e3c70fb5a316bfc22894f7d4c4c24d0b17e3a53f4b6',
     'node-sqlite3-wasm/README.md': null, // prose about the copy; not code, so not pinned
     'node-sqlite3-wasm/node-sqlite3-wasm.cjs':
-      '1ff761f7b23cec78103f9d0083826ffbbf11b14dc6ed8f86da794a4362a35644',
+      '4e07fe6ccc333e4a237e02f38266c1b0fd687c888334edb60cff663d1e175455',
     'node-sqlite3-wasm/node-sqlite3-wasm.d.cts':
       'd23bf430a63296b3fff77a0576779374beb581f6376de6615a3a8664dad10d5c',
     'node-sqlite3-wasm/node-sqlite3-wasm.wasm':
