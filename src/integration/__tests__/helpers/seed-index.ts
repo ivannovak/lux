@@ -5,7 +5,7 @@
 // about migrating it, so they start from a copy of one migrated once per test process. A test that
 // is about creating or migrating a database does not use this.
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { LuxDatabase } from '../../../db/index.js';
@@ -14,7 +14,10 @@ let template: string | undefined;
 
 function migratedTemplate(): string {
   if (template === undefined) {
-    const path = join(mkdtempSync(join(tmpdir(), 'lux-index-template-')), 'lux.db');
+    const dir = mkdtempSync(join(tmpdir(), 'lux-index-template-'));
+    // The directory is this process's own: it goes when the process does.
+    process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'lux.db');
     new LuxDatabase(path).close();
     template = path;
   }
