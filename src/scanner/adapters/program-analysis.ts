@@ -100,6 +100,7 @@ export async function analyzeProgram(
     sourceFiles,
     facts: shared.facts,
     extractions: shared.extractions,
+    universe: scan.universe,
   });
 
   return {

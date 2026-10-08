@@ -1,5 +1,7 @@
 // Scanner-specific types and frontmatter structures
 
+import type { FileUniverse } from './file-universe.js';
+
 export interface Frontmatter {
   name?: string;
   title?: string;
@@ -30,4 +32,9 @@ export interface ScanResult {
    * skipped credential file is the scan working as intended, so it does not degrade the run.
    */
   denied?: string[];
+  /**
+   * The file universe the scan selected from (file-universe.ts), so a consumer of the same root
+   * selects from the same listing instead of asking git again.
+   */
+  universe?: FileUniverse;
 }
