@@ -109,7 +109,7 @@ function parseSampleFiles(sampleFiles: string | null): string[] {
 }
 
 /** index_metadata key present while a rebuild is unfinished (beginRebuild / finishRebuild). */
-export const REBUILD_STARTED_KEY = 'rebuild_started';
+const REBUILD_STARTED_KEY = 'rebuild_started';
 
 export class LuxDatabase {
   private db: LuxSqlite;
