@@ -3,6 +3,7 @@ import { relative, sep, win32 } from 'node:path';
 
 import { getGrammars } from '../ast/extract.js';
 import { extractVueSfc } from '../vue/sfc-extract.js';
+import { extractVueEvents } from '../vue/event-extract.js';
 import type { AdapterOutputV1 } from './types.js';
 import {
   PARSE_STARTED_MESSAGE,
@@ -64,8 +65,19 @@ async function execute(wire: WorkerWireRequestV1): Promise<AdapterWorkerResponse
         boundary.message
       );
     }
+    // Events are extracted here too, beside the parse, so the main thread never loads the Vue
+    // compiler (about 90 ms and as much again in background compilation, per process).
+    const eventFacts = wire.source ? extractVueEvents(wire.source, facts.filePath) : undefined;
+    const withEvents = eventFacts
+      ? {
+          ...facts,
+          events: eventFacts.events,
+          templateListeners: eventFacts.listeners,
+          diagnostics: [...facts.diagnostics, ...eventFacts.diagnostics],
+        }
+      : facts;
     const output: AdapterOutputV1 = {
-      facts,
+      facts: withEvents,
       dependencies: [filePath],
       diagnostics: facts.diagnostics,
     };
