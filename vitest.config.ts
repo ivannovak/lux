@@ -29,7 +29,8 @@ export default defineConfig({
     // longer is made faster or split. (The one exception is the opt-in LUX_EMBED_SMOKE suite, which
     // downloads and runs the real embedding model and is never part of a default run.) A test that
     // blocks on spawnSync is checked when it returns, so its CLI calls carry their own kill timeouts
-    // as hang guards.
+    // as hang guards. A hook that blocks is not checked at all (vitest's timer cannot fire during
+    // it): hookTimeout bounds asynchronous hooks, and the file budget bounds the rest.
     testTimeout: 30_000,
     hookTimeout: 60_000,
     // Test files run side by side, each in its own process. Four at a time is what a CI runner
