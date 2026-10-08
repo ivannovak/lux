@@ -11,6 +11,7 @@ import { extractVueEvents } from '../vue/event-extract.js';
 import { DEFAULT_PARSER_LIMITS } from './types.js';
 import { sourceAdapterForLanguage } from './registry.js';
 import { resetParserWorkerStartFailures } from './worker-host.js';
+import { settleWasmEngineForScan } from '../../utils/wasm-engine.js';
 import {
   buildSharedExtractionAnalysis,
   workerStartFailureWarning,
@@ -45,6 +46,7 @@ export async function analyzeProgram(
 ): Promise<ProgramAnalysisBuildV1> {
   // A new analysis is a new run: try again any parser worker that failed to start in the last one.
   resetParserWorkerStartFailures();
+  settleWasmEngineForScan(scan.knowledge.filter((entry) => entry.type === 'source-code').length);
   const shared = await buildSharedExtractionAnalysis(scan, rootPath, onWarn);
   const vueFacts: VueSfcFactsV1[] = [];
   let vueStartFailure: string | undefined;

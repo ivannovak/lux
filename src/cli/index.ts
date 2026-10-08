@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // First, so its settings are in force before the SQLite and tree-sitter engines load.
-import '../utils/wasm-engine.js';
+import './engine-settings.js';
 import { Command } from 'commander';
 import { existsSync } from 'fs';
 import { resolve as resolvePath } from 'path';

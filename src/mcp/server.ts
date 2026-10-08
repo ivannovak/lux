@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-// First, so its settings are in force before the SQLite and tree-sitter engines load.
-import '../utils/wasm-engine.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
