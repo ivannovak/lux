@@ -60,7 +60,16 @@ interface Failure {
   languageId?: string;
 }
 
-const PHP_LOST = { filePath: '.', stage: 'init', reason: 'transport', languageId: 'php' };
+// It is recorded with how it ended: the fixture exits with code 1 and writes nothing to stderr.
+const PHP_LOST = {
+  filePath: '.',
+  stage: 'init',
+  reason: 'transport',
+  languageId: 'php',
+  exitCode: 1,
+  signal: null,
+  stderr: [],
+};
 const WARNING = /Warning: LSP output incomplete — init: php \(transport\)/;
 
 let base: string;

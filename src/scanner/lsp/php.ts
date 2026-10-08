@@ -5,6 +5,8 @@
 // metadata.lsp fields on indexed entities.
 
 import { readFileSync } from 'fs';
+import { isAbsolute, join } from 'path';
+import { outsideGitUniverse } from '../file-universe.js';
 import { createRunStorage, removeRunStorage } from './run-storage.js';
 import { LspEmptyAnswerError, phpSourceDeclaresSymbols } from './empty-answer.js';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -79,23 +81,80 @@ const TYPE_HIERARCHY_KINDS: Set<number> = new Set([
 
 /** SymbolKind values for symbols worth gathering references for. */
 /**
- * The settings intelephense asks for under `workspace/configuration`. Pinned rather than left to
- * the server's defaults, so the indexed file set is the same for every installed version.
+ * The `files.exclude` intelephense is given whatever the workspace holds. Pinned rather than left
+ * to the server's defaults, so the indexed file set is the same for every installed version.
  */
-const INTELEPHENSE_SETTINGS = {
-  files: {
-    exclude: [
-      '**/.git/**',
-      '**/.svn/**',
-      '**/.hg/**',
-      '**/node_modules/**',
-      '**/bower_components/**',
-      '**/.lux/**',
-      '**/vendor/**/{Tests,tests}/**',
-      '**/vendor/**/vendor/**',
-    ],
-  },
-} as const;
+const PINNED_EXCLUDES: readonly string[] = [
+  '**/.git/**',
+  '**/.svn/**',
+  '**/.hg/**',
+  '**/node_modules/**',
+  '**/bower_components/**',
+  '**/.lux/**',
+  '**/vendor/**/{Tests,tests}/**',
+  '**/vendor/**/vendor/**',
+];
+
+/**
+ * The settings intelephense asks for under `workspace/configuration`: the pinned excludes, and
+ * everything in the workspace outside its git universe except Composer's vendor directory.
+ *
+ * intelephense indexes every PHP file under the workspace root, and Lux's file universe is git's.
+ * A working checkout can hold far more outside that universe than in it — other worktrees of the
+ * same repository, a tool's copies of them — and the server then indexes all of it: one repository
+ * of 9k PHP files held 178k, with its classes declared in eight copies of the source. Indexing
+ * outlasted its bound, every `references` request searched the copies, and a definition could
+ * resolve into a copy. The vendor directory stays: it is how calls into dependencies resolve.
+ */
+export function intelephenseSettings(workspaceRoot: string): { files: { exclude: string[] } } {
+  return {
+    files: { exclude: [...PINNED_EXCLUDES, ...outsideUniverseExcludes(workspaceRoot)] },
+  };
+}
+
+/** PHP file extensions intelephense indexes by default (`files.associations`). */
+const PHP_FILE = /\.(php|phtml)$/i;
+
+/** The `files.exclude` globs for the workspace's paths outside its git universe. */
+function outsideUniverseExcludes(workspaceRoot: string): string[] {
+  const vendor = `${composerVendorDir(workspaceRoot)}/`;
+  return outsideGitUniverse(workspaceRoot)
+    .filter((path) =>
+      path.endsWith('/')
+        ? // A directory that holds the vendor directory cannot be excluded whole.
+          !vendor.startsWith(path)
+        : PHP_FILE.test(path)
+    )
+    .map(excludeGlob);
+}
+
+/**
+ * The glob that excludes one root-relative path: the path itself for a file, everything below it
+ * for a directory. intelephense matches `files.exclude` against a path relative to the workspace
+ * folder and skips a directory that matches whole, dot-directories inside it included; the
+ * path's glob metacharacters are escaped, so a directory named `fix+ci (1)` is matched as written.
+ */
+function excludeGlob(path: string): string {
+  const literal = path.replace(/[\\*?[\]{}()!+@|^$]/g, '\\$&');
+  return path.endsWith('/') ? `${literal}**` : literal;
+}
+
+/** Composer's vendor directory, relative to the workspace root (`config.vendor-dir`, or `vendor`). */
+function composerVendorDir(workspaceRoot: string): string {
+  try {
+    const composer = JSON.parse(readFileSync(join(workspaceRoot, 'composer.json'), 'utf-8')) as {
+      config?: { 'vendor-dir'?: unknown };
+    };
+    const configured = composer.config?.['vendor-dir'];
+    if (typeof configured === 'string') {
+      const relative = configured.replace(/^\.\//, '').replace(/\/+$/, '');
+      if (relative && !isAbsolute(relative) && !relative.split('/').includes('..')) return relative;
+    }
+  } catch {
+    // lux-intentional-swallow: no composer.json (or an unreadable one) leaves Composer's default.
+  }
+  return 'vendor';
+}
 
 const REFERENCEABLE_KINDS: Set<number> = new Set([
   5, // Class
@@ -167,6 +226,11 @@ export class PhpLspEnricher implements LspEnricher {
     return this._isReady && this.client?.initialized === true;
   }
 
+  /** Why the server can no longer be asked anything, or null while it can (see LspEnricher). */
+  get lostReason(): string | null {
+    return this.client?.lostReason ?? null;
+  }
+
   get indexIncomplete(): boolean {
     return this._indexIncomplete;
   }
@@ -187,6 +251,7 @@ export class PhpLspEnricher implements LspEnricher {
     // seconds, and the index is then a function of the workspace alone. A directory under .lux/ would persist across rebuilds, which
     // is the dependence being removed.
     this.storagePath = createRunStorage('lux-intelephense-');
+    const settings = intelephenseSettings(workspaceRoot);
     this._indexIncomplete = false;
 
     this.client = new LspClient({
@@ -196,7 +261,7 @@ export class PhpLspEnricher implements LspEnricher {
       cwd: workspaceRoot,
       requestTimeoutMs: this.config.requestTimeoutMs,
       initTimeoutMs: this.config.initTimeoutMs,
-      configuration: (section) => (section === 'intelephense' ? INTELEPHENSE_SETTINGS : undefined),
+      configuration: (section) => (section === 'intelephense' ? settings : undefined),
     });
     this.requester = new LspRequester(this.client);
 

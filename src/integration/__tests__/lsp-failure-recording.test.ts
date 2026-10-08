@@ -159,10 +159,23 @@ describe('LSP failures reach index status --json', () => {
     });
   });
 
-  it('records every file a server crash left without call edges, not just the first', () => {
+  it('records every file a server crash left without call edges as one count, with its exit', () => {
     const calls = failuresByMode['crash-on-definition'].filter((f) => f.stage === 'calls');
-    expect(calls.map((f) => f.filePath).sort()).toEqual(CALLERS.map((c) => `src/${c}.php`));
-    expect(calls.every((f) => f.reason === 'transport')).toBe(true);
+    expect(calls).toEqual([
+      {
+        filePath: '.',
+        stage: 'calls',
+        reason: 'transport',
+        languageId: 'php',
+        fileCount: CALLERS.length,
+        exitCode: 1,
+        signal: null,
+        stderr: [],
+      },
+    ]);
+    expect(outputByMode['crash-on-definition']).toMatch(
+      /Warning: LSP output incomplete — calls: the php language server exited \(code 1\) and was not asked about 20 file\(s\);/
+    );
   });
 
   it('records a server that stopped answering definition requests once, with the file count', () => {

@@ -238,9 +238,13 @@ environmental inputs below are pinned:
   `reason` is one of:
   - `timeout` — the server did not answer the request in `request_timeout_ms`, and did not answer
     it when it was sent once more (see "Language-server requests" below);
-  - `transport` — the server died. Every later request fails the same way, so each file it leaves
-    without data is recorded; a server that dies before its language's files come up is recorded
-    once for the language, at stage `init`;
+  - `transport` — the server died. The files it leaves without data are recorded as one entry per
+    stage, with `filePath: "."`, `languageId`, `fileCount`, and how it ended: `exitCode` (null
+    when a signal ended it), `signal`, and `stderr`, the last 20 lines it wrote there (an
+    out-of-memory report, a stack; native backtrace frames left out); the warning line quotes
+    the last of them that names a failure. A server that dies
+    before its language's files come up is recorded once for the language, at stage `init`, with
+    the same fields;
   - `response` — the server answered a request with an error; the entry carries the `method` and
     `code`;
   - `unresponsive` — the server stopped answering part-way through. Nothing more was sent to it;
@@ -263,7 +267,15 @@ environmental inputs below are pinned:
   index in `$TMPDIR/intelephense/` between runs; Lux's is `$TMPDIR/lux-intelephense-<pid>-*`,
   removed at shutdown or process exit, and swept by the next run if the process was killed
   outright) and pinned `files.exclude` settings, and
-  enrichment waits for its `indexingEnded` notification. typescript-language-server is started
+  enrichment waits for its `indexingEnded` notification. Its `files.exclude` also names every
+  path in the workspace outside the git file universe (what `git ls-files --others --directory`
+  lists: ignored and untracked directories, and loose PHP files) except Composer's vendor
+  directory, which is how calls into dependencies resolve. Without it the server indexes
+  whatever the checkout holds — other worktrees of the repository, a tool's copies of it — and
+  answers from those copies; on one 9k-file repository that was 178k PHP files.
+  typescript-language-server and the Vue language server take their file set from the project's
+  own `tsconfig.json` / `jsconfig.json`, which Lux does not override: a project whose config does
+  not exclude `vendor/` loads Composer packages' JavaScript and `.vue` files into its program. typescript-language-server is started
   without its syntax-only server and without automatic type acquisition.
 
   **Language-server requests.** Lux sends a language server one request at a time, so
@@ -300,7 +312,9 @@ environmental inputs below are pinned:
     `lux index sync` keeps a recorded `unresponsive` count; only a full rebuild clears it.
   - `lux --lsp-trace <file> …` (or `LUX_LSP_TRACE=<file>`) appends one JSON line per message to
     and from every language server: a timestamp, the method, the document and position asked
-    about, and for an answer whether it was `null`, `[]` or how many items. Off by default.
+    about, and for an answer whether it was `null`, `[]` or how many items, or the error code and
+    message. Each line a server writes to stderr is recorded (`direction: "stderr"`), and its
+    exit (`direction: "exit"`, with `exitCode` and `signal`). Off by default.
   - Up to 12 files are still read and opened in the server ahead of their requests; opening a
     document is a notification and is not timed.
 
